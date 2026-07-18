@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Offload</string>
+	<key>CFBundleName</key>
+	<string>Offload</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+
+	<!-- Permission strings. Shown to the user the first time each capability is used. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Offload uses the microphone so you can speak a thought and have it captured as tasks. Audio is transcribed on-device and never leaves your phone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Offload transcribes your voice on-device to turn spoken thoughts into organized tasks.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Offload checks your calendar on-device to schedule tasks around your existing events. Your calendar data stays on your phone.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Offload uses your location only when a captured thought references a place (e.g. “buy milk”) to add helpful context. Location stays on your phone.</string>
+</dict>
+</plist>

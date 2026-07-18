@@ -1,0 +1,53 @@
+name: iOS Build
+
+# Compiles Offload on a real Apple Silicon Mac (Xcode 26) every push / PR.
+# This is our feedback loop: since the app can't be built on the author's machine,
+# CI is the source of truth for "does it compile + do the tests pass".
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:   # lets you run it manually from the Actions tab
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15   # Apple Silicon runner. If a macos-26 image exists, this can be bumped.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"   # Foundation Models needs the iOS 26 SDK. Adjust if the runner lists a different 26.x.
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Show available simulators
+        run: xcrun simctl list devices available | grep -i iphone || true
+
+      - name: Build & test (Simulator)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Offload.xcodeproj \
+            -scheme Offload \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -skipPackagePluginValidation \
+            clean build test | xcbeautify || \
+          xcodebuild \
+            -project Offload.xcodeproj \
+            -scheme Offload \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            clean build test
+
+      # An installable .ipa artifact (for Sideloadly) is added in a later increment,
+      # once the app has real functionality worth putting on the phone.

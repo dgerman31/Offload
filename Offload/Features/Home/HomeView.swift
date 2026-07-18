@@ -1,20 +1,39 @@
 import SwiftUI
 
-/// Home — contextual groups + recent captures (spec §5.4). Increment 1 shows the
-/// empty state (an invitation to capture) and the in-app capture button that mirrors
-/// the Action Button. Real contextual groups arrive once the data layer lands.
+/// Home — your captured tasks, live (spec §5.4). Organization already happened at capture
+/// time, so this just reflects the sorted world. Empty state is an invitation to capture.
 struct HomeView: View {
     @Environment(CaptureCoordinator.self) private var capture
+    @State private var store = TaskStore()
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    EmptyCaptureInvitation { capture.beginCapture() }
-                        .padding(.top, 60)
+            Group {
+                if store.openTasks.isEmpty {
+                    ScrollView {
+                        EmptyCaptureInvitation { capture.beginCapture() }
+                            .padding(.top, 60)
+                            .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    List {
+                        ForEach(store.openTasks) { task in
+                            TaskRowView(task: task) {
+                                Task { await store.toggleComplete(task) }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button {
+                                    Task { await store.toggleComplete(task) }
+                                } label: {
+                                    Label("Done", systemImage: "checkmark")
+                                }
+                                .tint(Color.Offload.green)
+                            }
+                            .listRowBackground(Color.Offload.background)
+                        }
+                    }
+                    .listStyle(.plain)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
             }
             .background(Color.Offload.background)
             .navigationTitle("Home")
@@ -23,12 +42,12 @@ struct HomeView: View {
                     Button {
                         capture.beginCapture()
                     } label: {
-                        Image(systemName: "bolt.circle.fill")
-                            .font(.title2)
+                        Image(systemName: "bolt.circle.fill").font(.title2)
                     }
                     .accessibilityLabel("Quick Capture")
                 }
             }
+            .task { await store.observe() }
         }
     }
 }

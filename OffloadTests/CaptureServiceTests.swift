@@ -29,9 +29,9 @@ struct CaptureServiceTests {
         #expect(outcome.addedTasks == 1)
         #expect(outcome.projectTitle == "Trip")
 
-        let taskCount = try db.dbQueue.read { try TaskItem.fetchCount($0) }
-        let projectCount = try db.dbQueue.read { try Project.fetchCount($0) }
-        let capture = try db.dbQueue.read { try Capture.fetchAll($0).first }
+        let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
+        let projectCount = try await db.dbQueue.read { try Project.fetchCount($0) }
+        let capture = try await db.dbQueue.read { try Capture.fetchAll($0).first }
         #expect(taskCount == 1)
         #expect(projectCount == 1)
         #expect(capture?.processingStatus == "done")
@@ -49,8 +49,8 @@ struct CaptureServiceTests {
             _ = try await service.process(rawInput: "remember the milk", inputType: "text")
         }
 
-        let capture = try db.dbQueue.read { try Capture.fetchAll($0).first }
-        let taskCount = try db.dbQueue.read { try TaskItem.fetchCount($0) }
+        let capture = try await db.dbQueue.read { try Capture.fetchAll($0).first }
+        let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
         #expect(capture?.processingStatus == "failed")
         #expect(capture?.rawInput == "remember the milk")
         #expect(taskCount == 0)

@@ -5,6 +5,11 @@ options:
     iOS: "26.0"
   createIntermediateGroups: true
 
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: "7.0.0"
+
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
@@ -21,6 +26,8 @@ targets:
     platform: iOS
     sources:
       - path: Offload
+    dependencies:
+      - package: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danielgerman.offload
@@ -38,6 +45,7 @@ targets:
       - path: OffloadTests
     dependencies:
       - target: Offload
+      - package: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danielgerman.offload.tests

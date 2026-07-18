@@ -7,6 +7,7 @@ struct PatternAndInsightTests {
     private var utcCalendar: Calendar {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "UTC")!
+        c.locale = Locale(identifier: "en_US")   // pin weekdaySymbols ("Thursday", not "Thu")
         return c
     }
 

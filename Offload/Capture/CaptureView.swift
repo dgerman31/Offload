@@ -15,8 +15,8 @@ struct CaptureView: View {
                 switch vm.phase {
                 case .editing, .processing:
                     editor
-                case let .done(added, titles, project):
-                    successView(added: added, titles: titles, project: project)
+                case let .done(added, titles, project, similar):
+                    successView(added: added, titles: titles, project: project, similar: similar)
                 case let .failed(message):
                     failureView(message: message)
                 }
@@ -53,7 +53,7 @@ struct CaptureView: View {
                 Button {
                     Task { await vm.toggleMic() }
                 } label: {
-                    Label(vm.isListening ? "Listening… tap to stop" : "Speak instead",
+                    Label(vm.isListening ? "Listening… tap to finish" : "Speak instead",
                           systemImage: vm.isListening ? "waveform.circle.fill" : "mic.fill")
                         .font(.Offload.taskTitle)
                         .padding(.horizontal, 18).padding(.vertical, 10)
@@ -81,7 +81,7 @@ struct CaptureView: View {
 
     // MARK: Success
 
-    private func successView(added: Int, titles: [String], project: String?) -> some View {
+    private func successView(added: Int, titles: [String], project: String?, similar: [String]) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 56))
@@ -108,6 +108,17 @@ struct CaptureView: View {
                 .padding()
                 .background(Color.Offload.surface, in: .rect(cornerRadius: 12))
             }
+            // Dedup surface (spec §3.5): similar existing tasks — informed, never silent.
+            if !similar.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(similar, id: \.self) { warning in
+                        Label(warning, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color.Offload.amber)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Button("Done") { finish() }
                 .font(.Offload.taskTitle)
                 .padding(.horizontal, 24).padding(.vertical, 12)
@@ -117,9 +128,9 @@ struct CaptureView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 40)
-        // Auto-dismiss timing scales a little with how much there is to read.
+        // Auto-dismiss timing scales with how much there is to read; stay longer on warnings.
         .task {
-            let seconds = min(3.5, 1.6 + Double(titles.count) * 0.5)
+            let seconds = min(5.0, 1.6 + Double(titles.count) * 0.5 + Double(similar.count) * 1.0)
             try? await Task.sleep(for: .seconds(seconds))
             finish()
         }

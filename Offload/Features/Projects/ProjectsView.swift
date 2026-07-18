@@ -36,35 +36,48 @@ private struct ProjectRowView: View {
     let summary: ProjectStore.Summary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        HStack(spacing: 14) {
+            // Per-project progress ring.
+            ZStack {
+                Circle().stroke(Color.Offload.divider, lineWidth: 5)
+                Circle()
+                    .trim(from: 0, to: summary.progress)
+                    .stroke(summary.progress >= 1 ? Color.Offload.green : Color.Offload.indigo,
+                            style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: summary.progress >= 1 ? "checkmark" : "folder.fill")
+                    .font(.caption)
+                    .foregroundStyle(summary.progress >= 1 ? Color.Offload.green : Color.Offload.indigo)
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(summary.project.title)
                     .font(.Offload.taskTitle)
                     .foregroundStyle(Color.Offload.text)
-                Spacer()
-                Text("\(summary.completed)/\(summary.total)")
+                Text("\(summary.completed) of \(summary.total) done")
                     .font(.Offload.data)
                     .foregroundStyle(Color.Offload.muted)
             }
-            ProgressView(value: summary.progress)
-                .tint(summary.progress >= 1 ? Color.Offload.green : Color.Offload.indigo)
-            statusLabel
+            Spacer()
+            statusPill
         }
         .padding(.vertical, 6)
     }
 
-    @ViewBuilder
-    private var statusLabel: some View {
+    private var statusPill: some View {
         let (text, color): (String, Color) = {
-            if summary.total > 0 && summary.progress >= 1 { return ("Completed", Color.Offload.green) }
+            if summary.total > 0 && summary.progress >= 1 { return ("Done", Color.Offload.green) }
             switch summary.project.status {
             case "on_track": return ("On Track", Color.Offload.teal)
             case "stalled":  return ("Stalled", Color.Offload.amber)
             default:         return ("Planning", Color.Offload.muted)
             }
         }()
-        Text(text)
-            .font(.caption).fontWeight(.medium)
+        return Text(text)
+            .font(.caption).fontWeight(.semibold)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(color.opacity(0.14), in: .capsule)
             .foregroundStyle(color)
     }
 }

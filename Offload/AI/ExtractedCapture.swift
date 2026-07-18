@@ -36,4 +36,7 @@ struct ExtractedTask {
 
     @Guide(description: "Estimated effort in minutes if inferable, else nil")
     var effortMinutes: Int?
+
+    @Guide(description: "Short sub-step titles if this task naturally breaks into sequential steps, else empty")
+    var subtasks: [String]
 }

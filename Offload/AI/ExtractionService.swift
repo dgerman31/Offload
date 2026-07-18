@@ -41,9 +41,25 @@ final class ExtractionService: TaskExtracting {
         Examples: "reply to a text" → [phone]; "buy milk" → [store, errands]; "at the gym" → [gym];
         "email the report" → [computer, work].
 
+        subtasks: when one action has sequential sub-steps, keep it ONE task with subtasks.
+        Example: "go home and grab my charger, the files, and water the plants" →
+        one task "Go home" with subtasks ["Grab charger", "Grab files", "Water plants"].
+
         suggestedProject: return a name ONLY when the capture describes a genuine multi-step \
         endeavor spanning several related tasks (planning a party, a trip, a move, a launch). \
         For everyday single tasks or a couple of unrelated errands, return nil. Most captures are NOT projects.
+
+        Worked examples:
+        1) "I really need to email the quarterly report before I leave work today, then pick up \
+        milk on the way home" → task "Email quarterly report" (Work, high, [computer, work], due \
+        today near end of workday) + task "Buy milk" (Personal, medium, [store, errands]); no project.
+        2) "start planning mom's surprise party — book a venue, order the cake, send invites" → \
+        suggestedProject "Mom's surprise party" with tasks "Book venue", "Order cake", "Send invites".
+        3) "maybe someday reorganize the garage" → one task, low priority, category Personal, no \
+        dueDate, no project.
+
+        When the user implies timing on a specific day, call checkCalendarAvailability for that \
+        date and pick a due time that avoids the busy windows.
         """
     }
 
@@ -62,7 +78,10 @@ final class ExtractionService: TaskExtracting {
             throw ExtractionError.modelUnavailable
         }
 
-        let session = LanguageModelSession(instructions: Self.instructions(now: Date()))
+        let session = LanguageModelSession(
+            tools: [CalendarAvailabilityTool()],
+            instructions: Self.instructions(now: Date())
+        )
 
         if UserDefaults.standard.bool(forKey: Self.deliberateModeKey) {
             // Pass 1: think out loud (the reasoning stays in the session's context).

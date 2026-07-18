@@ -37,7 +37,7 @@ struct CaptureMapperTests {
         let extracted = ExtractedCapture(
             summary: nil,
             tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
-                                  contextTags: ["store"], dueDate: nil, recurrenceRule: nil, effortMinutes: nil)],
+                                  contextTags: ["store"], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
             suggestedProject: "Groceries"   // model over-eagerly suggested a project
         )
         let result = CaptureMapper.map(extracted)
@@ -51,9 +51,9 @@ struct CaptureMapperTests {
             summary: "Prep for the trip",
             tasks: [
                 ExtractedTask(title: "Book flights", category: "Projects", priority: "high",
-                              contextTags: ["computer"], dueDate: nil, recurrenceRule: nil, effortMinutes: 30),
+                              contextTags: ["computer"], dueDate: nil, recurrenceRule: nil, effortMinutes: 30, subtasks: []),
                 ExtractedTask(title: "Pack bags", category: "NotACategory", priority: "meh",
-                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil)
+                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])
             ],
             suggestedProject: "Trip planning"
         )
@@ -78,7 +78,7 @@ struct CaptureMapperTests {
         let extracted = ExtractedCapture(
             summary: nil,
             tasks: [ExtractedTask(title: "Call mom", category: "Personal", priority: "medium",
-                                  contextTags: ["phone"], dueDate: nil, recurrenceRule: nil, effortMinutes: nil)],
+                                  contextTags: ["phone"], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
             suggestedProject: nil
         )
         let result = CaptureMapper.map(extracted)

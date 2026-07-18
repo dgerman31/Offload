@@ -8,7 +8,7 @@ final class CaptureViewModel {
     enum Phase: Equatable {
         case editing
         case processing
-        case done(added: Int, titles: [String], project: String?)
+        case done(added: Int, titles: [String], project: String?, similar: [String])
         case failed(String)
     }
 
@@ -34,7 +34,12 @@ final class CaptureViewModel {
     /// Toggle dictation. Streams the live transcript into `text`, which the user can then
     /// edit or extend by typing. Voice never replaces the keyboard.
     func toggleMic() async {
-        if isListening { stopListening(); return }
+        // Tapping the mic while listening finishes AND submits what was said.
+        if isListening {
+            stopListening()
+            await save()
+            return
+        }
 
         // Low Power Mode disables on-device speech and can crash the recognizer on start —
         // guard it out and tell the user, never attempt (and never crash).
@@ -47,7 +52,10 @@ final class CaptureViewModel {
             return
         }
         // The callback now fires off the main actor — hop back before touching UI state.
+        // Ignore empty results (the recognizer emits an empty "final" on stop, which would
+        // otherwise wipe what the user just said).
         transcription.onTranscript = { [weak self] transcript in
+            guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             Task { @MainActor in self?.text = transcript }
         }
         do {
@@ -77,7 +85,8 @@ final class CaptureViewModel {
         do {
             let outcome = try await service.process(rawInput: input, inputType: "text")
             Haptics.success()
-            phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles, project: outcome.projectTitle)
+            phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
+                          project: outcome.projectTitle, similar: outcome.similarWarnings)
         } catch {
             Haptics.warning()
             phase = .failed(error.localizedDescription)

@@ -19,9 +19,10 @@ struct HomeView: View {
                 } else {
                     List {
                         ForEach(HomeGrouping.sections(from: store.openTasks, now: Date())) { section in
-                            Section(section.title) {
-                                ForEach(section.tasks) { task in
-                                    TaskRowView(task: task, onEdit: { editing = task }) {
+                            Section {
+                                ForEach(section.rows) { row in
+                                    let task = row.task
+                                    TaskRowView(task: task, indented: row.indented, onEdit: { editing = task }) {
                                         Task { await store.toggleComplete(task) }
                                     }
                                     .listRowBackground(Color.Offload.background)
@@ -40,6 +41,14 @@ struct HomeView: View {
                                             Label("Delete", systemImage: "trash")
                                         }
                                     }
+                                }
+                            } header: {
+                                if section.title == "Focus" {
+                                    Label("Focus", systemImage: "scope")
+                                        .font(.caption).fontWeight(.semibold)
+                                        .foregroundStyle(Color.Offload.indigo)
+                                } else {
+                                    Text(section.title)
                                 }
                             }
                         }

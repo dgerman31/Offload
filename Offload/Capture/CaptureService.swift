@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// Abstraction over the extractor so the capture pipeline can be unit-tested with a
 /// fake (the real on-device model can't run on a headless CI runner).
@@ -20,14 +21,21 @@ final class CaptureService {
         var addedTasks: Int
         var taskTitles: [String]
         var projectTitle: String?
+        var similarWarnings: [String] = []
     }
 
     private let db: AppDatabase
     private let extractor: any TaskExtracting
+    private let embedder: any TextEmbedding
 
-    init(db: AppDatabase = .shared, extractor: any TaskExtracting = ExtractionService()) {
+    init(
+        db: AppDatabase = .shared,
+        extractor: any TaskExtracting = ExtractionService(),
+        embedder: any TextEmbedding = EmbeddingService()
+    ) {
         self.db = db
         self.extractor = extractor
+        self.embedder = embedder
     }
 
     func process(rawInput: String, inputType: String) async throws -> Outcome {
@@ -46,6 +54,20 @@ final class CaptureService {
             // 2. Extract (typed output; no parsing).
             let extracted = try await extractor.extract(from: rawInput)
             let mapped = CaptureMapper.map(extracted)
+
+            // 2b. Dedup check (spec §3.5): compare new titles against existing open tasks
+            // by embedding similarity. Keep both (never silently merge) but surface it.
+            let existing = try await db.dbQueue.read { database in
+                try TaskItem
+                    .filter(Column("deleted") == false)
+                    .filter(Column("status") != "completed")
+                    .fetchAll(database)
+            }
+            let warnings = Self.similarWarnings(
+                newTitles: mapped.tasks.map(\.title),
+                existingTitles: existing.map(\.title),
+                embedder: embedder
+            )
 
             // 3. Persist project + tasks in one transaction.
             try await db.dbQueue.write { database in
@@ -66,7 +88,8 @@ final class CaptureService {
             return Outcome(
                 addedTasks: mapped.tasks.count,
                 taskTitles: mapped.tasks.map(\.title),
-                projectTitle: mapped.project?.title
+                projectTitle: mapped.project?.title,
+                similarWarnings: warnings
             )
         } catch {
             // Keep the raw transcript; mark failed so it can be retried later.
@@ -81,5 +104,32 @@ final class CaptureService {
     private static func encodeIds(_ ids: [String]) -> String? {
         guard let data = try? JSONEncoder().encode(ids) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// Pure (embedder-injected) similarity pass: one warning per new title whose best
+    /// match among existing titles clears the threshold. Testable with a fake embedder.
+    nonisolated static func similarWarnings(
+        newTitles: [String],
+        existingTitles: [String],
+        embedder: any TextEmbedding,
+        threshold: Double = 0.85
+    ) -> [String] {
+        guard !existingTitles.isEmpty else { return [] }
+        let existingVectors: [(title: String, vector: [Double])] = existingTitles.compactMap { title in
+            embedder.vector(for: title).map { (title, $0) }
+        }
+        guard !existingVectors.isEmpty else { return [] }
+
+        var warnings: [String] = []
+        for title in newTitles {
+            guard let v = embedder.vector(for: title) else { continue }
+            if let best = existingVectors
+                .map({ (title: $0.title, score: VectorMath.cosineSimilarity(v, $0.vector)) })
+                .max(by: { $0.score < $1.score }),
+               best.score >= threshold {
+                warnings.append("“\(title)” looks similar to existing “\(best.title)”")
+            }
+        }
+        return warnings
     }
 }

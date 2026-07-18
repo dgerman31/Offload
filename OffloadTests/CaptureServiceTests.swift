@@ -14,6 +14,11 @@ struct CaptureServiceTests {
     }
     struct BoomError: Error {}
 
+    /// Embedder that opts out — keeps the pipeline deterministic on CI (no NLEmbedding).
+    struct NullEmbedder: TextEmbedding {
+        func vector(for text: String) -> [Double]? { nil }
+    }
+
     @Test("Success persists project + tasks and marks the capture done with instrumentation")
     func success() async throws {
         let db = try AppDatabase.makeInMemory()
@@ -21,13 +26,13 @@ struct CaptureServiceTests {
             summary: "trip",
             tasks: [
                 ExtractedTask(title: "Book flights", category: "Projects", priority: "high",
-                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil),
+                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: []),
                 ExtractedTask(title: "Reserve hotel", category: "Projects", priority: "medium",
-                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil)
+                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])
             ],
             suggestedProject: "Trip"
         )
-        let service = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)))
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)), embedder: NullEmbedder())
 
         let outcome = try await service.process(rawInput: "book flights and hotel for the trip", inputType: "text")
         #expect(outcome.addedTasks == 2)
@@ -48,7 +53,7 @@ struct CaptureServiceTests {
     @Test("Failure keeps the raw capture, marks it failed, and persists no tasks")
     func failure() async throws {
         let db = try AppDatabase.makeInMemory()
-        let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())))
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
 
         await #expect(throws: BoomError.self) {
             _ = try await service.process(rawInput: "remember the milk", inputType: "text")

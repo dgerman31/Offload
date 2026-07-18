@@ -34,8 +34,9 @@ enum CaptureMapper {
             return Project(title: name)
         }()
 
-        let tasks = extracted.tasks.map { t in
-            TaskItem(
+        var tasks: [TaskItem] = []
+        for t in extracted.tasks {
+            let parent = TaskItem(
                 title: t.title.trimmingCharacters(in: .whitespacesAndNewlines),
                 category: normalizedCategory(t.category),
                 priority: normalizedPriority(t.priority),
@@ -46,6 +47,22 @@ enum CaptureMapper {
                 contextTags: encodeTags(t.contextTags),
                 effortMinutes: t.effortMinutes
             )
+            tasks.append(parent)
+
+            // Hierarchical extraction (spec feature 1): sub-steps become child tasks that
+            // inherit the parent's category/priority/context.
+            for sub in t.subtasks {
+                let title = sub.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { continue }
+                tasks.append(TaskItem(
+                    title: title,
+                    category: parent.category,
+                    priority: parent.priority,
+                    parentTaskId: parent.id,
+                    projectId: project?.id,
+                    contextTags: parent.contextTags
+                ))
+            }
         }
         return Result(project: project, tasks: tasks)
     }

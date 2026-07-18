@@ -21,10 +21,18 @@ struct ProjectDetailView: View {
                 )
             }
             if !store.todo.isEmpty {
-                Section("To do") {
-                    ForEach(store.todo) { task in
-                        TaskRowView(task: task, onEdit: { editing = task }) { Task { await store.toggleComplete(task) } }
-                            .listRowBackground(Color.Offload.background)
+                Section("Suggested order") {
+                    ForEach(Array(store.todo.enumerated()), id: \.element.id) { index, task in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text("\(index + 1)")
+                                .font(.system(.caption, design: .rounded)).fontWeight(.bold)
+                                .frame(width: 22, height: 22)
+                                .background(Color.Offload.indigo.opacity(0.12), in: .circle)
+                                .foregroundStyle(Color.Offload.indigo)
+                                .padding(.top, 4)
+                            TaskRowView(task: task, onEdit: { editing = task }) { Task { await store.toggleComplete(task) } }
+                        }
+                        .listRowBackground(Color.Offload.background)
                     }
                 }
             }

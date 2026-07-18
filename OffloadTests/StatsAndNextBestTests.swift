@@ -56,7 +56,7 @@ struct StatsAndNextBestTests {
             TaskItem(title: "Low pri", priority: "low", effortMinutes: 5),
             TaskItem(title: "High long", priority: "high", effortMinutes: 60),
             TaskItem(title: "High short", priority: "high", effortMinutes: 10),
-            TaskItem(title: "Done high", status: "completed", priority: "high")
+            TaskItem(title: "Done high", priority: "high", status: "completed")
         ]
         #expect(NextBest.pick(from: tasks)?.title == "High short")   // high + least effort; completed ignored
         #expect(NextBest.pick(from: []) == nil)

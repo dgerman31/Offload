@@ -5,12 +5,21 @@ import SwiftUI
 /// features (dedupe threshold, categories, weekly insights, correction history).
 struct SettingsView: View {
     @Environment(ModelAvailability.self) private var availability
+    @AppStorage(ExtractionService.deliberateModeKey) private var deliberateMode = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section("On-device AI") {
                     availabilityCard
+                }
+
+                Section {
+                    Toggle("Deliberate mode", isOn: $deliberateMode)
+                } header: {
+                    Text("Thinking")
+                } footer: {
+                    Text("Lets the AI reason a little longer before organizing — slower (~2×), but better at compound thoughts and tricky timing.")
                 }
 
                 Section("Action Button") {

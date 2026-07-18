@@ -7,7 +7,16 @@ import GRDB
 @MainActor
 @Observable
 final class TaskStore {
+    /// A recently-applied action the user can undo (spec §5.7). `restore` is the record's
+    /// prior state, written back verbatim to reverse the change.
+    struct UndoState: Identifiable {
+        let id = UUID()
+        let message: String
+        let restore: TaskItem
+    }
+
     private(set) var openTasks: [TaskItem] = []
+    var undo: UndoState?
 
     private let db: AppDatabase
     init(db: AppDatabase = .shared) { self.db = db }
@@ -39,6 +48,10 @@ final class TaskStore {
         updated.completedAt = nowCompleted ? ISO8601DateFormatter().string(from: Date()) : nil
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }
+        // Offer undo when a task leaves the list (completed).
+        if nowCompleted {
+            undo = UndoState(message: "Completed “\(item.title)”", restore: item)
+        }
     }
 
     /// Soft-delete (sets `deleted = 1`; the observation filters it out).
@@ -47,5 +60,15 @@ final class TaskStore {
         updated.deleted = true
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }
+        undo = UndoState(message: "Deleted “\(item.title)”", restore: item)
     }
+
+    /// Reverse the last undoable action by writing its prior state back.
+    func performUndo() async {
+        guard let restore = undo?.restore else { return }
+        undo = nil
+        try? await db.dbQueue.write { try restore.update($0) }
+    }
+
+    func clearUndo() { undo = nil }
 }

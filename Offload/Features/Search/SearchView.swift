@@ -3,6 +3,7 @@ import SwiftUI
 /// Search — full-text over tasks with category/priority filters (spec §5.4).
 struct SearchView: View {
     @State private var store = SearchStore()
+    @State private var editing: TaskItem?
 
     private let categories = ["Work", "Personal", "Health", "Finance", "Projects", "Ideas", "Habits", "Other"]
     private let priorities = ["high", "medium", "low"]
@@ -20,6 +21,9 @@ struct SearchView: View {
             .navigationTitle("Search")
             .searchable(text: $store.query, prompt: "Tasks, projects, ideas…")
             .task { await store.observe() }
+            .sheet(item: $editing) { task in
+                NavigationStack { TaskEditView(task: task) }
+            }
         }
     }
 
@@ -78,7 +82,7 @@ struct SearchView: View {
             .frame(maxHeight: .infinity)
         } else {
             List(results) { task in
-                TaskRowView(task: task) {
+                TaskRowView(task: task, onEdit: { editing = task }) {
                     Task { await store.toggleComplete(task) }
                 }
                 .listRowBackground(Color.Offload.background)

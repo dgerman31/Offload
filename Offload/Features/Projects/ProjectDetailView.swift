@@ -4,6 +4,7 @@ import SwiftUI
 struct ProjectDetailView: View {
     let project: Project
     @State private var store: ProjectDetailStore
+    @State private var editing: TaskItem?
 
     init(project: Project) {
         self.project = project
@@ -22,7 +23,7 @@ struct ProjectDetailView: View {
             if !store.todo.isEmpty {
                 Section("To do") {
                     ForEach(store.todo) { task in
-                        TaskRowView(task: task) { Task { await store.toggleComplete(task) } }
+                        TaskRowView(task: task, onEdit: { editing = task }) { Task { await store.toggleComplete(task) } }
                             .listRowBackground(Color.Offload.background)
                     }
                 }
@@ -30,7 +31,7 @@ struct ProjectDetailView: View {
             if !store.done.isEmpty {
                 Section("Done") {
                     ForEach(store.done) { task in
-                        TaskRowView(task: task) { Task { await store.toggleComplete(task) } }
+                        TaskRowView(task: task, onEdit: { editing = task }) { Task { await store.toggleComplete(task) } }
                             .listRowBackground(Color.Offload.background)
                     }
                 }
@@ -41,5 +42,8 @@ struct ProjectDetailView: View {
         .navigationTitle(project.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.observe() }
+        .sheet(item: $editing) { task in
+            NavigationStack { TaskEditView(task: task) }
+        }
     }
 }

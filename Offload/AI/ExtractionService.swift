@@ -47,14 +47,40 @@ final class ExtractionService: TaskExtracting {
         """
     }
 
+    /// UserDefaults key for the "think longer" toggle exposed in Settings.
+    nonisolated static let deliberateModeKey = "offload.deliberateMode"
+
     /// Extract structured tasks from a raw transcript. Throws `modelUnavailable` if the
     /// on-device model can't run right now (the caller persists the raw transcript and retries).
+    ///
+    /// Deliberate mode (spec: trade time for quality on a small model): first let the model
+    /// reason about the capture in plain text, then extract in a second turn of the same
+    /// session so that reasoning informs the structured output. ~2x slower, better on the
+    /// hard cases (compound thoughts, ambiguous timing, project-or-not).
     func extract(from transcript: String) async throws -> ExtractedCapture {
         guard case .available = SystemLanguageModel.default.availability else {
             throw ExtractionError.modelUnavailable
         }
 
         let session = LanguageModelSession(instructions: Self.instructions(now: Date()))
+
+        if UserDefaults.standard.bool(forKey: Self.deliberateModeKey) {
+            // Pass 1: think out loud (the reasoning stays in the session's context).
+            _ = try await session.respond(to: """
+                Before extracting, reason step by step about this capture: how many distinct \
+                tasks are there, what timing (if any) is implied and its concrete date/time, \
+                and is this a genuine multi-step project or just individual tasks?
+                Capture: \(transcript)
+                """)
+            // Pass 2: extract, informed by that reasoning.
+            let result = try await session.respond(
+                to: "Now produce the structured tasks for that capture.",
+                generating: ExtractedCapture.self,
+                options: GenerationOptions(temperature: 0.2)
+            )
+            return result.content
+        }
+
         let result = try await session.respond(
             to: transcript,
             generating: ExtractedCapture.self,

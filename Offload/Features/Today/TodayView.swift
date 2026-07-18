@@ -3,6 +3,7 @@ import SwiftUI
 /// Today — time-boxed sections + progress (spec §5.4), from live data.
 struct TodayView: View {
     @State private var store = TodayStore()
+    @State private var editing: TaskItem?
 
     private var isEmpty: Bool {
         store.plan.groups.isEmpty && store.plan.completedToday == 0
@@ -27,7 +28,7 @@ struct TodayView: View {
                         ForEach(store.plan.groups) { group in
                             Section(group.slot.rawValue) {
                                 ForEach(group.tasks) { task in
-                                    TaskRowView(task: task) {
+                                    TaskRowView(task: task, onEdit: { editing = task }) {
                                         Task { await store.toggleComplete(task) }
                                     }
                                     .listRowBackground(Color.Offload.background)
@@ -41,6 +42,9 @@ struct TodayView: View {
             .background(Color.Offload.background)
             .navigationTitle("Today")
             .task { await store.observe() }
+            .sheet(item: $editing) { task in
+                NavigationStack { TaskEditView(task: task) }
+            }
         }
     }
 

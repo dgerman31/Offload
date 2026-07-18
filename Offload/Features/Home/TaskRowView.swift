@@ -4,6 +4,7 @@ import SwiftUI
 /// Color is never the sole signal — priority pairs an icon + label with its color (spec §5.8).
 struct TaskRowView: View {
     let task: TaskItem
+    var onEdit: (() -> Void)? = nil
     var onToggle: () -> Void
 
     private var isCompleted: Bool { task.status == "completed" }
@@ -37,10 +38,12 @@ struct TaskRowView: View {
                     }
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture { onEdit?() }   // tap the text area to edit (toggle is its own button)
+
             Spacer(minLength: 0)
         }
         .padding(.vertical, 6)
-        .contentShape(Rectangle())
     }
 
     private func chip(_ text: String, color: Color) -> some View {

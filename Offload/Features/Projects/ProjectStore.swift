@@ -34,7 +34,8 @@ final class ProjectStore {
     }
 
     /// Pure query (testable): every non-deleted project with its task counts.
-    static func fetchSummaries(_ db: Database) throws -> [Summary] {
+    /// `nonisolated` because it runs on the database queue, not the main actor.
+    nonisolated static func fetchSummaries(_ db: Database) throws -> [Summary] {
         let projects = try Project
             .filter(Column("deleted") == false)
             .order(Column("created_at").desc)

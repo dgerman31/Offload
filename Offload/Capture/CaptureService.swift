@@ -8,9 +8,53 @@ protocol TaskExtracting {
     func extract(from transcript: String) async throws -> ExtractedCapture
 }
 
+/// How the user chose to resolve a near-duplicate before saving (spec §3.5).
+/// - `keepBoth`: insert the new task as-is (the pre-blocking default behavior).
+/// - `skip`: discard the new task entirely; the existing task is untouched.
+/// - `merge`: discard the new task but opportunistically backfill the existing task's
+///   empty `dueDate` / `recurrenceRule` (and raise its priority) from the new capture.
+enum DuplicateResolution: Equatable, Sendable {
+    case keepBoth
+    case skip
+    case merge
+}
+
+/// A near-duplicate the UI must resolve before insertion: a freshly-extracted task that
+/// looks like an existing open task (spec §3.5). `id` is the new task's id, which doubles
+/// as the resolution key handed back to `finalize`.
+struct DuplicateCandidate: Identifiable, Equatable, Sendable {
+    var newTaskId: String
+    var newTitle: String
+    var existingTaskId: String
+    var existingTitle: String
+    var score: Double
+
+    var id: String { newTaskId }
+}
+
+/// Everything the capture pipeline computed up to (but not including) insertion: the raw
+/// capture row, the mapped project/tasks, and any duplicate candidates awaiting a decision.
+/// Produced by `CaptureService.prepare`, consumed by `CaptureService.finalize`. All fields
+/// are value types, so it carries freely without isolation friction.
+struct PreparedCapture {
+    var initial: Capture
+    var startedAt: Date
+    var project: Project?
+    var tasks: [TaskItem]
+    var candidates: [DuplicateCandidate]
+    /// Existing open tasks keyed by id — the merge/skip targets a resolution may act on.
+    var existingById: [String: TaskItem]
+}
+
 /// The end-to-end capture pipeline (spec §2.3). Persists the raw input FIRST so nothing
 /// is ever lost on inference failure (spec §9 acceptance target), then extracts, maps,
 /// and persists the resulting project + tasks, recording latency and model source.
+///
+/// Insertion is split into two steps so near-duplicates can *block* on a Merge / Keep both /
+/// Skip choice before anything is written (spec §3.5): `prepare` does everything through the
+/// similarity check without inserting; `finalize` applies the per-candidate resolutions and
+/// writes. `process` chains them with an auto-"keep both" resolution for callers that have no
+/// UI to prompt with (Siri's `DictateCaptureIntent`, unit tests) — preserving prior behavior.
 ///
 /// Note: in an async context GRDB's `write` is the async overload, whose closure is
 /// `@Sendable` — so we hand each write an immutable copy rather than a captured `var`.
@@ -41,7 +85,13 @@ final class CaptureService {
         self.embedder = embedder
     }
 
-    func process(rawInput: String, inputType: String) async throws -> Outcome {
+    // MARK: Prepare (everything up to, but not including, insertion)
+
+    /// Persist the raw capture, extract, map, and compute duplicate candidates — but insert
+    /// nothing yet. On extraction failure the raw capture is marked `failed` and the error
+    /// is rethrown (the words are already saved). The returned `PreparedCapture` must be
+    /// handed to `finalize` to actually write anything.
+    func prepare(rawInput: String, inputType: String) async throws -> PreparedCapture {
         let started = Date()
 
         // 1. Persist the raw capture first — never lose the user's words.
@@ -58,8 +108,9 @@ final class CaptureService {
             let extracted = try await extractor.extract(from: rawInput)
             let mapped = CaptureMapper.map(extracted)
 
-            // 2b. Dedup check (spec §3.5): compare new titles against existing open tasks
-            // by embedding similarity. Keep both (never silently merge) but surface it.
+            // 2b. Dedup check (spec §3.5): compare new tasks against existing open tasks by
+            // embedding similarity. Rather than warn after the fact, surface candidates the
+            // UI can block on before insertion.
             let existing = try await db.dbQueue.read { database in
                 try TaskItem
                     .filter(Column("deleted") == false)
@@ -67,34 +118,20 @@ final class CaptureService {
                     .fetchAll(database)
             }
             let stored = UserDefaults.standard.double(forKey: Self.dedupeThresholdKey)
-            let warnings = Self.similarWarnings(
-                newTitles: mapped.tasks.map(\.title),
-                existingTitles: existing.map(\.title),
+            let candidates = Self.duplicateCandidates(
+                newTasks: mapped.tasks,
+                existingTasks: existing,
                 embedder: embedder,
                 threshold: stored > 0 ? stored : 0.85
             )
 
-            // 3. Persist project + tasks in one transaction.
-            try await db.dbQueue.write { database in
-                if let project = mapped.project { try project.insert(database) }
-                for task in mapped.tasks { try task.insert(database) }
-            }
-
-            // 4. Finalize the capture with instrumentation (spec §9).
-            var done = initial
-            done.processingStatus = "done"
-            done.processedAt = ISO8601DateFormatter().string(from: Date())
-            done.processingMs = Int(Date().timeIntervalSince(started) * 1000)
-            done.modelSource = "foundation"
-            done.extractedTaskIds = Self.encodeIds(mapped.tasks.map(\.id))
-            let finalized = done
-            try await db.dbQueue.write { try finalized.update($0) }
-
-            return Outcome(
-                addedTasks: mapped.tasks.count,
-                taskTitles: mapped.tasks.map(\.title),
-                projectTitle: mapped.project?.title,
-                similarWarnings: warnings
+            return PreparedCapture(
+                initial: initial,
+                startedAt: started,
+                project: mapped.project,
+                tasks: mapped.tasks,
+                candidates: candidates,
+                existingById: Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             )
         } catch {
             // Keep the raw transcript; mark failed so it can be retried later.
@@ -106,9 +143,169 @@ final class CaptureService {
         }
     }
 
+    // MARK: Finalize (apply resolutions, then insert)
+
+    /// Apply a resolution per duplicate candidate (keyed by candidate id; anything unlisted
+    /// defaults to `.keepBoth`), then insert the surviving project + tasks and finalize the
+    /// capture instrumentation (spec §9). Returns the same `Outcome` shape as before.
+    func finalize(_ prepared: PreparedCapture, resolutions: [String: DuplicateResolution]) async throws -> Outcome {
+        // Resolve each candidate: build the set of new tasks to drop, the existing tasks to
+        // backfill via merge, and the "kept anyway" warnings to surface after save.
+        var droppedNewTaskIds = Set<String>()
+        var backfills: [String: TaskItem] = [:]     // existingTaskId -> updated existing task
+        var warnings: [String] = []
+
+        for candidate in prepared.candidates {
+            switch resolutions[candidate.id] ?? .keepBoth {
+            case .keepBoth:
+                warnings.append(Self.warningText(newTitle: candidate.newTitle, existingTitle: candidate.existingTitle))
+            case .skip:
+                droppedNewTaskIds.insert(candidate.newTaskId)
+            case .merge:
+                droppedNewTaskIds.insert(candidate.newTaskId)
+                // Chain merges so multiple new tasks can backfill the same existing task.
+                let base = backfills[candidate.existingTaskId] ?? prepared.existingById[candidate.existingTaskId]
+                if let existing = base,
+                   let newTask = prepared.tasks.first(where: { $0.id == candidate.newTaskId }) {
+                    backfills[candidate.existingTaskId] = Self.merge(newTask: newTask, into: existing)
+                }
+            }
+        }
+
+        // Dropping a parent must drop its children too, so no subtask is orphaned.
+        let allDropped = Self.withDescendants(of: droppedNewTaskIds, in: prepared.tasks)
+        let finalTasks = prepared.tasks.filter { !allDropped.contains($0.id) }
+
+        // 3. Persist surviving project + tasks and any merge backfills in one transaction.
+        let project = prepared.project
+        let insertProject = project != nil && !finalTasks.isEmpty
+        let backfillUpdates = Array(backfills.values)
+        try await db.dbQueue.write { database in
+            if insertProject, let project { try project.insert(database) }
+            for task in finalTasks { try task.insert(database) }
+            for updated in backfillUpdates { try updated.update(database) }
+        }
+
+        // 4. Finalize the capture with instrumentation (spec §9).
+        var done = prepared.initial
+        done.processingStatus = "done"
+        done.processedAt = ISO8601DateFormatter().string(from: Date())
+        done.processingMs = Int(Date().timeIntervalSince(prepared.startedAt) * 1000)
+        done.modelSource = "foundation"
+        done.extractedTaskIds = Self.encodeIds(finalTasks.map(\.id))
+        let finalized = done
+        try await db.dbQueue.write { try finalized.update($0) }
+
+        return Outcome(
+            addedTasks: finalTasks.count,
+            taskTitles: finalTasks.map(\.title),
+            projectTitle: insertProject ? project?.title : nil,
+            similarWarnings: warnings
+        )
+    }
+
+    // MARK: Convenience (no-UI path: keep both, as before)
+
+    /// One-shot capture for callers with no UI to prompt a duplicate choice (Siri's
+    /// `DictateCaptureIntent`, tests): prepare, then finalize keeping every candidate. This
+    /// reproduces the exact pre-blocking behavior — tasks inserted, similar ones surfaced as
+    /// warnings on the `Outcome`.
+    func process(rawInput: String, inputType: String) async throws -> Outcome {
+        let prepared = try await prepare(rawInput: rawInput, inputType: inputType)
+        // Empty resolutions => every candidate defaults to `.keepBoth`.
+        return try await finalize(prepared, resolutions: [:])
+    }
+
+    // MARK: Merge / hierarchy helpers
+
+    /// Backfill an existing task from a near-duplicate new capture without clobbering data
+    /// the existing task already has: fill an empty due date (carrying its confidence) and an
+    /// empty recurrence, and raise (never lower) priority. Narrow and deterministic by design.
+    nonisolated static func merge(newTask: TaskItem, into existing: TaskItem) -> TaskItem {
+        var merged = existing
+        if merged.dueDate == nil, let due = newTask.dueDate {
+            merged.dueDate = due
+            merged.dueDateConfidence = newTask.dueDateConfidence
+        }
+        if merged.recurrenceRule == nil, let rule = newTask.recurrenceRule {
+            merged.recurrenceRule = rule
+        }
+        if priorityRank(newTask.priority) > priorityRank(merged.priority) {
+            merged.priority = newTask.priority
+        }
+        return merged
+    }
+
+    private nonisolated static func priorityRank(_ priority: String) -> Int {
+        switch priority {
+        case "high": return 3
+        case "low": return 1
+        default: return 2       // medium / unknown
+        }
+    }
+
+    /// Expand a set of task ids to include every descendant (via `parentTaskId`) among the
+    /// given tasks — so dropping a parent also drops its subtasks. Iterates to a fixpoint to
+    /// handle multi-level hierarchies.
+    private nonisolated static func withDescendants(of ids: Set<String>, in tasks: [TaskItem]) -> Set<String> {
+        var result = ids
+        var changed = true
+        while changed {
+            changed = false
+            for task in tasks {
+                if let parent = task.parentTaskId, result.contains(parent), !result.contains(task.id) {
+                    result.insert(task.id)
+                    changed = true
+                }
+            }
+        }
+        return result
+    }
+
     private static func encodeIds(_ ids: [String]) -> String? {
         guard let data = try? JSONEncoder().encode(ids) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    // MARK: Similarity
+
+    /// Standard "'X' looks similar to existing 'Y'" phrasing, shared by the candidate scan
+    /// and the legacy warning helper so both read identically.
+    nonisolated static func warningText(newTitle: String, existingTitle: String) -> String {
+        "“\(newTitle)” looks similar to existing “\(existingTitle)”"
+    }
+
+    /// Pair each new task with the existing open task it most resembles, keeping only pairs
+    /// whose cosine similarity clears the threshold (spec §3.5). Testable with a fake embedder.
+    nonisolated static func duplicateCandidates(
+        newTasks: [TaskItem],
+        existingTasks: [TaskItem],
+        embedder: any TextEmbedding,
+        threshold: Double = 0.85
+    ) -> [DuplicateCandidate] {
+        guard !existingTasks.isEmpty else { return [] }
+        let existingVectors: [(task: TaskItem, vector: [Double])] = existingTasks.compactMap { task in
+            embedder.vector(for: task.title).map { (task, $0) }
+        }
+        guard !existingVectors.isEmpty else { return [] }
+
+        var candidates: [DuplicateCandidate] = []
+        for newTask in newTasks {
+            guard let v = embedder.vector(for: newTask.title) else { continue }
+            if let best = existingVectors
+                .map({ (task: $0.task, score: VectorMath.cosineSimilarity(v, $0.vector)) })
+                .max(by: { $0.score < $1.score }),
+               best.score >= threshold {
+                candidates.append(DuplicateCandidate(
+                    newTaskId: newTask.id,
+                    newTitle: newTask.title,
+                    existingTaskId: best.task.id,
+                    existingTitle: best.task.title,
+                    score: best.score
+                ))
+            }
+        }
+        return candidates
     }
 
     /// Pure (embedder-injected) similarity pass: one warning per new title whose best
@@ -132,7 +329,7 @@ final class CaptureService {
                 .map({ (title: $0.title, score: VectorMath.cosineSimilarity(v, $0.vector)) })
                 .max(by: { $0.score < $1.score }),
                best.score >= threshold {
-                warnings.append("“\(title)” looks similar to existing “\(best.title)”")
+                warnings.append(warningText(newTitle: title, existingTitle: best.title))
             }
         }
         return warnings

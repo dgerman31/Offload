@@ -15,6 +15,8 @@ struct CaptureView: View {
                 switch vm.phase {
                 case .editing, .processing:
                     editor
+                case let .reviewingDuplicates(candidates):
+                    duplicateReview(candidates)
                 case let .done(added, titles, project, similar):
                     successView(added: added, titles: titles, project: project, similar: similar)
                 case let .failed(message):
@@ -27,7 +29,15 @@ struct CaptureView: View {
             .navigationTitle("Quick Capture")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .onAppear { fieldFocused = true }
+            .onAppear {
+                // Opened via the Action Button? Start recording immediately (spec §2.3).
+                // Any other entry (HomeView taps) stays typing-first and focuses the keyboard.
+                if capture.consumeAutoListen() {
+                    Task { await vm.beginAutoListen() }
+                } else {
+                    fieldFocused = true
+                }
+            }
         }
     }
 
@@ -64,6 +74,25 @@ struct CaptureView: View {
                 }
                 .disabled(vm.isProcessing)
                 .accessibilityLabel(vm.isListening ? "Stop dictation" : "Start dictation")
+
+                // Distinct from the mic capsule (which stops AND submits): "Type instead"
+                // stops the mic WITHOUT submitting, so an auto-record session can be reviewed,
+                // edited, or extended by typing before a manual Save (spec §2.3).
+                if vm.isListening {
+                    Button {
+                        vm.stopListening()
+                        fieldFocused = true
+                        Haptics.light()
+                    } label: {
+                        Label("Type instead", systemImage: "keyboard")
+                            .font(.Offload.taskTitle)
+                            .padding(.horizontal, 18).padding(.vertical, 10)
+                            .background(Color.Offload.surface, in: .capsule)
+                            .foregroundStyle(Color.Offload.indigo)
+                            .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: 1))
+                    }
+                    .accessibilityLabel("Type instead — stop the mic without saving")
+                }
                 Spacer()
             }
 
@@ -77,6 +106,88 @@ struct CaptureView: View {
             }
             Spacer()
         }
+    }
+
+    // MARK: Duplicate review — block before saving (spec §3.5)
+
+    /// Near-duplicates must be resolved before anything is written: each candidate offers
+    /// Merge / Keep both / Skip, and Save stays disabled until every choice is made.
+    private func duplicateReview(_ candidates: [DuplicateCandidate]) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Possible duplicates", systemImage: "doc.on.doc.fill")
+                .font(.Offload.section)
+                .foregroundStyle(Color.Offload.text)
+            Text("Some of these look like tasks you already have. Choose what to do with each before saving.")
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.muted)
+
+            ScrollView {
+                VStack(spacing: 14) {
+                    ForEach(candidates) { candidate in
+                        duplicateCard(candidate)
+                    }
+                }
+            }
+
+            Button {
+                Task { await vm.confirmResolutions() }
+            } label: {
+                Text("Save")
+                    .font(.Offload.taskTitle)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(vm.allDuplicatesResolved ? Color.Offload.indigo : Color.Offload.muted.opacity(0.4),
+                                in: .capsule)
+                    .foregroundStyle(.white)
+            }
+            .disabled(!vm.allDuplicatesResolved)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func duplicateCard(_ candidate: DuplicateCandidate) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(candidate.newTitle, systemImage: "sparkles")
+                    .font(.Offload.taskTitle)
+                    .foregroundStyle(Color.Offload.text)
+                Text("looks similar to existing “\(candidate.existingTitle)”")
+                    .font(.caption)
+                    .foregroundStyle(Color.Offload.amber)
+            }
+
+            HStack(spacing: 8) {
+                resolutionButton(candidate, .merge, "Merge", "arrow.triangle.merge")
+                resolutionButton(candidate, .keepBoth, "Keep both", "plus.square.on.square")
+                resolutionButton(candidate, .skip, "Skip", "xmark")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color.Offload.surface, in: .rect(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Offload.divider, lineWidth: 1))
+    }
+
+    private func resolutionButton(_ candidate: DuplicateCandidate,
+                                  _ resolution: DuplicateResolution,
+                                  _ title: String,
+                                  _ symbol: String) -> some View {
+        let selected = vm.resolutions[candidate.id] == resolution
+        return Button {
+            vm.resolve(candidate, as: resolution)
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.caption).fontWeight(.semibold)
+                .labelStyle(.titleAndIcon)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(selected ? Color.Offload.indigo : Color.Offload.background, in: .capsule)
+                .foregroundStyle(selected ? .white : Color.Offload.indigo)
+                .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: selected ? 0 : 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) for \(candidate.newTitle)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     // MARK: Success

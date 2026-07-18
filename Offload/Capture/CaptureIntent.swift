@@ -10,7 +10,8 @@ struct CaptureIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        CaptureCoordinator.shared.beginCapture()
+        // Action Button → open the capture sheet already listening (spec §2.3 auto-record).
+        CaptureCoordinator.shared.beginCapture(autoListen: true)
         return .result()
     }
 }

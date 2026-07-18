@@ -5,7 +5,7 @@ import FoundationModels
 /// `LanguageModelSession` per capture (spec §9: don't accumulate unrelated context),
 /// low temperature for consistent extraction.
 @MainActor
-final class ExtractionService {
+final class ExtractionService: TaskExtracting {
 
     enum ExtractionError: Error, LocalizedError {
         case modelUnavailable

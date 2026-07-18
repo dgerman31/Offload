@@ -1,58 +1,138 @@
 import SwiftUI
 
-/// The minimal capture screen (spec §5.5). In increment 1 this is a visual shell:
-/// a big text field + a "listening" affordance. On-device transcription and the
-/// Foundation Models extraction pipeline are wired in later increments; for now the
-/// Save button just dismisses so we have a real, tappable flow to build onto.
+/// The capture screen (spec §5.5). Text-first: you can always type. Voice is added as an
+/// additional mode in increment 4b. Save runs the on-device extraction pipeline and
+/// reports how many tasks were added; failures keep your words and offer a retry.
 struct CaptureView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
+    @State private var vm = CaptureViewModel()
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("What's on your mind?")
-                    .font(.Offload.section)
-                    .foregroundStyle(Color.Offload.text)
-
-                TextField(
-                    "Speak or type a passing thought…",
-                    text: $text,
-                    axis: .vertical
-                )
-                .font(.Offload.body)
-                .lineLimit(3...10)
-                .focused($fieldFocused)
-                .padding()
-                .background(Color.Offload.surface, in: .rect(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.Offload.divider, lineWidth: 1)
-                )
-
-                Spacer()
+            Group {
+                switch vm.phase {
+                case .editing, .processing:
+                    editor
+                case let .done(added, project):
+                    successView(added: added, project: project)
+                case let .failed(message):
+                    failureView(message: message)
+                }
             }
             .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Color.Offload.background)
             .navigationTitle("Quick Capture")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Discard", role: .cancel) { finish() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { finish() }        // extraction lands in a later increment
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
+            .toolbar { toolbarContent }
             .onAppear { fieldFocused = true }
         }
     }
 
+    // MARK: Editor
+
+    private var editor: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("What's on your mind?")
+                .font(.Offload.section)
+                .foregroundStyle(Color.Offload.text)
+
+            TextField("Speak or type a passing thought…", text: $vm.text, axis: .vertical)
+                .font(.Offload.body)
+                .lineLimit(3...12)
+                .focused($fieldFocused)
+                .disabled(vm.isProcessing)
+                .padding()
+                .background(Color.Offload.surface, in: .rect(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Offload.divider, lineWidth: 1))
+
+            if vm.isProcessing {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Organizing…")
+                        .font(.Offload.body)
+                        .foregroundStyle(Color.Offload.muted)
+                }
+            }
+            Spacer()
+        }
+    }
+
+    // MARK: Success
+
+    private func successView(added: Int, project: String?) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(Color.Offload.teal)
+            Text(added == 1 ? "Added 1 task" : "Added \(added) tasks")
+                .font(.Offload.section)
+                .foregroundStyle(Color.Offload.text)
+            if let project {
+                Text("Project “\(project)”")
+                    .font(.Offload.body)
+                    .foregroundStyle(Color.Offload.muted)
+            }
+            Button("Done") { finish() }
+                .font(.Offload.taskTitle)
+                .padding(.horizontal, 24).padding(.vertical, 12)
+                .background(Color.Offload.indigo, in: .capsule)
+                .foregroundStyle(.white)
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 60)
+        .task {
+            // Auto-dismiss shortly after success (spec §5.5: returns the user out).
+            try? await Task.sleep(for: .seconds(1.6))
+            finish()
+        }
+    }
+
+    // MARK: Failure — never a bare apology; always the recovery path (spec §5.7)
+
+    private func failureView(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Couldn't organize that just now", systemImage: "exclamationmark.triangle.fill")
+                .font(.Offload.taskTitle)
+                .foregroundStyle(Color.Offload.amber)
+            Text(message)
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.muted)
+            Text("Your words are saved. You can try again.")
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.text)
+            HStack {
+                Button("Try again") { Task { await vm.save() } }
+                    .buttonStyle(.borderedProminent)
+                Button("Close") { finish() }
+                    .buttonStyle(.bordered)
+            }
+            .padding(.top, 4)
+            Spacer()
+        }
+    }
+
+    // MARK: Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Discard", role: .cancel) { finish() }
+                .disabled(vm.isProcessing)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            if case .editing = vm.phase {
+                Button("Save") { Task { await vm.save() } }
+                    .disabled(!vm.canSave)
+            }
+        }
+    }
+
     private func finish() {
-        text = ""
+        vm.reset()
         capture.endCapture()
         dismiss()
     }

@@ -4,9 +4,9 @@ import AppIntents
 /// Offload to the capture screen; a third-party app can't silently record from a button
 /// press, so this is the correct, honest model (spec §0).
 struct CaptureIntent: AppIntent {
-    static var title: LocalizedStringResource = "Quick Capture"
-    static var description = IntentDescription("Capture a thought and let Offload organize it into tasks.")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "Quick Capture"
+    static let description = IntentDescription("Capture a thought and let Offload organize it into tasks.")
+    static let openAppWhenRun = true
 
     @MainActor
     func perform() async throws -> some IntentResult {

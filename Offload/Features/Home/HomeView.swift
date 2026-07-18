@@ -6,6 +6,7 @@ struct HomeView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var store = TaskStore()
     @State private var editing: TaskItem?
+    private var patterns: PatternService { PatternService.shared }
 
     var body: some View {
         NavigationStack {
@@ -18,6 +19,23 @@ struct HomeView: View {
                     }
                 } else {
                     List {
+                        // Dismissible AI suggestions from background/opportunistic passes
+                        // (spec §3.6): recurrences, break-it-down nudges. Never auto-applied.
+                        if !patterns.suggestions.isEmpty {
+                            Section {
+                                ForEach(patterns.suggestions) { pattern in
+                                    SuggestionCard(pattern: pattern,
+                                                   onAccept: { Task { await patterns.accept(pattern) } },
+                                                   onDismiss: { Task { await patterns.dismiss(pattern) } })
+                                        .listRowBackground(Color.Offload.background)
+                                }
+                            } header: {
+                                Label("Suggestions", systemImage: "lightbulb.fill")
+                                    .font(.caption).fontWeight(.semibold)
+                                    .foregroundStyle(Color.Offload.amber)
+                            }
+                        }
+
                         ForEach(HomeGrouping.sections(from: store.openTasks, now: Date())) { section in
                             Section {
                                 ForEach(section.rows) { row in
@@ -88,6 +106,44 @@ struct HomeView: View {
             }
             .animation(.snappy, value: store.undo?.id)
         }
+    }
+}
+
+/// A dismissible AI suggestion (spec §3.6). Recurrences get an Accept action that
+/// applies the inferred RRULE; nudges are informational with a dismiss.
+struct SuggestionCard: View {
+    let pattern: Pattern
+    var onAccept: () -> Void
+    var onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(pattern.title ?? "")
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.text)
+            HStack(spacing: 12) {
+                if pattern.patternType == "recurrence" {
+                    Button(action: onAccept) {
+                        Text("Make it recurring")
+                            .font(.caption).fontWeight(.semibold)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(Color.Offload.indigo, in: .capsule)
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button(action: onDismiss) {
+                    Text(pattern.patternType == "recurrence" ? "No thanks" : "Got it")
+                        .font(.caption).fontWeight(.medium)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Color.Offload.muted.opacity(0.14), in: .capsule)
+                        .foregroundStyle(Color.Offload.muted)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

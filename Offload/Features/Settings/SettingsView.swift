@@ -6,7 +6,10 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(ModelAvailability.self) private var availability
     @AppStorage(ExtractionService.deliberateModeKey) private var deliberateMode = false
+    @AppStorage(CaptureService.dedupeThresholdKey) private var dedupeThreshold = 0.85
     @State private var statsStore = StatsStore()
+    @State private var insight: String?
+    @State private var generatingInsight = false
 
     var body: some View {
         NavigationStack {
@@ -25,6 +28,48 @@ struct SettingsView: View {
                     Text("Thinking")
                 } footer: {
                     Text("Lets the AI reason a little longer before organizing — slower (~2×), but better at compound thoughts and tricky timing.")
+                }
+
+                Section {
+                    if let insight {
+                        Text(insight)
+                            .font(.Offload.body)
+                            .foregroundStyle(Color.Offload.text)
+                    }
+                    Button {
+                        generatingInsight = true
+                        Task {
+                            insight = await InsightsService.generateInsight()
+                            generatingInsight = false
+                        }
+                    } label: {
+                        HStack {
+                            Label(insight == nil ? "Generate weekly insight" : "Regenerate",
+                                  systemImage: "sparkles")
+                            if generatingInsight { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(generatingInsight)
+                } header: {
+                    Text("Weekly insight")
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Duplicate sensitivity")
+                            Spacer()
+                            Text(String(format: "%.2f", dedupeThreshold))
+                                .font(.Offload.data)
+                                .foregroundStyle(Color.Offload.muted)
+                        }
+                        Slider(value: $dedupeThreshold, in: 0.7...0.95, step: 0.01)
+                    }
+                    NavigationLink("Correction history") { CorrectionHistoryView() }
+                } header: {
+                    Text("Learning")
+                } footer: {
+                    Text("Higher sensitivity flags only near-identical tasks as duplicates; lower catches looser matches.")
                 }
 
                 Section("Action Button") {

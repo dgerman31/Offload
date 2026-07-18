@@ -17,6 +17,9 @@ protocol TaskExtracting {
 @MainActor
 final class CaptureService {
 
+    /// UserDefaults key for the dedupe-sensitivity slider in Settings (spec §3.5: tunable).
+    nonisolated static let dedupeThresholdKey = "offload.dedupeThreshold"
+
     struct Outcome: Equatable {
         var addedTasks: Int
         var taskTitles: [String]
@@ -63,10 +66,12 @@ final class CaptureService {
                     .filter(Column("status") != "completed")
                     .fetchAll(database)
             }
+            let stored = UserDefaults.standard.double(forKey: Self.dedupeThresholdKey)
             let warnings = Self.similarWarnings(
                 newTitles: mapped.tasks.map(\.title),
                 existingTitles: existing.map(\.title),
-                embedder: embedder
+                embedder: embedder,
+                threshold: stored > 0 ? stored : 0.85
             )
 
             // 3. Persist project + tasks in one transaction.

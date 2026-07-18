@@ -28,6 +28,14 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.danielgerman.offload.synthesis</string>
+	</array>
 
 	<!-- Permission strings. Shown to the user the first time each capability is used. -->
 	<key>NSMicrophoneUsageDescription</key>

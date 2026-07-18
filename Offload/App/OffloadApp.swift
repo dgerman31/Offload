@@ -6,6 +6,10 @@ struct OffloadApp: App {
     @State private var availability = ModelAvailability()
     @State private var capture = CaptureCoordinator.shared
 
+    init() {
+        BackgroundSynthesis.register()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -13,10 +17,18 @@ struct OffloadApp: App {
                 .environment(capture)
                 .tint(Color.Offload.indigo)
         }
-        // Re-check model availability on return to foreground — e.g. after the
-        // user enables Apple Intelligence in Settings.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { availability.refresh() }
+            switch phase {
+            case .active:
+                // Re-check the model (e.g. after enabling Apple Intelligence) and run a
+                // cheap opportunistic pattern pass so suggestions feel fresh.
+                availability.refresh()
+                Task { await PatternService.shared.refresh() }
+            case .background:
+                BackgroundSynthesis.schedule()
+            default:
+                break
+            }
         }
     }
 }

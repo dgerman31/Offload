@@ -28,5 +28,14 @@ struct OffloadShortcuts: AppShortcutsProvider {
             shortTitle: "Capture",
             systemImageName: "bolt.circle.fill"
         )
+        AppShortcut(
+            intent: DictateCaptureIntent(),
+            phrases: [
+                "Tell \(.applicationName)",
+                "Remember this in \(.applicationName)"
+            ],
+            shortTitle: "Tell Offload",
+            systemImageName: "waveform"
+        )
     }
 }

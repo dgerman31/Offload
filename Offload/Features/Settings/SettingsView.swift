@@ -83,6 +83,13 @@ struct SettingsView: View {
                     Text("The Quick Capture shortcut is also available in Shortcuts and Siri.")
                         .font(.Offload.body)
                         .foregroundStyle(Color.Offload.muted)
+                    Label {
+                        Text("From the lock screen — no unlock needed: say **“Hey Siri, tell Offload”** and speak your thought.")
+                            .font(.Offload.body)
+                    } icon: {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(Color.Offload.teal)
+                    }
                 }
 
                 Section("Privacy") {

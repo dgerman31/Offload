@@ -36,12 +36,19 @@ final class CaptureViewModel {
     func toggleMic() async {
         if isListening { stopListening(); return }
 
+        // Low Power Mode disables on-device speech and can crash the recognizer on start —
+        // guard it out and tell the user, never attempt (and never crash).
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            phase = .failed("Turn off Low Power Mode to use voice — it disables on-device speech. You can still type.")
+            return
+        }
         guard await transcription.requestAuthorization() else {
             phase = .failed("Microphone or speech access is off. You can still type your thought.")
             return
         }
+        // The callback now fires off the main actor — hop back before touching UI state.
         transcription.onTranscript = { [weak self] transcript in
-            self?.text = transcript
+            Task { @MainActor in self?.text = transcript }
         }
         do {
             try transcription.start()

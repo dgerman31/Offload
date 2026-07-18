@@ -48,6 +48,25 @@ struct CaptureView: View {
                 .background(Color.Offload.surface, in: .rect(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Offload.divider, lineWidth: 1))
 
+            // Voice is an *additional* input — the text field above always works too.
+            HStack(spacing: 12) {
+                Button {
+                    Task { await vm.toggleMic() }
+                } label: {
+                    Label(vm.isListening ? "Listening… tap to stop" : "Speak instead",
+                          systemImage: vm.isListening ? "waveform.circle.fill" : "mic.fill")
+                        .font(.Offload.taskTitle)
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(vm.isListening ? Color.Offload.teal : Color.Offload.surface,
+                                    in: .capsule)
+                        .foregroundStyle(vm.isListening ? .white : Color.Offload.indigo)
+                        .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: vm.isListening ? 0 : 1))
+                }
+                .disabled(vm.isProcessing)
+                .accessibilityLabel(vm.isListening ? "Stop dictation" : "Start dictation")
+                Spacer()
+            }
+
             if vm.isProcessing {
                 HStack(spacing: 10) {
                     ProgressView()

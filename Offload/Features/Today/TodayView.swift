@@ -25,6 +25,13 @@ struct TodayView: View {
                         }
                         .listRowBackground(Color.Offload.background)
 
+                        if let best = NextBest.pick(from: store.plan.groups.flatMap(\.tasks)) {
+                            Section("Next best") {
+                                nextBestCard(best)
+                            }
+                            .listRowBackground(Color.Offload.background)
+                        }
+
                         ForEach(store.plan.groups) { group in
                             Section(group.slot.rawValue) {
                                 ForEach(group.tasks) { task in
@@ -46,6 +53,34 @@ struct TodayView: View {
                 NavigationStack { TaskEditView(task: task) }
             }
         }
+    }
+
+    private func nextBestCard(_ task: TaskItem) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.title3)
+                .foregroundStyle(Color.Offload.indigo)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.title)
+                    .font(.Offload.taskTitle)
+                    .foregroundStyle(Color.Offload.text)
+                if let effort = task.effortMinutes {
+                    Text("~\(effort) min")
+                        .font(.Offload.data)
+                        .foregroundStyle(Color.Offload.muted)
+                }
+            }
+            Spacer()
+            Button {
+                Task { await store.toggleComplete(task) }
+            } label: {
+                Text("Do it").font(.Offload.taskTitle)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(Color.Offload.indigo, in: .capsule)
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private var progressHeader: some View {

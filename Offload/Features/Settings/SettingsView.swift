@@ -6,10 +6,15 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(ModelAvailability.self) private var availability
     @AppStorage(ExtractionService.deliberateModeKey) private var deliberateMode = false
+    @State private var statsStore = StatsStore()
 
     var body: some View {
         NavigationStack {
             List {
+                Section("Your progress") {
+                    progressRow
+                }
+
                 Section("On-device AI") {
                     availabilityCard
                 }
@@ -42,7 +47,33 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .task { await statsStore.observe() }
         }
+    }
+
+    private var progressRow: some View {
+        let s = statsStore.stats
+        return HStack(spacing: 0) {
+            statTile("\(s.currentStreakDays)", "day streak", "flame.fill", Color.Offload.amber)
+            Divider()
+            statTile("\(s.completedToday)", "today", "checkmark.circle.fill", Color.Offload.green)
+            Divider()
+            statTile("\(s.completedThisWeek)", "this week", "calendar", Color.Offload.teal)
+            Divider()
+            statTile("\(s.openCount)", "open", "tray.fill", Color.Offload.indigo)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+    }
+
+    private func statTile(_ value: String, _ label: String, _ icon: String, _ color: Color) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon).foregroundStyle(color)
+            Text(value).font(.system(.title3, design: .rounded)).fontWeight(.bold)
+                .foregroundStyle(Color.Offload.text)
+            Text(label).font(.caption).foregroundStyle(Color.Offload.muted)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder

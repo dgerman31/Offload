@@ -25,7 +25,7 @@ struct ExtractedTask {
     @Guide(.anyOf(["high", "medium", "low"]))
     var priority: String
 
-    @Guide(description: "Context triggers, any of: home, work, car, outside, store, gym, phone, computer, meeting")
+    @Guide(description: "Context tags, each chosen only from: home, work, car, outside, store, gym, phone, computer, meeting, errands")
     var contextTags: [String]
 
     @Guide(description: "ISO 8601 datetime if the user implied timing, else nil")

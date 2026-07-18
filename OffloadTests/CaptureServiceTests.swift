@@ -19,20 +19,25 @@ struct CaptureServiceTests {
         let db = try AppDatabase.makeInMemory()
         let extracted = ExtractedCapture(
             summary: "trip",
-            tasks: [ExtractedTask(title: "Book flights", category: "Projects", priority: "high",
-                                  contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil)],
+            tasks: [
+                ExtractedTask(title: "Book flights", category: "Projects", priority: "high",
+                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil),
+                ExtractedTask(title: "Reserve hotel", category: "Projects", priority: "medium",
+                              contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil)
+            ],
             suggestedProject: "Trip"
         )
         let service = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)))
 
-        let outcome = try await service.process(rawInput: "book flights for the trip", inputType: "text")
-        #expect(outcome.addedTasks == 1)
+        let outcome = try await service.process(rawInput: "book flights and hotel for the trip", inputType: "text")
+        #expect(outcome.addedTasks == 2)
+        #expect(outcome.taskTitles == ["Book flights", "Reserve hotel"])
         #expect(outcome.projectTitle == "Trip")
 
         let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
         let projectCount = try await db.dbQueue.read { try Project.fetchCount($0) }
         let capture = try await db.dbQueue.read { try Capture.fetchAll($0).first }
-        #expect(taskCount == 1)
+        #expect(taskCount == 2)
         #expect(projectCount == 1)
         #expect(capture?.processingStatus == "done")
         #expect(capture?.modelSource == "foundation")

@@ -8,7 +8,7 @@ final class CaptureViewModel {
     enum Phase: Equatable {
         case editing
         case processing
-        case done(added: Int, project: String?)
+        case done(added: Int, titles: [String], project: String?)
         case failed(String)
     }
 
@@ -70,7 +70,7 @@ final class CaptureViewModel {
         do {
             let outcome = try await service.process(rawInput: input, inputType: "text")
             Haptics.success()
-            phase = .done(added: outcome.addedTasks, project: outcome.projectTitle)
+            phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles, project: outcome.projectTitle)
         } catch {
             Haptics.warning()
             phase = .failed(error.localizedDescription)

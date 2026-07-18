@@ -15,8 +15,8 @@ struct CaptureView: View {
                 switch vm.phase {
                 case .editing, .processing:
                     editor
-                case let .done(added, project):
-                    successView(added: added, project: project)
+                case let .done(added, titles, project):
+                    successView(added: added, titles: titles, project: project)
                 case let .failed(message):
                     failureView(message: message)
                 }
@@ -81,7 +81,7 @@ struct CaptureView: View {
 
     // MARK: Success
 
-    private func successView(added: Int, project: String?) -> some View {
+    private func successView(added: Int, titles: [String], project: String?) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 56))
@@ -94,6 +94,20 @@ struct CaptureView: View {
                     .font(.Offload.body)
                     .foregroundStyle(Color.Offload.muted)
             }
+            // Show what the AI actually understood — instant feedback on the extraction.
+            if !titles.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(titles, id: \.self) { title in
+                        Label(title, systemImage: "circle")
+                            .font(.Offload.body)
+                            .foregroundStyle(Color.Offload.text)
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(Color.Offload.surface, in: .rect(cornerRadius: 12))
+            }
             Button("Done") { finish() }
                 .font(.Offload.taskTitle)
                 .padding(.horizontal, 24).padding(.vertical, 12)
@@ -102,10 +116,11 @@ struct CaptureView: View {
                 .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 60)
+        .padding(.top, 40)
+        // Auto-dismiss timing scales a little with how much there is to read.
         .task {
-            // Auto-dismiss shortly after success (spec §5.5: returns the user out).
-            try? await Task.sleep(for: .seconds(1.6))
+            let seconds = min(3.5, 1.6 + Double(titles.count) * 0.5)
+            try? await Task.sleep(for: .seconds(seconds))
             finish()
         }
     }

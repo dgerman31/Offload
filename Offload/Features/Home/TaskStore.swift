@@ -40,4 +40,12 @@ final class TaskStore {
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }
     }
+
+    /// Soft-delete (sets `deleted = 1`; the observation filters it out).
+    func delete(_ item: TaskItem) async {
+        var updated = item
+        updated.deleted = true
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+    }
 }

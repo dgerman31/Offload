@@ -15,8 +15,12 @@ struct ProjectsView: View {
                     )
                 } else {
                     List(store.summaries) { summary in
-                        ProjectRowView(summary: summary)
-                            .listRowBackground(Color.Offload.background)
+                        NavigationLink {
+                            ProjectDetailView(project: summary.project)
+                        } label: {
+                            ProjectRowView(summary: summary)
+                        }
+                        .listRowBackground(Color.Offload.background)
                     }
                     .listStyle(.plain)
                 }

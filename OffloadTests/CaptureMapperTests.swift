@@ -25,6 +25,26 @@ struct CaptureMapperTests {
         #expect(CaptureMapper.encodeTags(["  "]) == nil)
     }
 
+    @Test("Tags outside the allowed vocabulary are dropped; duplicates collapse")
+    func tagFiltering() {
+        #expect(CaptureMapper.encodeTags(["phone", "banana"]) == "[\"phone\"]")
+        #expect(CaptureMapper.encodeTags(["gym", "GYM", "gym"]) == "[\"gym\"]")
+        #expect(CaptureMapper.encodeTags(["unicorn", "wizardry"]) == nil)
+    }
+
+    @Test("A single task never becomes a project, even if the model suggests one")
+    func singleTaskNoProject() {
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
+                                  contextTags: ["store"], dueDate: nil, recurrenceRule: nil, effortMinutes: nil)],
+            suggestedProject: "Groceries"   // model over-eagerly suggested a project
+        )
+        let result = CaptureMapper.map(extracted)
+        #expect(result.project == nil)
+        #expect(result.tasks.first?.projectId == nil)
+    }
+
     @Test("map() builds a project and links tasks to it")
     func mapWithProject() {
         let extracted = ExtractedCapture(

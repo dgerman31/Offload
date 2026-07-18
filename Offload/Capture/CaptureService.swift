@@ -18,6 +18,7 @@ final class CaptureService {
 
     struct Outcome: Equatable {
         var addedTasks: Int
+        var taskTitles: [String]
         var projectTitle: String?
     }
 
@@ -62,7 +63,11 @@ final class CaptureService {
             let finalized = done
             try await db.dbQueue.write { try finalized.update($0) }
 
-            return Outcome(addedTasks: mapped.tasks.count, projectTitle: mapped.project?.title)
+            return Outcome(
+                addedTasks: mapped.tasks.count,
+                taskTitles: mapped.tasks.map(\.title),
+                projectTitle: mapped.project?.title
+            )
         } catch {
             // Keep the raw transcript; mark failed so it can be retried later.
             var failed = initial

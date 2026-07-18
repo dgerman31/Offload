@@ -17,22 +17,33 @@ struct HomeView: View {
                     }
                 } else {
                     List {
-                        ForEach(store.openTasks) { task in
-                            TaskRowView(task: task) {
-                                Task { await store.toggleComplete(task) }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button {
-                                    Task { await store.toggleComplete(task) }
-                                } label: {
-                                    Label("Done", systemImage: "checkmark")
+                        ForEach(HomeGrouping.sections(from: store.openTasks, now: Date())) { section in
+                            Section(section.title) {
+                                ForEach(section.tasks) { task in
+                                    TaskRowView(task: task) {
+                                        Task { await store.toggleComplete(task) }
+                                    }
+                                    .listRowBackground(Color.Offload.background)
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                        Button {
+                                            Task { await store.toggleComplete(task) }
+                                        } label: {
+                                            Label("Done", systemImage: "checkmark")
+                                        }
+                                        .tint(Color.Offload.green)
+                                    }
+                                    .swipeActions(edge: .leading) {
+                                        Button(role: .destructive) {
+                                            Task { await store.delete(task) }
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
                                 }
-                                .tint(Color.Offload.green)
                             }
-                            .listRowBackground(Color.Offload.background)
                         }
                     }
-                    .listStyle(.plain)
+                    .listStyle(.insetGrouped)
                 }
             }
             .background(Color.Offload.background)

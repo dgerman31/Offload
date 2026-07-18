@@ -10,18 +10,29 @@ enum CaptureMapper {
     ]
     static let priorities: Set<String> = ["high", "medium", "low"]
 
+    /// The fixed context-tag vocabulary — anything the model invents outside this is dropped.
+    static let allowedContextTags: Set<String> = [
+        "home", "work", "car", "outside", "store", "gym", "phone", "computer", "meeting", "errands"
+    ]
+
+    /// Minimum tasks before a capture is allowed to become a project — keeps single
+    /// everyday tasks from being over-organized into projects (user feedback).
+    static let minTasksForProject = 2
+
     struct Result {
         var project: Project?
         var tasks: [TaskItem]
     }
 
-    /// Build a `Project` (if the model suggested one) and the `TaskItem`s, linked to it.
+    /// Build a `Project` (only for genuine multi-step clusters) and the `TaskItem`s, linked to it.
     static func map(_ extracted: ExtractedCapture) -> Result {
-        let project: Project? = extracted.suggestedProject
-            .flatMap { name in
-                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : Project(title: trimmed)
-            }
+        let project: Project? = {
+            guard extracted.tasks.count >= minTasksForProject,
+                  let name = extracted.suggestedProject?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty
+            else { return nil }
+            return Project(title: name)
+        }()
 
         let tasks = extracted.tasks.map { t in
             TaskItem(
@@ -49,11 +60,13 @@ enum CaptureMapper {
         priorities.contains(raw) ? raw : "medium"
     }
 
-    /// Encode context tags as a JSON array string for the `context_tags` column.
+    /// Encode context tags as a JSON array string: lowercased, restricted to the allowed
+    /// vocabulary, de-duplicated, order-preserving. Returns nil when nothing valid remains.
     static func encodeTags(_ tags: [String]) -> String? {
+        var seen = Set<String>()
         let cleaned = tags
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
+            .filter { allowedContextTags.contains($0) && seen.insert($0).inserted }
         guard !cleaned.isEmpty,
               let data = try? JSONEncoder().encode(cleaned),
               let json = String(data: data, encoding: .utf8)

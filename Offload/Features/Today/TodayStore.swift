@@ -77,7 +77,7 @@ final class TodayStore {
                 }
                 continue
             }
-            if let dueString = task.dueDate, let due = iso.date(from: dueString) {
+            if let due = DueDate.parse(task.dueDate) {
                 guard calendar.isDate(due, inSameDayAs: now) else { continue }  // other day
                 switch calendar.component(.hour, from: due) {
                 case ..<12:   morning.append(task)

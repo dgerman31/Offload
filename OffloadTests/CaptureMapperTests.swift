@@ -73,6 +73,23 @@ struct CaptureMapperTests {
         #expect(result.tasks[0].effortMinutes == 30)
     }
 
+    @Test("map() normalizes a timezone-less dueDate instead of dropping it (timing bug regression)")
+    func mapNormalizesDueDate() {
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Pay rent", category: "Finance", priority: "high",
+                                  contextTags: [], dueDate: "2026-07-19T09:00", recurrenceRule: nil,
+                                  effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil
+        )
+        let result = CaptureMapper.map(extracted)
+        let dueDate = result.tasks.first?.dueDate
+        #expect(dueDate != nil)
+        // Must be strictly parseable so every downstream reader (old and new) can use it.
+        #expect(dueDate.flatMap { ISO8601DateFormatter().date(from: $0) } != nil)
+        #expect(result.tasks.first?.dueDateConfidence == 0.5)
+    }
+
     @Test("map() with no suggested project leaves tasks unlinked")
     func mapWithoutProject() {
         let extracted = ExtractedCapture(

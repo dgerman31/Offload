@@ -36,13 +36,14 @@ enum CaptureMapper {
 
         var tasks: [TaskItem] = []
         for t in extracted.tasks {
+            let dueDate = DueDate.normalize(t.dueDate)
             let parent = TaskItem(
                 title: t.title.trimmingCharacters(in: .whitespacesAndNewlines),
                 category: normalizedCategory(t.category),
                 priority: normalizedPriority(t.priority),
                 projectId: project?.id,
-                dueDate: nonEmpty(t.dueDate),
-                dueDateConfidence: nonEmpty(t.dueDate) == nil ? nil : 0.5,
+                dueDate: dueDate,
+                dueDateConfidence: dueDate == nil ? nil : 0.5,
                 recurrenceRule: nonEmpty(t.recurrenceRule),
                 contextTags: encodeTags(t.contextTags),
                 effortMinutes: t.effortMinutes

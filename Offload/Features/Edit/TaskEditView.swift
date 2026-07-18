@@ -20,7 +20,7 @@ struct TaskEditView: View {
         _title = State(initialValue: task.title)
         _category = State(initialValue: task.category ?? "Other")
         _priority = State(initialValue: task.priority)
-        let parsed = task.dueDate.flatMap { ISO8601DateFormatter().date(from: $0) }
+        let parsed = DueDate.parse(task.dueDate)
         _hasDueDate = State(initialValue: parsed != nil)
         _dueDate = State(initialValue: parsed ?? Date())
     }

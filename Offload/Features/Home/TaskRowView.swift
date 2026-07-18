@@ -104,7 +104,7 @@ struct TaskRowView: View {
 
     /// Human-friendly due display ("Today 5:00 PM" / "Jul 20, 9:00 AM") instead of raw ISO.
     static func formatDue(_ iso: String) -> String {
-        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        guard let date = DueDate.parse(iso) else { return iso }
         let df = DateFormatter()
         if Calendar.current.isDateInToday(date) {
             df.dateFormat = "'Today' h:mm a"

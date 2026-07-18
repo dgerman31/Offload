@@ -23,9 +23,8 @@ enum HomeGrouping {
     static let categoryOrder = ["Work", "Personal", "Health", "Finance", "Projects", "Ideas", "Habits", "Other"]
 
     static func sections(from tasks: [TaskItem], now: Date, calendar: Calendar = .current) -> [TaskSection] {
-        let iso = ISO8601DateFormatter()
         func dueToday(_ s: String?) -> Bool {
-            guard let s, let d = iso.date(from: s) else { return false }
+            guard let d = DueDate.parse(s) else { return false }
             return calendar.isDate(d, inSameDayAs: now)
         }
 

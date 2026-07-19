@@ -43,7 +43,7 @@ enum CaptureMapper {
         for t in extracted.tasks {
             let dueDate = DueDate.normalize(t.dueDate)
             let parent = TaskItem(
-                title: t.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                title: actionTitle(t.title),
                 category: normalizedCategory(t.category),
                 priority: resolvedPriority(normalizedPriority(t.priority), dueDate: dueDate, now: now, calendar: calendar),
                 projectId: project?.id,
@@ -61,8 +61,9 @@ enum CaptureMapper {
 
             // Hierarchical extraction (spec feature 1), but restrained (punch list #4): sub-steps
             // become child tasks only when there are ≥2 genuinely distinct steps that don't just
-            // restate the errand. They inherit the parent's category/priority/context.
-            for title in restrainedSubtasks(parentTitle: parent.title, subtasks: t.subtasks) {
+            // restate the errand. They inherit the parent's category/priority/context. Cleaning
+            // titles BEFORE the restraint pass lets fluff-only variants collapse as duplicates.
+            for title in restrainedSubtasks(parentTitle: parent.title, subtasks: t.subtasks.map(actionTitle)) {
                 tasks.append(TaskItem(
                     title: title,
                     category: parent.category,
@@ -114,6 +115,34 @@ enum CaptureMapper {
 
     static func normalizedPriority(_ raw: String) -> String {
         priorities.contains(raw) ? raw : "medium"
+    }
+
+    /// Deterministic backstop behind the intent-extraction prompt: a stored title never keeps
+    /// the user's meta-frame even when the model parrots it. Strips stacked fluff prefixes
+    /// ("remember to", "need to", "try to", …), then capitalizes the first letter so titles
+    /// read as clean action phrases. Falls back to the trimmed original rather than ever
+    /// producing an empty title.
+    static func actionTitle(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fluff = [
+            "remember to ", "don't forget to ", "dont forget to ", "make sure to ",
+            "i need to ", "i have to ", "i gotta ", "i should ", "i want to ",
+            "need to ", "have to ", "gotta ", "try to "
+        ]
+        var title = trimmed
+        var stripped = true
+        while stripped {
+            stripped = false
+            for prefix in fluff where title.lowercased().hasPrefix(prefix) {
+                title = String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                stripped = true
+            }
+        }
+        guard !title.isEmpty else { return trimmed }
+        if let first = title.first, first.isLowercase {
+            title = String(first).uppercased() + title.dropFirst()
+        }
+        return title
     }
 
     /// Guardrail against under-prioritized imminent work: something due today or already

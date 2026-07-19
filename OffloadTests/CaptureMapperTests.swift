@@ -19,6 +19,41 @@ struct CaptureMapperTests {
         #expect(CaptureMapper.normalizedPriority("urgent") == "medium")
     }
 
+    // MARK: Intent titles — meta-fluff never survives into a stored title
+
+    @Test("actionTitle strips a meta prefix and capitalizes the action")
+    func actionTitleStripsFluff() {
+        #expect(CaptureMapper.actionTitle("remember to pay bills") == "Pay bills")
+        #expect(CaptureMapper.actionTitle("Don't forget to call mom") == "Call mom")
+        #expect(CaptureMapper.actionTitle("need to book flights") == "Book flights")
+        #expect(CaptureMapper.actionTitle("try to fix the sink") == "Fix the sink")
+    }
+
+    @Test("actionTitle strips stacked prefixes and leaves clean titles untouched")
+    func actionTitleStackedAndClean() {
+        #expect(CaptureMapper.actionTitle("remember to try to water plants") == "Water plants")
+        #expect(CaptureMapper.actionTitle("Pay rent") == "Pay rent")
+        #expect(CaptureMapper.actionTitle("Retrieve jacket from school") == "Retrieve jacket from school")
+    }
+
+    @Test("actionTitle never empties a title — fluff-only input falls back to the original")
+    func actionTitleNeverEmpty() {
+        #expect(CaptureMapper.actionTitle("remember to") == "remember to")
+        #expect(CaptureMapper.actionTitle("  ") == "")   // whitespace-only was already empty
+    }
+
+    @Test("map() cleans meta-fluff from parent and subtask titles end to end")
+    func mapCleansTitles() {
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "remember to go home", category: "Personal", priority: "medium",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil,
+                                  subtasks: ["need to grab charger", "don't forget to water plants"])],
+            suggestedProject: nil)
+        let result = CaptureMapper.map(extracted)
+        #expect(result.tasks.map(\.title) == ["Go home", "Grab charger", "Water plants"])
+    }
+
     // MARK: Priority guardrail — imminent work is never "low"
 
     private var utcCalendar: Calendar {

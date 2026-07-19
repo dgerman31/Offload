@@ -23,7 +23,9 @@ final class ExtractionService: TaskExtracting {
     private static func instructions(now: Date) -> String {
         let nowStr = ISO8601DateFormatter().string(from: now)
         return """
-        You turn a user's quick voice or text capture into actionable tasks.
+        You turn a user's quick voice or text capture into the tasks they actually MEAN. \
+        Extract INTENT, not words: figure out what the user needs to DO, never echo their \
+        phrasing back at them.
 
         The current date and time is \(nowStr). Resolve relative timing against it and set \
         dueDate (ISO 8601) accordingly:
@@ -33,7 +35,24 @@ final class ExtractionService: TaskExtracting {
         - "tomorrow" → the next day; "this weekend" → the coming Saturday.
         Only set dueDate or recurrenceRule when the user actually implies timing — otherwise leave them nil.
 
-        Split compound thoughts into separate tasks. Keep titles short and action-first.
+        TURN THOUGHTS INTO ACTIONS:
+        - Invert problem statements into the action that fixes them: "I left my jacket in
+          school" → "Retrieve jacket from school". "The kitchen is a disaster" → "Clean kitchen".
+        - Strip the meta-frame; keep the underlying action: "I keep forgetting to call mom" →
+          "Call mom" (habitual "keep forgetting" may imply a recurrence). "Remember to pay
+          bills" → "Pay bills". "Stop procrastinating on the deck" → "Build deck". Never
+          produce a task about remembering, forgetting, trying, or procrastinating.
+        - Make vague intents executable — name the concrete next step: "think about the Q3
+          roadmap" → "Draft Q3 roadmap outline". "Catch up with Sarah" → "Schedule catch-up
+          with Sarah". A question to settle ("should I hire Bob?") → "Decide on Bob hire".
+        - Worry usually hides a controllable action: "I'm nervous about the interview" →
+          "Practice interview answers".
+        - Commitments to people are tasks with a recipient: "I owe Sarah feedback" → "Send
+          feedback to Sarah". "Waiting on design" → "Follow up with design team".
+        - Pure venting with no action the user owns ("I'm terrible at email", "my manager
+          never listens") → NO task at all. Only extract what the user can actually do.
+        Titles are short, action-first verb phrases; a stranger should know exactly what
+        "done" looks like. Split compound thoughts into separate tasks.
 
         priority: weigh THREE signals together, not just how loud the words are —
         - Consequence: what happens if it slips? Bills, rent, taxes, deadlines, health,
@@ -90,6 +109,11 @@ final class ExtractionService: TaskExtracting {
         dueDate, no subtasks, no project.
         4) "rent's due friday" → one task "Pay rent" (Finance, high — a bill with a deadline), \
         dueDate Friday; no subtasks.
+        5) "I left my jacket in school" → one task "Retrieve jacket from school" (Personal, \
+        medium) — the fix, not the mishap; no subtasks.
+        6) "I keep forgetting to call mom" → one task "Call mom" (Personal, medium, [phone]) — \
+        the action, never a task about forgetting.
+        7) "ugh, this codebase is such a mess" → no task — venting without a committed action.
 
         When the user implies timing on a specific day, call checkCalendarAvailability for that \
         date and pick a due time that avoids the busy windows.
@@ -119,9 +143,12 @@ final class ExtractionService: TaskExtracting {
         if UserDefaults.standard.bool(forKey: Self.deliberateModeKey) {
             // Pass 1: think out loud (the reasoning stays in the session's context).
             _ = try await session.respond(to: """
-                Before extracting, reason step by step about this capture: how many distinct \
-                tasks are there, what timing (if any) is implied and its concrete date/time, \
-                and is this a genuine multi-step project or just individual tasks?
+                Before extracting, reason step by step about this capture: what does the user \
+                actually need to DO (invert any problem statement into its fix; strip frames \
+                like "remember to" or "keep forgetting"; or is it just venting with no action?), \
+                how many distinct tasks are there, what timing (if any) is implied and its \
+                concrete date/time, and is this a genuine multi-step project or just \
+                individual tasks?
                 Capture: \(transcript)
                 """)
             // Pass 2: extract, informed by that reasoning.

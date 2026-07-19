@@ -7,15 +7,10 @@ import Foundation
 /// time the model omitted either. Strings without a timezone are assumed to be in the
 /// device's current time zone.
 enum DueDate {
-    private static let withTimeZone: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static let withTimeZoneNoFraction = ISO8601DateFormatter()
-
     /// Local-time fallback formats, tried in order, for strings missing a timezone offset.
+    /// (`[String]` is `Sendable`, so this static is fine under strict concurrency — the
+    /// formatters themselves are built fresh per call below, since `ISO8601DateFormatter` /
+    /// `DateFormatter` are reference types and not `Sendable`.)
     private static let localFormats = [
         "yyyy-MM-dd'T'HH:mm:ss",
         "yyyy-MM-dd'T'HH:mm",
@@ -23,6 +18,14 @@ enum DueDate {
         "yyyy-MM-dd HH:mm",
         "yyyy-MM-dd"
     ]
+
+    /// ISO8601 with timezone, tolerant of fractional seconds (built per call — not cached as
+    /// static state, which wouldn't be concurrency-safe for a non-`Sendable` formatter).
+    private static func withTimeZoneFormatter(fractionalSeconds: Bool) -> ISO8601DateFormatter {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = fractionalSeconds ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
+        return f
+    }
 
     private static func localFormatter(_ format: String) -> DateFormatter {
         let df = DateFormatter()
@@ -35,8 +38,8 @@ enum DueDate {
     /// Parse a due-date string using whichever strategy matches. Returns nil if none do.
     static func parse(_ s: String?) -> Date? {
         guard let s = s?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
-        if let d = withTimeZone.date(from: s) { return d }
-        if let d = withTimeZoneNoFraction.date(from: s) { return d }
+        if let d = withTimeZoneFormatter(fractionalSeconds: true).date(from: s) { return d }
+        if let d = withTimeZoneFormatter(fractionalSeconds: false).date(from: s) { return d }
         for format in localFormats {
             if let d = localFormatter(format).date(from: s) { return d }
         }

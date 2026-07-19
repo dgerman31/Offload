@@ -22,6 +22,9 @@ enum CaptureMapper {
     struct Result {
         var project: Project?
         var tasks: [TaskItem]
+        /// Ids of tasks the model classified as real calendar appointments *and* that carry a
+        /// due date — the ones the capture pipeline turns into EventKit events (spec §3.3 write).
+        var appointmentTaskIds: Set<String> = []
     }
 
     /// Build a `Project` (only for genuine multi-step clusters) and the `TaskItem`s, linked to it.
@@ -35,6 +38,7 @@ enum CaptureMapper {
         }()
 
         var tasks: [TaskItem] = []
+        var appointmentTaskIds: Set<String> = []
         for t in extracted.tasks {
             let dueDate = DueDate.normalize(t.dueDate)
             let parent = TaskItem(
@@ -49,12 +53,15 @@ enum CaptureMapper {
                 effortMinutes: t.effortMinutes
             )
             tasks.append(parent)
+            // Only a real, time-anchored appointment becomes a calendar event.
+            if t.isAppointment, dueDate != nil {
+                appointmentTaskIds.insert(parent.id)
+            }
 
-            // Hierarchical extraction (spec feature 1): sub-steps become child tasks that
-            // inherit the parent's category/priority/context.
-            for sub in t.subtasks {
-                let title = sub.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !title.isEmpty else { continue }
+            // Hierarchical extraction (spec feature 1), but restrained (punch list #4): sub-steps
+            // become child tasks only when there are ≥2 genuinely distinct steps that don't just
+            // restate the errand. They inherit the parent's category/priority/context.
+            for title in restrainedSubtasks(parentTitle: parent.title, subtasks: t.subtasks) {
                 tasks.append(TaskItem(
                     title: title,
                     category: parent.category,
@@ -65,7 +72,37 @@ enum CaptureMapper {
                 ))
             }
         }
-        return Result(project: project, tasks: tasks)
+        return Result(project: project, tasks: tasks, appointmentTaskIds: appointmentTaskIds)
+    }
+
+    /// Guard against over-decomposition (punch list #4). Keeps subtasks ONLY when there are at
+    /// least two genuinely distinct sub-steps, dropping any that merely restate the parent
+    /// errand (e.g. parent "Buy milk" with a subtask "Buy milk", or "Go to the store to buy
+    /// milk" with a subtask "Buy milk"). Fewer than two distinct steps → the task stands alone.
+    static func restrainedSubtasks(parentTitle: String, subtasks: [String]) -> [String] {
+        let parent = normalizedForComparison(parentTitle)
+        var seen = Set<String>()
+        var kept: [String] = []
+        for raw in subtasks {
+            let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let norm = normalizedForComparison(title)
+            guard !norm.isEmpty else { continue }
+            // Drop anything that restates the parent errand (either direction).
+            if norm == parent || (!parent.isEmpty && (parent.contains(norm) || norm.contains(parent))) { continue }
+            guard seen.insert(norm).inserted else { continue }   // collapse duplicates
+            kept.append(title)
+        }
+        return kept.count >= 2 ? kept : []
+    }
+
+    /// Lowercased, alphanumerics-and-spaces-only, whitespace-collapsed form for the restraint
+    /// comparison above — so punctuation and casing don't hide a restatement.
+    private static func normalizedForComparison(_ s: String) -> String {
+        let cleaned = s.lowercased().map { ch -> Character in
+            (ch.isLetter || ch.isNumber) ? ch : " "
+        }
+        return String(cleaned).split(separator: " ").joined(separator: " ")
     }
 
     // MARK: Helpers

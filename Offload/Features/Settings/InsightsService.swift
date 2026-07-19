@@ -12,9 +12,36 @@ enum InsightsService {
         var capturedCount = 0
         var topCategory: String?
         var busiestDay: String?
+        // Insight 2.0 (punch list #5): richer signal so the note can reflect and suggest, not
+        // just report. These describe open work *now*, not just this week's completions.
+        var openCount = 0
+        var overdueCount = 0
+        var currentStreakDays = 0
+        /// A few highest-priority open task titles — the concrete things still needing the user.
+        var topOpenTasks: [String] = []
+        /// Completed-this-week counts by category, highest first — the shape of the week's effort.
+        var categoryMix: [(category: String, count: Int)] = []
+
+        static func == (lhs: WeeklyStats, rhs: WeeklyStats) -> Bool {
+            lhs.completedCount == rhs.completedCount && lhs.capturedCount == rhs.capturedCount
+                && lhs.topCategory == rhs.topCategory && lhs.busiestDay == rhs.busiestDay
+                && lhs.openCount == rhs.openCount && lhs.overdueCount == rhs.overdueCount
+                && lhs.currentStreakDays == rhs.currentStreakDays && lhs.topOpenTasks == rhs.topOpenTasks
+                && lhs.categoryMix.map { $0.category } == rhs.categoryMix.map { $0.category }
+                && lhs.categoryMix.map { $0.count } == rhs.categoryMix.map { $0.count }
+        }
     }
 
-    /// Pure + testable rollup of the current week.
+    /// Priority ordering for surfacing the most important open work first.
+    private static func priorityRank(_ priority: String) -> Int {
+        switch priority {
+        case "high": return 0
+        case "low": return 2
+        default: return 1
+        }
+    }
+
+    /// Pure + testable rollup of the current week, plus the open-work snapshot Insight 2.0 needs.
     static func weeklyStats(
         tasks: [TaskItem],
         captures: [Capture],
@@ -25,15 +52,22 @@ enum InsightsService {
         var stats = WeeklyStats()
         var categoryCounts: [String: Int] = [:]
         var dayCounts: [Int: Int] = [:]
+        var completionDays = Set<Date>()
+        var openTasks: [TaskItem] = []
 
         for task in tasks {
-            guard task.status == "completed",
-                  let done = task.completedAt.flatMap({ iso.date(from: $0) }),
-                  calendar.isDate(done, equalTo: now, toGranularity: .weekOfYear)
-            else { continue }
-            stats.completedCount += 1
-            categoryCounts[task.category ?? "Other", default: 0] += 1
-            dayCounts[calendar.component(.weekday, from: done), default: 0] += 1
+            if task.status == "completed" {
+                guard let done = task.completedAt.flatMap({ iso.date(from: $0) }) else { continue }
+                completionDays.insert(calendar.startOfDay(for: done))
+                guard calendar.isDate(done, equalTo: now, toGranularity: .weekOfYear) else { continue }
+                stats.completedCount += 1
+                categoryCounts[task.category ?? "Other", default: 0] += 1
+                dayCounts[calendar.component(.weekday, from: done), default: 0] += 1
+            } else {
+                stats.openCount += 1
+                openTasks.append(task)
+                if let due = DueDate.parse(task.dueDate), due < now { stats.overdueCount += 1 }
+            }
         }
 
         stats.capturedCount = captures.filter {
@@ -45,6 +79,14 @@ enum InsightsService {
         if let busiest = dayCounts.max(by: { $0.value < $1.value })?.key {
             stats.busiestDay = calendar.weekdaySymbols[busiest - 1]
         }
+        stats.currentStreakDays = TaskStats.streak(days: completionDays, now: now, calendar: calendar)
+        stats.categoryMix = categoryCounts
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .map { (category: $0.key, count: $0.value) }
+        stats.topOpenTasks = openTasks
+            .sorted { priorityRank($0.priority) < priorityRank($1.priority) }
+            .prefix(3)
+            .map(\.title)
         return stats
     }
 
@@ -65,15 +107,23 @@ enum InsightsService {
         let fallback = deterministicSummary(stats)
         guard case .available = SystemLanguageModel.default.availability else { return fallback }
 
+        // Insight 2.0: not a stat readout — hand the model the real week (completions, open and
+        // overdue work, category mix, streak, and the top open tasks) and ask for a short, warm
+        // reflection followed by one or two concrete next steps drawn from that open work.
         let session = LanguageModelSession(instructions: """
-            You write a two-sentence weekly productivity reflection. Warm, specific, \
-            grounded ONLY in the numbers given. No emojis, no exclamation marks, no advice \
-            unless the numbers clearly suggest it.
+            You are a calm productivity companion writing a brief weekly note. Structure: two \
+            short sentences of reflection on how the week went, then one or two concrete next \
+            steps the person could take, drawn ONLY from their actual open or overdue tasks. \
+            Warm and specific, grounded strictly in the data given — never invent tasks or \
+            numbers. No emojis, no exclamation marks. Keep it under 60 words.
             """)
         let prompt = """
-            This week: \(stats.completedCount) tasks completed, \(stats.capturedCount) thoughts captured.\
-            \(stats.topCategory.map { " Most completed category: \($0)." } ?? "")\
-            \(stats.busiestDay.map { " Busiest day: \($0)." } ?? "")
+            Completed this week: \(stats.completedCount). Captured this week: \(stats.capturedCount).
+            Open tasks right now: \(stats.openCount) (overdue: \(stats.overdueCount)).
+            Current daily streak: \(stats.currentStreakDays) day\(stats.currentStreakDays == 1 ? "" : "s").\
+            \(stats.busiestDay.map { "\nBusiest day: \($0)." } ?? "")\
+            \(stats.categoryMix.isEmpty ? "" : "\nCategory mix (completed): " + stats.categoryMix.map { "\($0.category) \($0.count)" }.joined(separator: ", ") + ".")\
+            \(stats.topOpenTasks.isEmpty ? "" : "\nTop open tasks: " + stats.topOpenTasks.map { "“\($0)”" }.joined(separator: ", ") + ".")
             """
         if let response = try? await session.respond(to: prompt) {
             return response.content
@@ -86,7 +136,14 @@ enum InsightsService {
         if let category = stats.topCategory {
             parts.append("Most of your progress was in \(category).")
         }
-        if let day = stats.busiestDay {
+        if stats.currentStreakDays >= 2 {
+            parts.append("You're on a \(stats.currentStreakDays)-day streak.")
+        }
+        if stats.overdueCount > 0 {
+            parts.append("\(stats.overdueCount) task\(stats.overdueCount == 1 ? " is" : "s are") overdue — a good place to start.")
+        } else if let open = stats.topOpenTasks.first {
+            parts.append("Next up: “\(open)”.")
+        } else if let day = stats.busiestDay {
             parts.append("\(day) was your busiest day.")
         }
         return parts.joined(separator: " ")

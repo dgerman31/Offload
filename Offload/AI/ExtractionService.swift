@@ -41,9 +41,21 @@ final class ExtractionService: TaskExtracting {
         Examples: "reply to a text" → [phone]; "buy milk" → [store, errands]; "at the gym" → [gym];
         "email the report" → [computer, work].
 
-        subtasks: when one action has sequential sub-steps, keep it ONE task with subtasks.
-        Example: "go home and grab my charger, the files, and water the plants" →
-        one task "Go home" with subtasks ["Grab charger", "Grab files", "Water plants"].
+        subtasks: use them ONLY when a single task genuinely contains two or more DISTINCT
+        sub-steps. Never decompose a simple errand into trivial steps, and never let a subtask
+        restate the errand itself.
+        - "go home and grab my charger, the files, and water the plants" → ONE task "Go home"
+          with subtasks ["Grab charger", "Grab files", "Water plants"] (3 distinct steps).
+        - "buy milk" → ONE task, NO subtasks. Do NOT emit ["Go to the store", "Buy milk", "Pay"].
+        - "go to the store to buy milk" → ONE task "Buy milk", NO subtasks — it is a single errand.
+        - "email the report" → ONE task, NO subtasks.
+        If you can't name at least two genuinely separate actions, emit no subtasks.
+
+        isAppointment: set true ONLY for a real calendar event happening at a specific time —
+        a meeting, doctor's appointment, reservation, or a call scheduled for a set time. Leave
+        it false for ordinary to-dos, errands, and reminders, even when they have a due date.
+        "dentist at 3pm Tuesday" → isAppointment true. "call the dentist to book" → false.
+        "buy milk tomorrow" → false.
 
         suggestedProject: return a name ONLY when the capture describes a genuine multi-step \
         endeavor spanning several related tasks (planning a party, a trip, a move, a launch). \

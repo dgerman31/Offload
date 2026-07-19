@@ -44,6 +44,9 @@ struct PreparedCapture {
     var candidates: [DuplicateCandidate]
     /// Existing open tasks keyed by id — the merge/skip targets a resolution may act on.
     var existingById: [String: TaskItem]
+    /// Ids of tasks the model flagged as time-anchored appointments — those that survive the
+    /// duplicate resolution become real calendar events during `finalize` (spec §3.3 write).
+    var appointmentTaskIds: Set<String> = []
 }
 
 /// The end-to-end capture pipeline (spec §2.3). Persists the raw input FIRST so nothing
@@ -74,15 +77,18 @@ final class CaptureService {
     private let db: AppDatabase
     private let extractor: any TaskExtracting
     private let embedder: any TextEmbedding
+    private let calendarWriter: any CalendarWriting
 
     init(
         db: AppDatabase = .shared,
         extractor: any TaskExtracting = ExtractionService(),
-        embedder: any TextEmbedding = EmbeddingService()
+        embedder: any TextEmbedding = EmbeddingService(),
+        calendarWriter: any CalendarWriting = EventKitCalendarWriter()
     ) {
         self.db = db
         self.extractor = extractor
         self.embedder = embedder
+        self.calendarWriter = calendarWriter
     }
 
     // MARK: Prepare (everything up to, but not including, insertion)
@@ -131,7 +137,8 @@ final class CaptureService {
                 project: mapped.project,
                 tasks: mapped.tasks,
                 candidates: candidates,
-                existingById: Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                existingById: Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
+                appointmentTaskIds: mapped.appointmentTaskIds
             )
         } catch {
             // Keep the raw transcript; mark failed so it can be retried later.
@@ -174,7 +181,14 @@ final class CaptureService {
 
         // Dropping a parent must drop its children too, so no subtask is orphaned.
         let allDropped = Self.withDescendants(of: droppedNewTaskIds, in: prepared.tasks)
-        let finalTasks = prepared.tasks.filter { !allDropped.contains($0.id) }
+        let survivingTasks = prepared.tasks.filter { !allDropped.contains($0.id) }
+
+        // 2c. Calendar write (spec §3.3): a surviving, time-anchored appointment becomes a real
+        // EventKit event; we stamp its `calendarEventId` before insert so it's stored atomically.
+        let finalTasks = await attachCalendarEvents(
+            to: survivingTasks,
+            appointmentTaskIds: prepared.appointmentTaskIds.subtracting(allDropped)
+        )
 
         // 3. Persist surviving project + tasks and any merge backfills in one transaction.
         let project = prepared.project
@@ -214,6 +228,30 @@ final class CaptureService {
         let prepared = try await prepare(rawInput: rawInput, inputType: inputType)
         // Empty resolutions => every candidate defaults to `.keepBoth`.
         return try await finalize(prepared, resolutions: [:])
+    }
+
+    // MARK: Calendar write
+
+    /// For each task flagged as an appointment (and not already linked to an event), create a
+    /// real calendar event and stamp its identifier onto the task. Best-effort: a task whose
+    /// event can't be created (no permission, no due date) is returned unchanged, still saved as
+    /// a normal task. Non-appointment tasks pass through untouched.
+    private func attachCalendarEvents(to tasks: [TaskItem], appointmentTaskIds: Set<String>) async -> [TaskItem] {
+        guard !appointmentTaskIds.isEmpty else { return tasks }
+        var result = tasks
+        for i in result.indices {
+            guard appointmentTaskIds.contains(result[i].id),
+                  result[i].calendarEventId == nil,
+                  let start = DueDate.parse(result[i].dueDate) else { continue }
+            if let eventId = await calendarWriter.createEvent(
+                title: result[i].title,
+                start: start,
+                durationMinutes: result[i].effortMinutes
+            ) {
+                result[i].calendarEventId = eventId
+            }
+        }
+        return result
     }
 
     // MARK: Merge / hierarchy helpers

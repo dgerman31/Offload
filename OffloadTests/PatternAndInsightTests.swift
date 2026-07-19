@@ -100,4 +100,27 @@ struct PatternAndInsightTests {
         #expect(stats.busiestDay == "Thursday") // Jul 16, 2026 is a Thursday
         #expect(!InsightsService.deterministicSummary(stats).isEmpty)
     }
+
+    @Test("Insight 2.0: stats surface open work, overdue count, streak, and top open tasks")
+    func weeklyStatsOpenWork() {
+        let now = utcCalendar.date(from: DateComponents(year: 2026, month: 7, day: 18, hour: 12))!
+        // Two completions on consecutive days feed a 2-day streak.
+        var d1 = TaskItem(title: "done a", category: "Work", status: "completed"); d1.completedAt = iso(17)
+        var d2 = TaskItem(title: "done b", category: "Work", status: "completed"); d2.completedAt = iso(18)
+        // Open tasks: a high-priority overdue one, a medium with no due date, a low one.
+        let overdue = TaskItem(title: "Pay rent", priority: "high", status: "open", dueDate: iso(15))
+        let noDue   = TaskItem(title: "Read book", priority: "medium", status: "open")
+        let low     = TaskItem(title: "Someday idea", priority: "low", status: "open")
+
+        let stats = InsightsService.weeklyStats(
+            tasks: [d1, d2, overdue, noDue, low], captures: [], now: now, calendar: utcCalendar
+        )
+        #expect(stats.completedCount == 2)
+        #expect(stats.openCount == 3)
+        #expect(stats.overdueCount == 1)              // only "Pay rent" is past due
+        #expect(stats.currentStreakDays == 2)         // Jul 17 + Jul 18
+        #expect(stats.topOpenTasks.first == "Pay rent")  // highest priority surfaced first
+        #expect(stats.topOpenTasks.count == 3)
+        #expect(!InsightsService.deterministicSummary(stats).isEmpty)
+    }
 }

@@ -26,6 +26,13 @@ struct CaptureServiceTests {
         func vector(for text: String) -> [Double]? { table[text] }
     }
 
+    /// Fake calendar writer — returns a fixed id without touching EventKit, so appointment
+    /// creation is deterministic on CI.
+    struct StubCalendarWriter: CalendarWriting {
+        var eventId: String?
+        func createEvent(title: String, start: Date, durationMinutes: Int?) async -> String? { eventId }
+    }
+
     /// One extracted task with an optional due date — helper for the dedup-blocking tests.
     private func extractedOneTask(title: String, dueDate: String? = nil, priority: String = "medium") -> ExtractedCapture {
         ExtractedCapture(
@@ -145,6 +152,47 @@ struct CaptureServiceTests {
         #expect(outcome.similarWarnings.count == 1)
         let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
         #expect(taskCount == 2)
+    }
+
+    // MARK: Calendar write (punch list #6)
+
+    @Test("An appointment task gets a calendar event id stamped on save")
+    func appointmentCreatesCalendarEvent() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Dentist", category: "Health", priority: "medium",
+                                  contextTags: [], dueDate: "2026-07-21T15:00:00Z", recurrenceRule: nil,
+                                  effortMinutes: 30, isAppointment: true, subtasks: [])],
+            suggestedProject: nil)
+        let service = CaptureService(db: db,
+                                     extractor: FakeExtractor(result: .success(extracted)),
+                                     embedder: NullEmbedder(),
+                                     calendarWriter: StubCalendarWriter(eventId: "evt-123"))
+
+        let outcome = try await service.process(rawInput: "dentist at 3pm friday", inputType: "text")
+        #expect(outcome.addedTasks == 1)
+        let saved = try await db.dbQueue.read { try TaskItem.fetchAll($0).first }
+        #expect(saved?.calendarEventId == "evt-123")
+    }
+
+    @Test("A non-appointment task never gets a calendar event, even with a due date")
+    func todoSkipsCalendar() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
+                                  contextTags: [], dueDate: "2026-07-21T15:00:00Z", recurrenceRule: nil,
+                                  effortMinutes: nil, isAppointment: false, subtasks: [])],
+            suggestedProject: nil)
+        let service = CaptureService(db: db,
+                                     extractor: FakeExtractor(result: .success(extracted)),
+                                     embedder: NullEmbedder(),
+                                     calendarWriter: StubCalendarWriter(eventId: "should-not-be-used"))
+
+        _ = try await service.process(rawInput: "buy milk tomorrow", inputType: "text")
+        let saved = try await db.dbQueue.read { try TaskItem.fetchAll($0).first }
+        #expect(saved?.calendarEventId == nil)
     }
 
     @Test("Success persists project + tasks and marks the capture done with instrumentation")

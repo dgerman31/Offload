@@ -1,6 +1,6 @@
 # Offload — Future Plans
 
-*Living document. Last updated: July 18, 2026 (v0.2.2 shipped). Nothing in here is forgotten; items graduate out as they ship.*
+*Living document. Last updated: July 18, 2026 (v0.2.4 — round-2 punch list complete, pending CI). Nothing in here is forgotten; items graduate out as they ship.*
 
 ---
 
@@ -8,23 +8,28 @@
 
 **Shipped & CI-verified through v0.2.2:** full 5-tab app · capture by typing **and** voice (auto-submit on stop) · Foundation Models extraction with few-shot prompting + subtask hierarchy · calendar **read** grounding tool · dedup warnings with tunable sensitivity · semantic + token search · pattern suggestions (recurrence / break-it-down) with background synthesis · weekly insight · correction-history learning ledger · energy batching · streaks & stats · Siri lock-screen capture ("Hey Siri, tell Offload") · elite-pass UI (rings, icon tags, pills, numbered project order).
 
+**Landed in v0.2.3–v0.2.4 (round-2 punch list — pending CI green):** lenient multi-strategy due-date parsing (timing bug) · auto-record on Action Button with a "type instead" escape · **blocking** dedup (Merge / Keep both / Skip before save) · subtask restraint (no trivial decomposition; ≥2 distinct steps, never restate the errand) · weekly insight 2.0 (reflection + concrete next steps from real open/overdue/streak data) · calendar **write** (real EventKit events for classified appointments, `calendar_event_id` stored).
+
 **Distribution:** GitHub Actions builds unsigned `.ipa` → Sideloadly + free Apple ID → iPhone 17 Pro. 7-day re-sign cycle. Version bumps every build.
 
 **Confirmed working on device:** priority inference, project restraint, subtask rendering, voice capture + auto-submit, on-device AI under free signing.
 
 ---
 
-## 2. Round-2 punch list (next build session — in this order)
+## 2. Round-2 punch list — ✅ COMPLETE (v0.2.3–v0.2.4, pending CI)
 
-1. **Timing bug — top priority.** Everything lands in "Anytime"; no immediate dues.
-   Prime suspect: model emits due dates without timezone (`2026-07-19T09:00`) and our strict `ISO8601DateFormatter` fails silently → task treated as dateless. Fix: lenient multi-strategy parsing everywhere dueDate is read + normalize to canonical ISO at save. Fallback hypothesis: model not emitting dueDate → surface raw value in edit sheet to verify, strengthen prompt.
-2. **Auto-record on Action Button.** Capture screen should already be listening when opened via Action Button (spec §2.3 says exactly this), with a visible "type instead" switch that stops the mic.
-3. **Dedup should block, not just warn.** Near-duplicate detected → present **Merge / Keep both / Skip** before saving (original spec §3.5 behavior). Also verify embeddings actually fire on device.
-4. **Subtask restraint.** No decomposing errands into trivial steps ("go to the store to buy X" = ONE task). Subtasks only for ≥2 genuinely distinct sub-steps; never restate the errand itself. Prompt counter-examples.
-5. **Weekly insight 2.0.** Not a stat readout — feed the model real data (top open tasks, overdue list, category mix, streak) and ask for a short reflection + 1–2 concrete next steps.
-6. **Calendar WRITE.** Meetings/appointments (only those) become real calendar events via EventKit; store `calendar_event_id` (column already exists). Model classifies appointment-ness during extraction.
+All six items implemented; confirm on device once CI is green and the fresh `.ipa` is sideloaded:
 
-**Known-good to protect:** priority inference (rent→high), project gating (stamps ≠ project), voice auto-submit.
+1. ✅ **Timing bug.** `DueDate` enum: lenient multi-strategy parsing at every read site + normalize to canonical ISO at save. Was: model emits `2026-07-19T09:00` (no tz) → strict `ISO8601DateFormatter` fails silently → "Anytime".
+2. ✅ **Auto-record on Action Button.** Sheet opens already listening (one-shot `autoListen` flag on the coordinator); a distinct "Type instead" control stops the mic without submitting. In-app taps stay typing-first.
+3. ✅ **Dedup blocks, not just warns.** `CaptureService` split into `prepare`/`finalize`; near-duplicates pause on a per-candidate **Merge / Keep both / Skip** choice before any insert. Headless Siri path still auto-keeps-both.
+4. ✅ **Subtask restraint.** Prompt counter-examples + deterministic `restrainedSubtasks` guard: drops lone/duplicate/errand-restating sub-steps; keeps only ≥2 genuinely distinct ones.
+5. ✅ **Weekly insight 2.0.** Model fed real open tasks, overdue count, category mix, and streak → short reflection + 1–2 concrete next steps. Deterministic fallback strengthened too.
+6. ✅ **Calendar WRITE.** `CalendarWriter` (EventKit) behind a protocol; model classifies `isAppointment`, appointments with a due date become real events and store `calendar_event_id`.
+
+**On-device verification checklist (do after next sideload):** appointment actually appears in Apple Calendar · dedup prompt fires with real embeddings · auto-record starts on Action Button press · insight reads as reflective, not a stat dump.
+
+**Known-good to protect:** priority inference (rent→high), project gating (stamps ≠ project), voice auto-submit, mic-tap stop-and-submit (distinct from "type instead").
 
 ---
 
@@ -86,8 +91,8 @@ The core premise is already a wellness claim: *the user forgets nothing; the min
 
 ## 6. Recommended sequence
 
-1. **Punch list** (§2) — correctness first.
-2. **Design mockup sprint** (§3) — interactive HTML artifact → approve → port to SwiftUI.
+1. ~~**Punch list** (§2) — correctness first.~~ ✅ Done (v0.2.3–v0.2.4). Verify on device once CI is green.
+2. **← NEXT: Design mockup sprint** (§3) — interactive HTML artifact → approve → port to SwiftUI.
 3. **Wellness features** (§4) ride on the polished foundation.
 4. **Engineering backlog** (§5) interleaved as needed; distribution upgrade when friction demands.
 

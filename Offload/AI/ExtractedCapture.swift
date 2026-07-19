@@ -37,6 +37,9 @@ struct ExtractedTask {
     @Guide(description: "Estimated effort in minutes if inferable, else nil")
     var effortMinutes: Int?
 
-    @Guide(description: "Short sub-step titles if this task naturally breaks into sequential steps, else empty")
+    @Guide(description: "true ONLY for a real calendar appointment at a specific time — a meeting, doctor visit, reservation, or a call scheduled for a set time. false for to-dos, errands, and reminders, even if they have a due date.")
+    var isAppointment: Bool = false
+
+    @Guide(description: "Sub-step titles ONLY when this task genuinely contains 2+ distinct actions; each must be its own concrete step, never a restatement of the task itself. A single errand (\"buy milk\", \"go to the store to buy milk\") has NO subtasks — leave empty.")
     var subtasks: [String]
 }

@@ -34,22 +34,44 @@ final class ExtractionService: TaskExtracting {
         Only set dueDate or recurrenceRule when the user actually implies timing — otherwise leave them nil.
 
         Split compound thoughts into separate tasks. Keep titles short and action-first.
-        Infer priority from the user's language intensity, not your own judgment.
+
+        priority: weigh THREE signals together, not just how loud the words are —
+        - Consequence: what happens if it slips? Bills, rent, taxes, deadlines, health,
+          medication, and things owed to other people are high even when phrased calmly.
+        - Urgency: due today or already overdue leans high; no time pressure leans low.
+        - Intensity: "really need to", "urgent", "ASAP", "don't forget" push higher; "maybe",
+          "someday", "at some point", "would be nice" pull lower.
+        high = important AND time-sensitive or high-consequence ("pay rent", "renew passport
+        before the trip", "call the doctor back"). medium = a normal actionable to-do with no
+        strong pressure (the sensible default). low = optional, vague, or someday/maybe ("might
+        reorganize the garage", "look into a new podcast"). When unsure, choose medium.
 
         contextTags: choose ONLY from this set, and add every tag that clearly applies —
         home, work, car, outside, store, gym, phone, computer, meeting, errands.
         Examples: "reply to a text" → [phone]; "buy milk" → [store, errands]; "at the gym" → [gym];
         "email the report" → [computer, work].
 
-        subtasks: use them ONLY when a single task genuinely contains two or more DISTINCT
-        sub-steps. Never decompose a simple errand into trivial steps, and never let a subtask
-        restate the errand itself.
-        - "go home and grab my charger, the files, and water the plants" → ONE task "Go home"
-          with subtasks ["Grab charger", "Grab files", "Water plants"] (3 distinct steps).
-        - "buy milk" → ONE task, NO subtasks. Do NOT emit ["Go to the store", "Buy milk", "Pay"].
-        - "go to the store to buy milk" → ONE task "Buy milk", NO subtasks — it is a single errand.
-        - "email the report" → ONE task, NO subtasks.
-        If you can't name at least two genuinely separate actions, emit no subtasks.
+        MATCH THE STRUCTURE TO THE COMPLEXITY. Give simple things a simple shape and complex
+        things a fuller one — never inflate an errand, never flatten a real project.
+        - Atomic (most captures): a single action → ONE task, NO subtasks, no project.
+          "buy milk", "go to the store to buy milk", "email the report", "text Sarah back",
+          "call the dentist to book" → one task each. Do NOT invent steps like "Go to the
+          store" / "Pay" — those are implied, not distinct tasks.
+        - Multi-step task: ONE action that genuinely has 2+ DISTINCT sub-steps → one task with
+          those steps as subtasks. Never let a subtask merely restate the task.
+          "go home and grab my charger, the files, and water the plants" → task "Go home" with
+          subtasks ["Grab charger", "Grab files", "Water plants"].
+          "prep for tomorrow's client presentation" → task "Prep client presentation" with
+          subtasks ["Pull latest numbers", "Build the slides", "Rehearse the walkthrough"].
+          If you cannot name at least two genuinely separate steps, emit NO subtasks.
+        - Project: a real endeavor spanning several related tasks (a trip, a move, a launch, a
+          party) → set suggestedProject and emit multiple tasks; decompose an individual task
+          into subtasks only when it too is genuinely multi-step. The bigger and more involved
+          the capture, the more tasks/subtasks it warrants.
+          "start planning mom's surprise party — book a venue, order the cake, send invites" →
+          suggestedProject "Mom's surprise party" with tasks "Book venue", "Order cake",
+          "Send invites". A weekend move might yield 6–8 tasks, some with their own subtasks.
+        Everyday single tasks and a couple of unrelated errands are NOT a project — return nil.
 
         isAppointment: set true ONLY for a real calendar event happening at a specific time —
         a meeting, doctor's appointment, reservation, or a call scheduled for a set time. Leave
@@ -57,18 +79,17 @@ final class ExtractionService: TaskExtracting {
         "dentist at 3pm Tuesday" → isAppointment true. "call the dentist to book" → false.
         "buy milk tomorrow" → false.
 
-        suggestedProject: return a name ONLY when the capture describes a genuine multi-step \
-        endeavor spanning several related tasks (planning a party, a trip, a move, a launch). \
-        For everyday single tasks or a couple of unrelated errands, return nil. Most captures are NOT projects.
-
         Worked examples:
         1) "I really need to email the quarterly report before I leave work today, then pick up \
         milk on the way home" → task "Email quarterly report" (Work, high, [computer, work], due \
-        today near end of workday) + task "Buy milk" (Personal, medium, [store, errands]); no project.
+        today near end of workday) + task "Buy milk" (Personal, medium, [store, errands]); no \
+        subtasks, no project.
         2) "start planning mom's surprise party — book a venue, order the cake, send invites" → \
         suggestedProject "Mom's surprise party" with tasks "Book venue", "Order cake", "Send invites".
         3) "maybe someday reorganize the garage" → one task, low priority, category Personal, no \
-        dueDate, no project.
+        dueDate, no subtasks, no project.
+        4) "rent's due friday" → one task "Pay rent" (Finance, high — a bill with a deadline), \
+        dueDate Friday; no subtasks.
 
         When the user implies timing on a specific day, call checkCalendarAvailability for that \
         date and pick a due time that avoids the busy windows.

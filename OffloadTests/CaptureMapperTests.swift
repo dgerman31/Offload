@@ -19,6 +19,48 @@ struct CaptureMapperTests {
         #expect(CaptureMapper.normalizedPriority("urgent") == "medium")
     }
 
+    // MARK: Priority guardrail — imminent work is never "low"
+
+    private var utcCalendar: Calendar {
+        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
+    }
+    private func isoUTC(day: Int, hour: Int = 12) -> String {
+        let d = utcCalendar.date(from: DateComponents(year: 2026, month: 7, day: day, hour: hour))!
+        let f = ISO8601DateFormatter(); f.timeZone = TimeZone(identifier: "UTC")
+        return f.string(from: d)
+    }
+    private func dateUTC(day: Int, hour: Int = 9) -> Date {
+        utcCalendar.date(from: DateComponents(year: 2026, month: 7, day: day, hour: hour))!
+    }
+
+    @Test("A low task due today or overdue is lifted to medium")
+    func lowLiftedWhenImminent() {
+        let now = dateUTC(day: 18)
+        #expect(CaptureMapper.resolvedPriority("low", dueDate: isoUTC(day: 18, hour: 17), now: now, calendar: utcCalendar) == "medium") // today
+        #expect(CaptureMapper.resolvedPriority("low", dueDate: isoUTC(day: 16), now: now, calendar: utcCalendar) == "medium")           // overdue
+    }
+
+    @Test("Guardrail leaves future-dated low, undated low, and high/medium untouched")
+    func guardrailRespectsOthers() {
+        let now = dateUTC(day: 18)
+        #expect(CaptureMapper.resolvedPriority("low", dueDate: isoUTC(day: 25), now: now, calendar: utcCalendar) == "low")   // future
+        #expect(CaptureMapper.resolvedPriority("low", dueDate: nil, now: now, calendar: utcCalendar) == "low")               // undated
+        #expect(CaptureMapper.resolvedPriority("high", dueDate: isoUTC(day: 18), now: now, calendar: utcCalendar) == "high")
+        #expect(CaptureMapper.resolvedPriority("medium", dueDate: isoUTC(day: 16), now: now, calendar: utcCalendar) == "medium")
+    }
+
+    @Test("map() applies the priority guardrail end to end")
+    func mapLiftsImminentLowPriority() {
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Pay parking ticket", category: "Finance", priority: "low",
+                                  contextTags: [], dueDate: isoUTC(day: 18, hour: 17), recurrenceRule: nil,
+                                  effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil)
+        let result = CaptureMapper.map(extracted, now: dateUTC(day: 18), calendar: utcCalendar)
+        #expect(result.tasks.first?.priority == "medium")
+    }
+
     @Test("Tags encode to lowercased JSON; empties dropped; nil when none")
     func tagEncoding() {
         #expect(CaptureMapper.encodeTags(["Home", " Store ", ""]) == "[\"home\",\"store\"]")

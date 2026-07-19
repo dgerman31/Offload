@@ -28,7 +28,8 @@ enum CaptureMapper {
     }
 
     /// Build a `Project` (only for genuine multi-step clusters) and the `TaskItem`s, linked to it.
-    static func map(_ extracted: ExtractedCapture) -> Result {
+    /// `now` grounds the due-date priority guardrail below (defaulted so callers stay simple).
+    static func map(_ extracted: ExtractedCapture, now: Date = Date(), calendar: Calendar = .current) -> Result {
         let project: Project? = {
             guard extracted.tasks.count >= minTasksForProject,
                   let name = extracted.suggestedProject?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -44,7 +45,7 @@ enum CaptureMapper {
             let parent = TaskItem(
                 title: t.title.trimmingCharacters(in: .whitespacesAndNewlines),
                 category: normalizedCategory(t.category),
-                priority: normalizedPriority(t.priority),
+                priority: resolvedPriority(normalizedPriority(t.priority), dueDate: dueDate, now: now, calendar: calendar),
                 projectId: project?.id,
                 dueDate: dueDate,
                 dueDateConfidence: dueDate == nil ? nil : 0.5,
@@ -113,6 +114,16 @@ enum CaptureMapper {
 
     static func normalizedPriority(_ raw: String) -> String {
         priorities.contains(raw) ? raw : "medium"
+    }
+
+    /// Guardrail against under-prioritized imminent work: something due today or already
+    /// overdue is never "low", even when the user's phrasing was casual (a common source of
+    /// the model mis-calling priority). Only lifts low→medium; the model's high/medium calls
+    /// and anything without a near-term due date are left untouched.
+    static func resolvedPriority(_ priority: String, dueDate: String?, now: Date, calendar: Calendar = .current) -> String {
+        guard priority == "low", let due = DueDate.parse(dueDate) else { return priority }
+        let todayOrOverdue = calendar.isDate(due, inSameDayAs: now) || due < now
+        return todayOrOverdue ? "medium" : "low"
     }
 
     /// Encode context tags as a JSON array string: lowercased, restricted to the allowed

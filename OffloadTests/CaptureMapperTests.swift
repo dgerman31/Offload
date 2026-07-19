@@ -36,9 +36,10 @@ struct CaptureMapperTests {
         #expect(CaptureMapper.actionTitle("Retrieve jacket from school") == "Retrieve jacket from school")
     }
 
-    @Test("actionTitle never empties a title — fluff-only input falls back to the original")
+    @Test("actionTitle never empties a title — fluff-only input survives (capitalized, not stripped)")
     func actionTitleNeverEmpty() {
-        #expect(CaptureMapper.actionTitle("remember to") == "remember to")
+        // No trailing space, so no prefix matches; only the capitalization pass applies.
+        #expect(CaptureMapper.actionTitle("remember to") == "Remember to")
         #expect(CaptureMapper.actionTitle("  ") == "")   // whitespace-only was already empty
     }
 

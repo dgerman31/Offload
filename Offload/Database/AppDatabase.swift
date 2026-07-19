@@ -36,6 +36,19 @@ final class AppDatabase: Sendable {
         try AppDatabase(try DatabaseQueue())
     }
 
+    // MARK: Data reset
+
+    /// Remove ALL user data — every task, project, capture, detected pattern, and correction —
+    /// in one transaction. Irreversible; backs the "Erase all tasks" reset in Settings. The
+    /// schema itself is left intact, so the app keeps working on a clean slate.
+    func eraseAllData() async throws {
+        try await dbQueue.write { db in
+            for table in ["tasks", "projects", "captures", "patterns", "corrections"] {
+                try db.execute(sql: "DELETE FROM \(table)")
+            }
+        }
+    }
+
     // MARK: Migrations (spec §6 schema)
 
     static let migrator: DatabaseMigrator = {

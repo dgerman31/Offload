@@ -61,4 +61,35 @@ struct DatabaseTests {
         #expect(counts.2 == 1)
         #expect(counts.3 == 1)
     }
+
+    @Test("eraseAllData clears every table but leaves the schema usable")
+    func eraseAllData() async throws {
+        let appDB = try AppDatabase.makeInMemory()
+        let parent = TaskItem(title: "Go home")
+        try await appDB.dbQueue.write { db in
+            try parent.insert(db)
+            try TaskItem(title: "Grab charger", parentTaskId: parent.id).insert(db)
+            try Project(title: "Trip planning").insert(db)
+            try Capture(rawInput: "remember to call mom", inputType: "voice").insert(db)
+            try Correction(field: "category", modelValue: "Work", userValue: "Personal").insert(db)
+            try Pattern(patternType: "recurrence", title: "Weekly review").insert(db)
+        }
+
+        try await appDB.eraseAllData()
+
+        let counts = try await appDB.dbQueue.read { db in
+            (try TaskItem.fetchCount(db), try Project.fetchCount(db), try Capture.fetchCount(db),
+             try Correction.fetchCount(db), try Pattern.fetchCount(db))
+        }
+        #expect(counts.0 == 0)
+        #expect(counts.1 == 0)
+        #expect(counts.2 == 0)
+        #expect(counts.3 == 0)
+        #expect(counts.4 == 0)
+
+        // Schema survives the wipe — the app keeps working on a clean slate.
+        try await appDB.dbQueue.write { db in try TaskItem(title: "Fresh start").insert(db) }
+        let after = try await appDB.dbQueue.read { db in try TaskItem.fetchCount(db) }
+        #expect(after == 1)
+    }
 }

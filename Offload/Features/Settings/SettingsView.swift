@@ -10,6 +10,8 @@ struct SettingsView: View {
     @State private var statsStore = StatsStore()
     @State private var insight: String?
     @State private var generatingInsight = false
+    @State private var confirmingErase = false
+    @State private var erasing = false
 
     var body: some View {
         NavigationStack {
@@ -97,9 +99,39 @@ struct SettingsView: View {
                           systemImage: "lock.fill")
                         .foregroundStyle(Color.Offload.text)
                 }
+
+                Section {
+                    Button(role: .destructive) {
+                        confirmingErase = true
+                    } label: {
+                        HStack {
+                            Label("Erase all tasks", systemImage: "trash.fill")
+                            if erasing { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(erasing)
+                } header: {
+                    Text("Data")
+                } footer: {
+                    Text("Permanently deletes every task, project, and capture on this iPhone. This can't be undone.")
+                }
             }
             .navigationTitle("Settings")
             .task { await statsStore.observe() }
+            // Destructive and irreversible — always confirm first (spec §5.7).
+            .confirmationDialog("Erase all tasks?", isPresented: $confirmingErase, titleVisibility: .visible) {
+                Button("Erase everything", role: .destructive) {
+                    erasing = true
+                    Task {
+                        try? await AppDatabase.shared.eraseAllData()
+                        erasing = false
+                        Haptics.success()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This deletes every task, project, and capture on this iPhone. It can't be undone.")
+            }
         }
     }
 

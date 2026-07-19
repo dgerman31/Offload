@@ -29,19 +29,27 @@ struct TaskRowView: View {
                     .padding(.top, 4)
             }
 
-            Button(action: onToggle) {
+            Button {
+                Haptics.light()
+                onToggle()
+            } label: {
                 Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(indented ? .body : .title3)
-                    .foregroundStyle(isCompleted ? Color.Offload.green : Color.Offload.muted)
+                    .foregroundStyle(isCompleted ? Color.Offload.green : Color.Offload.muted.opacity(0.7))
+                    .symbolEffect(.bounce, value: isCompleted)
+                    .scaleEffect(isCompleted ? 1.06 : 1)
+                    .animation(Motion.quick, value: isCompleted)
+                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable(scale: 0.85))
             .accessibilityLabel(isCompleted ? "Mark not done" : "Mark done")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)
                     .font(indented ? .Offload.body : .Offload.taskTitle)
-                    .foregroundStyle(Color.Offload.text)
+                    .foregroundStyle(isCompleted ? Color.Offload.muted : Color.Offload.text)
                     .strikethrough(isCompleted, color: Color.Offload.muted)
+                    .animation(Motion.standard, value: isCompleted)
 
                 if !indented {
                     HStack(spacing: 8) {
@@ -118,9 +126,9 @@ struct TaskRowView: View {
 
     private func chip(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.caption).fontWeight(.medium)
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(color.opacity(0.12), in: .capsule)
+            .font(.caption2).fontWeight(.semibold)
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(color.opacity(0.11), in: .capsule)
             .foregroundStyle(color)
     }
 

@@ -3,101 +3,144 @@ import SwiftUI
 /// The Calendar tab: a month grid you can tap into, with the selected day's real timeline
 /// below — calendar events and due tasks merged in the order they'll actually happen.
 /// Swipe left/right on the grid to change months.
+///
+/// Motion: months slide in from the direction you moved, the selection puck travels between
+/// days via `matchedGeometryEffect`, and timeline rows fade under the scroll.
 struct CalendarView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var store = CalendarStore()
     @State private var editing: TaskItem?
+    @State private var appeared = false
+    @Namespace private var selectionNamespace
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    monthHeader
-                    weekdayHeader
-                    monthGrid
-                    Divider().padding(.horizontal)
+                VStack(spacing: 22) {
+                    calendarPanel
+                        .appearIn(0, when: appeared)
                     dayDetail
+                        .appearIn(1, when: appeared)
                 }
-                .padding(.vertical, 8)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .padding(.bottom, 40)
             }
+            .scrollIndicators(.hidden)
             .background(Color.Offload.background)
             .navigationTitle("Calendar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Today") { store.goToToday() }
+                    Button("Today") { withAnimation(Motion.page) { store.goToToday() } }
                         .font(.Offload.taskTitle)
+                        .buttonStyle(.pressable)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { capture.beginCapture() } label: {
                         Image(systemName: "bolt.circle.fill").font(.title2)
                     }
+                    .buttonStyle(.pressable(scale: 0.9))
                     .accessibilityLabel("Quick Capture")
                 }
             }
             .task { await store.observeTasks() }
             .task { await store.loadEvents() }
+            .task { withAnimation(Motion.settle) { appeared = true } }
             .sheet(item: $editing) { task in
                 NavigationStack { TaskEditView(task: task) }
             }
         }
     }
 
-    // MARK: Month header
+    // MARK: Calendar panel
+
+    private var calendarPanel: some View {
+        VStack(spacing: 16) {
+            monthHeader
+            weekdayHeader
+            monthGrid
+        }
+        .padding(.vertical, 18)
+        .padding(.horizontal, 12)
+        .offloadCard(cornerRadius: 24, elevation: .medium)
+    }
 
     private var monthHeader: some View {
         HStack {
-            Button { store.moveMonth(by: -1) } label: {
-                Image(systemName: "chevron.left").font(.headline)
-            }
-            .accessibilityLabel("Previous month")
-
+            monthButton("chevron.left", label: "Previous month") { store.moveMonth(by: -1) }
             Spacer()
             Text(store.monthTitle)
-                .font(.Offload.section)
+                .font(.system(.title2, design: .rounded).weight(.bold))
+                .tracking(-0.4)
                 .foregroundStyle(Color.Offload.text)
+                .contentTransition(.opacity)
+                .animation(Motion.page, value: store.monthTitle)
             Spacer()
-
-            Button { store.moveMonth(by: 1) } label: {
-                Image(systemName: "chevron.right").font(.headline)
-            }
-            .accessibilityLabel("Next month")
+            monthButton("chevron.right", label: "Next month") { store.moveMonth(by: 1) }
         }
-        .foregroundStyle(Color.Offload.indigo)
-        .padding(.horizontal)
+        .padding(.horizontal, 6)
+    }
+
+    private func monthButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(Motion.page) { action() }
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color.Offload.indigo)
+                .frame(width: 34, height: 34)
+                .background(Color.Offload.indigo.opacity(0.10), in: .circle)
+        }
+        .buttonStyle(.pressable(scale: 0.88))
+        .accessibilityLabel(label)
     }
 
     private var weekdayHeader: some View {
         HStack(spacing: 4) {
             ForEach(Array(store.weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
-                Text(symbol)
-                    .font(.caption).fontWeight(.semibold)
-                    .foregroundStyle(Color.Offload.muted)
+                Text(symbol.uppercased())
+                    .font(.caption2).fontWeight(.bold)
+                    .tracking(0.6)
+                    .foregroundStyle(Color.Offload.muted.opacity(0.8))
                     .frame(maxWidth: .infinity)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 6)
     }
 
     // MARK: Grid
 
     private var monthGrid: some View {
         let density = store.densityByDay
-        return LazyVGrid(columns: columns, spacing: 4) {
+        return LazyVGrid(columns: columns, spacing: 6) {
             ForEach(store.gridDays, id: \.timeIntervalSince1970) { day in
                 dayCell(day, density: density[Calendar.current.startOfDay(for: day)] ?? DayDensity())
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 6)
+        .id(store.visibleMonth)
+        .transition(monthTransition)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 40)
                 .onEnded { value in
-                    if value.translation.width < -40 { store.moveMonth(by: 1) }
-                    else if value.translation.width > 40 { store.moveMonth(by: -1) }
+                    withAnimation(Motion.page) {
+                        if value.translation.width < -40 { store.moveMonth(by: 1) }
+                        else if value.translation.width > 40 { store.moveMonth(by: -1) }
+                    }
                 }
+        )
+    }
+
+    /// Slide in from whichever side matches the direction of travel.
+    private var monthTransition: AnyTransition {
+        let forward = store.lastMoveDirection >= 0
+        return .asymmetric(
+            insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+            removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)
         )
     }
 
@@ -107,21 +150,33 @@ struct CalendarView: View {
         let inMonth = store.isInVisibleMonth(day)
 
         return Button {
-            store.select(day)
+            withAnimation(Motion.quick) { store.select(day) }
         } label: {
-            VStack(spacing: 4) {
-                Text("\(Calendar.current.component(.day, from: day))")
-                    .font(.system(.callout, design: .rounded))
-                    .fontWeight(today || selected ? .bold : .regular)
-                    .foregroundStyle(dayNumberColor(selected: selected, today: today, inMonth: inMonth))
-                    .frame(width: 32, height: 32)
-                    .background {
-                        if selected {
-                            Circle().fill(Color.Offload.indigo)
-                        } else if today {
-                            Circle().stroke(Color.Offload.indigo, lineWidth: 1.5)
-                        }
+            VStack(spacing: 5) {
+                ZStack {
+                    // The selection puck travels between days instead of blinking on/off.
+                    if selected {
+                        Circle()
+                            .fill(
+                                LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x3B4CB8)],
+                                               startPoint: .top, endPoint: .bottom)
+                            )
+                            // Scoped per month so the outgoing and incoming grids during a
+                            // month transition never claim the same geometry group.
+                            .matchedGeometryEffect(
+                                id: "selectedDay-\(Calendar.current.component(.month, from: store.visibleMonth))",
+                                in: selectionNamespace
+                            )
+                            .elevated(.low)
+                    } else if today {
+                        Circle().strokeBorder(Color.Offload.indigo.opacity(0.55), lineWidth: 1.5)
                     }
+                    Text("\(Calendar.current.component(.day, from: day))")
+                        .font(.system(.callout, design: .rounded))
+                        .fontWeight(today || selected ? .bold : .medium)
+                        .foregroundStyle(dayNumberColor(selected: selected, today: today, inMonth: inMonth))
+                }
+                .frame(width: 34, height: 34)
 
                 // Density dots: one per kind, so a glance shows "busy with what".
                 HStack(spacing: 3) {
@@ -135,19 +190,20 @@ struct CalendarView: View {
                     }
                 }
                 .frame(height: 5)
-                .opacity(inMonth ? 1 : 0.35)
+                .opacity(inMonth ? 1 : 0.3)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.9))
         .accessibilityLabel(accessibilityLabel(day, density: density, selected: selected, today: today))
     }
 
     private func dayNumberColor(selected: Bool, today: Bool, inMonth: Bool) -> Color {
         if selected { return .white }
         if today { return Color.Offload.indigo }
-        return inMonth ? Color.Offload.text : Color.Offload.muted.opacity(0.5)
+        return inMonth ? Color.Offload.text : Color.Offload.muted.opacity(0.45)
     }
 
     private func accessibilityLabel(_ day: Date, density: DayDensity, selected: Bool, today: Bool) -> String {
@@ -165,19 +221,32 @@ struct CalendarView: View {
 
     private var dayDetail: some View {
         let items = store.selectedDayItems
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
                 Text(selectedDayTitle)
-                    .font(.Offload.section)
+                    .font(.system(.title3, design: .rounded).weight(.bold))
+                    .tracking(-0.3)
                     .foregroundStyle(Color.Offload.text)
+                    .contentTransition(.opacity)
                 Spacer()
-                if store.loadingEvents { ProgressView() }
+                if store.loadingEvents {
+                    ProgressView().controlSize(.small)
+                } else if !items.isEmpty {
+                    Text("\(items.count)")
+                        .font(.caption).fontWeight(.semibold)
+                        .foregroundStyle(Color.Offload.muted)
+                        .contentTransition(.numericText(value: Double(items.count)))
+                }
             }
+            .animation(Motion.standard, value: selectedDayTitle)
 
             if !store.calendarAccess {
                 Label("Turn on calendar access to see your events here.", systemImage: "calendar.badge.exclamationmark")
                     .font(.Offload.body)
                     .foregroundStyle(Color.Offload.muted)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .offloadCard()
             }
 
             if items.isEmpty {
@@ -190,18 +259,19 @@ struct CalendarView: View {
                         .foregroundStyle(Color.Offload.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .background(Color.Offload.surface, in: .rect(cornerRadius: 14))
+                .padding(16)
+                .offloadCard()
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     ForEach(items) { item in
-                        timelineRow(item)
+                        timelineRow(item).scrollAppear(scale: 0.97, lift: 10)
                     }
                 }
+                .transition(.opacity)
             }
         }
-        .padding(.horizontal)
-        .padding(.bottom, 24)
+        .animation(Motion.standard, value: store.selectedDate)
     }
 
     private var selectedDayTitle: String {
@@ -217,15 +287,15 @@ struct CalendarView: View {
             eventRow(event)
         case let .task(task):
             Button { editing = task } label: { taskRow(task) }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable(scale: 0.98))
         }
     }
 
     private func eventRow(_ event: CalendarEvent) -> some View {
         let accent = event.colorHex.map { Color(hex: $0) } ?? Color.Offload.teal
-        return HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 2).fill(accent).frame(width: 4)
-            VStack(alignment: .leading, spacing: 3) {
+        return HStack(spacing: 13) {
+            Capsule().fill(accent).frame(width: 4)
+            VStack(alignment: .leading, spacing: 4) {
                 Text(event.title)
                     .font(.Offload.taskTitle)
                     .foregroundStyle(Color.Offload.text)
@@ -243,16 +313,21 @@ struct CalendarView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 10).padding(.horizontal, 12)
+        .padding(.vertical, 13).padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(accent.opacity(0.10), in: .rect(cornerRadius: 12))
+        .background(accent.opacity(0.10), in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(accent.opacity(0.18), lineWidth: 0.5)
+        )
     }
 
     private func taskRow(_ task: TaskItem) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 13) {
             Image(systemName: "circle")
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(task.priority == "high" ? Color.Offload.red : Color.Offload.muted)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
                     .font(.Offload.taskTitle)
                     .foregroundStyle(Color.Offload.text)
@@ -264,20 +339,19 @@ struct CalendarView: View {
                     }
                     if let category = task.category {
                         Text(category)
-                            .font(.caption)
+                            .font(.caption).fontWeight(.medium)
                             .foregroundStyle(Color.Offload.indigo)
                     }
                 }
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(Color.Offload.muted)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.Offload.muted.opacity(0.6))
         }
-        .padding(.vertical, 10).padding(.horizontal, 12)
+        .padding(.vertical, 13).padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Offload.surface, in: .rect(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.Offload.divider, lineWidth: 1))
+        .offloadCard(cornerRadius: 16)
     }
 
     static func time(_ date: Date) -> String {

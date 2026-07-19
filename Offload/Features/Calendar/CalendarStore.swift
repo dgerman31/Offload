@@ -18,6 +18,9 @@ final class CalendarStore {
     private(set) var visibleMonth: Date
     /// The day the user has tapped into.
     private(set) var selectedDate: Date
+    /// Which way the last month change went (+1 forward, -1 back) so the grid can slide
+    /// in from the side you'd expect rather than always the same edge.
+    private(set) var lastMoveDirection = 1
 
     private let db: AppDatabase
     private let reader: any CalendarReading
@@ -84,10 +87,12 @@ final class CalendarStore {
     // MARK: Actions
 
     func select(_ day: Date) {
+        let wasEarlier = day < selectedDate
         selectedDate = calendar.startOfDay(for: day)
         Haptics.light()
         // Tapping a day outside the visible month follows it there.
         if !isInVisibleMonth(day) {
+            lastMoveDirection = wasEarlier ? -1 : 1
             visibleMonth = day
             Task { await loadEvents() }
         }
@@ -95,6 +100,7 @@ final class CalendarStore {
 
     func moveMonth(by delta: Int) {
         guard let moved = calendar.date(byAdding: .month, value: delta, to: visibleMonth) else { return }
+        lastMoveDirection = delta >= 0 ? 1 : -1
         visibleMonth = moved
         Haptics.light()
         Task { await loadEvents() }
@@ -102,6 +108,7 @@ final class CalendarStore {
 
     func goToToday(now: Date = Date()) {
         let changedMonth = !calendar.isDate(visibleMonth, equalTo: now, toGranularity: .month)
+        lastMoveDirection = now < visibleMonth ? -1 : 1
         visibleMonth = now
         selectedDate = calendar.startOfDay(for: now)
         Haptics.light()

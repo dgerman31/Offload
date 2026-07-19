@@ -15,11 +15,15 @@ extension Color {
         static let red      = Color(hex: 0xEF4444)   // overdue / blocked
 
         // Surfaces + text — adapt to light/dark.
-        static let background = Color(light: 0xFAFAF8, dark: 0x121212) // warm off-white / near-black
-        static let surface    = Color(light: 0xFFFFFF, dark: 0x1E1E1E) // cards, inputs
+        static let background = Color(light: 0xFAFAF8, dark: 0x0E1020) // warm off-white / deep indigo-black
+        static let surface    = Color(light: 0xFFFFFF, dark: 0x181B2E) // cards, inputs
         static let text       = Color(light: 0x1F2937, dark: 0xECECEC) // primary text
         static let muted      = Color(light: 0x6B7280, dark: 0x9AA0AA) // secondary text
-        static let divider    = Color(light: 0xE5E7EB, dark: 0x2C2C2E)
+        static let divider    = Color(light: 0xE5E7EB, dark: 0x2C3050)
+
+        /// Barely-there edge that separates layered surfaces in dark mode, where shadow alone
+        /// can't. Near-invisible in light mode so cards read as pure depth, not outlines.
+        static let hairline = Color(light: 0x000000, dark: 0xFFFFFF).opacity(0.06)
     }
 }
 

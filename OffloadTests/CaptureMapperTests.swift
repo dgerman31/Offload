@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import Offload
 
 /// Tests the deterministic mapping from model output to domain records. No model calls,

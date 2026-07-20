@@ -61,10 +61,13 @@ jobs:
       - name: Pick a simulator
         id: sim
         run: |
-          LIST=$(xcrun simctl list devices available)
-          echo "$LIST"
-          UDID=$(echo "$LIST" | sed -n -E 's/^[[:space:]]*iPhone[^(]*\(([0-9A-Fa-f-]{36})\).*/\1/p' | head -1)
-          if [ -z "$UDID" ]; then echo "::error::No iPhone simulator available on this runner"; exit 1; fi
+          # Ask xcodebuild rather than simctl: simctl happily lists iPhones on runtimes older
+          # than our iOS 26 deployment target, which aren't valid destinations for the scheme.
+          DESTS=$(xcodebuild -project Offload.xcodeproj -scheme Offload -showdestinations 2>/dev/null || true)
+          echo "$DESTS"
+          UDID=$(echo "$DESTS" | grep "platform:iOS Simulator" | grep "name:iPhone" \
+                 | sed -n -E 's/.*id:([0-9A-Fa-f-]{36}).*/\1/p' | head -1)
+          if [ -z "$UDID" ]; then echo "::error::No usable iPhone simulator for this scheme"; exit 1; fi
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 

@@ -7,6 +7,7 @@ struct CaptureView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @Environment(\.dismiss) private var dismiss
     @State private var vm = CaptureViewModel()
+    @State private var pulse = false
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
@@ -46,7 +47,8 @@ struct CaptureView: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("What's on your mind?")
-                .font(.Offload.section)
+                .font(.system(.title2, design: .rounded).weight(.bold))
+                .tracking(-0.4)
                 .foregroundStyle(Color.Offload.text)
 
             TextField("Speak or type a passing thought…", text: $vm.text, axis: .vertical)
@@ -54,9 +56,14 @@ struct CaptureView: View {
                 .lineLimit(3...12)
                 .focused($fieldFocused)
                 .disabled(vm.isProcessing)
-                .padding()
-                .background(Color.Offload.surface, in: .rect(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Offload.divider, lineWidth: 1))
+                .padding(16)
+                .offloadCard(cornerRadius: 18)
+                // A live ring while dictating, so the mic never feels ambiguous.
+                .overlay(alignment: .topTrailing) {
+                    if vm.isListening {
+                        listeningPulse.padding(14)
+                    }
+                }
 
             // Voice is an *additional* input — the text field above always works too.
             HStack(spacing: 12) {
@@ -103,9 +110,30 @@ struct CaptureView: View {
                         .font(.Offload.body)
                         .foregroundStyle(Color.Offload.muted)
                 }
+                .transition(.opacity)
             }
             Spacer()
         }
+        .animation(Motion.standard, value: vm.isListening)
+        .animation(Motion.standard, value: vm.isProcessing)
+    }
+
+    /// Breathing ring shown while the mic is live.
+    private var listeningPulse: some View {
+        ZStack {
+            Circle()
+                .fill(Color.Offload.teal.opacity(0.18))
+                .frame(width: 26, height: 26)
+                .scaleEffect(pulse ? 1.35 : 0.9)
+                .opacity(pulse ? 0 : 1)
+            Circle()
+                .fill(Color.Offload.teal)
+                .frame(width: 9, height: 9)
+        }
+        .animation(.easeOut(duration: 1.1).repeatForever(autoreverses: false), value: pulse)
+        .onAppear { pulse = true }
+        .onDisappear { pulse = false }
+        .accessibilityHidden(true)
     }
 
     // MARK: Duplicate review — block before saving (spec §3.5)

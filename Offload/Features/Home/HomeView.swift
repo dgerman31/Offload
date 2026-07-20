@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var addingTask = false
     @State private var planningDay = false
     @State private var focusTask: TaskItem?
+    @State private var activeRitual: RitualView.Mode?
     private var patterns: PatternService { PatternService.shared }
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
@@ -66,8 +67,11 @@ struct HomeView: View {
                     if isToday, showPlanPrompt {
                         planDayCard.appearIn(2, when: appeared).scrollAppear()
                     }
+                    if isToday, let ritual = suggestedRitual {
+                        ritualCard(ritual).appearIn(3, when: appeared).scrollAppear()
+                    }
                     if isToday, load.openLoops > 0 {
-                        mentalLoadCard.appearIn(3, when: appeared).scrollAppear()
+                        mentalLoadCard.appearIn(4, when: appeared).scrollAppear()
                     }
                     if !patterns.suggestions.isEmpty {
                         suggestionsCard.appearIn(3, when: appeared).scrollAppear()
@@ -140,6 +144,11 @@ struct HomeView: View {
             }
             .fullScreenCover(item: $focusTask) { task in
                 FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
+            }
+            .sheet(item: $activeRitual) { mode in
+                RitualView(mode: mode, tasks: store.allTasks, events: store.rangeEvents) {
+                    planningDay = true
+                }
             }
             .overlay(alignment: .bottom) { undoOverlay }
             .animation(Motion.standard, value: store.undo?.id)
@@ -359,6 +368,54 @@ struct HomeView: View {
     private var planPromptSubtitle: String {
         let loose = unscheduled.count + overdueTasks.count
         return "Fit \(loose) loose task\(loose == 1 ? "" : "s") into your free time"
+    }
+
+    // MARK: Rituals
+
+    /// Offer the brief early and the shutdown late — a ritual prompt at the wrong hour is
+    /// just noise, so this appears only when it's actually the right moment.
+    private var suggestedRitual: RitualView.Mode? {
+        let hour = Calendar.current.component(.hour, from: now)
+        switch hour {
+        case 5..<11:  return .morning
+        case 19..<24: return .evening
+        default:      return nil
+        }
+    }
+
+    private func ritualCard(_ mode: RitualView.Mode) -> some View {
+        Button { activeRitual = mode } label: {
+            HStack(spacing: 14) {
+                Image(systemName: mode == .morning ? "sun.horizon.fill" : "moon.stars.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        LinearGradient(colors: mode.accentColors,
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: .rect(cornerRadius: 12, style: .continuous)
+                    )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mode == .morning ? "Morning brief" : "Close the day")
+                        .font(.Offload.taskTitle)
+                        .foregroundStyle(Color.Offload.text)
+                    Text(mode == .morning
+                         ? "See the shape of today in one place"
+                         : "Review, park what's left, empty your head")
+                        .font(.Offload.data)
+                        .foregroundStyle(Color.Offload.muted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.Offload.muted)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .offloadCard()
+        }
+        .buttonStyle(.pressable(scale: 0.99))
     }
 
     // MARK: Mental load

@@ -71,8 +71,8 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     /// Pure-ish routing, separated so the id parsing is testable without a live notification.
     func handle(identifier: String, action: String) async {
         guard let taskId = Self.taskId(from: identifier) else { return }
-        guard let task = try? await db.dbQueue.read({ try TaskItem.fetchOne($0, key: taskId) }),
-              let found = task
+        // `try?` already flattens the optional fetch result, so one binding is enough.
+        guard let found = try? await db.dbQueue.read({ try TaskItem.fetchOne($0, key: taskId) })
         else { return }
 
         switch action {

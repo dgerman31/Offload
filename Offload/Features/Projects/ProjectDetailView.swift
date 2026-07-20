@@ -117,6 +117,13 @@ struct ProjectDetailView: View {
                             TaskRowView(task: task, onEdit: { editing = task }) { Task { await store.toggleComplete(task) } }
                         }
                         .listRowBackground(Color.Offload.background)
+                        .taskSwipeActions(task) {
+                            Task { await store.toggleComplete(task) }
+                        } onDelete: {
+                            Task { await TaskActions.delete(task) }
+                        } onSnooze: { preset in
+                            Task { await TaskActions.snooze(task, preset) }
+                        }
                     }
                 }
             }
@@ -125,6 +132,11 @@ struct ProjectDetailView: View {
                     ForEach(store.done) { task in
                         TaskRowView(task: task, onEdit: { editing = task }) { Task { await store.toggleComplete(task) } }
                             .listRowBackground(Color.Offload.background)
+                            .taskSwipeActions(task) {
+                                Task { await store.toggleComplete(task) }
+                            } onDelete: {
+                                Task { await TaskActions.delete(task) }
+                            }
                     }
                 }
             }

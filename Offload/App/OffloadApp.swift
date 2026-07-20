@@ -8,6 +8,11 @@ struct OffloadApp: App {
 
     init() {
         BackgroundSynthesis.register()
+        // Register notification actions before any reminder can arrive, so "Mark done" and
+        // "In an hour" are available on the very first one.
+        MainActor.assumeIsolated {
+            NotificationDelegate.shared.register()
+        }
     }
 
     var body: some Scene {

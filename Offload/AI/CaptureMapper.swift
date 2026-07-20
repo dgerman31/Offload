@@ -120,8 +120,14 @@ enum CaptureMapper {
 
     // MARK: Helpers
 
-    static func normalizedCategory(_ raw: String) -> String {
-        categories.contains(raw) ? raw : "Other"
+    /// Accept the built-in set plus anything the user has defined for themselves; anything
+    /// else the model invents still falls back to "Other".
+    static func normalizedCategory(_ raw: String, allowed: [String]? = nil) -> String {
+        let valid = allowed ?? CustomCategories.all()
+        if let match = valid.first(where: { $0.caseInsensitiveCompare(raw) == .orderedSame }) {
+            return match
+        }
+        return categories.contains(raw) ? raw : "Other"
     }
 
     static func normalizedPriority(_ raw: String) -> String {

@@ -600,29 +600,11 @@ struct HomeView: View {
         }
     }
 
-    /// Long-press actions — snooze, status, delete — available anywhere a task appears.
+    /// Long-press actions come from the single shared definition, so what you can do to a task
+    /// never depends on which screen you found it on.
     @ViewBuilder
     private func taskMenu(_ task: TaskItem) -> some View {
-        Button { focusTask = task } label: {
-            Label("Focus \(task.effortMinutes ?? 25) min", systemImage: "timer")
-        }
-        Button { Task { await store.advanceStatus(task) } } label: {
-            Label(task.status == "open" ? "Start it" : "Mark done",
-                  systemImage: task.status == "open" ? "play.circle" : "checkmark.circle")
-        }
-        Menu {
-            ForEach(TaskActions.Snooze.allCases) { preset in
-                Button { Task { await store.snooze(task, preset) } } label: {
-                    Label(preset.rawValue, systemImage: preset.icon)
-                }
-            }
-        } label: {
-            Label("Snooze", systemImage: "clock.arrow.circlepath")
-        }
-        Button { editing = task } label: { Label("Edit", systemImage: "pencil") }
-        Button(role: .destructive) { Task { await store.delete(task) } } label: {
-            Label("Delete", systemImage: "trash")
-        }
+        TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: { editing = $0 })
     }
 
     // MARK: Sections

@@ -19,6 +19,8 @@ final class CaptureViewModel {
     var text = ""
     var phase: Phase = .editing
     var isListening = false
+    /// Live mic level, 0…1, for the waveform.
+    var inputLevel: Double = 0
 
     /// Per-candidate resolutions gathered during the `reviewingDuplicates` phase, keyed by
     /// candidate id. Insertion waits until this covers every candidate.
@@ -82,6 +84,10 @@ final class CaptureViewModel {
             guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             Task { @MainActor in self?.text = transcript }
         }
+        // Fires on the audio thread; hop to main before touching observable state.
+        transcription.onLevel = { [weak self] level in
+            Task { @MainActor in self?.inputLevel = level }
+        }
         do {
             try transcription.start()
             isListening = true
@@ -97,6 +103,7 @@ final class CaptureViewModel {
     func stopListening() {
         transcription.stop()
         isListening = false
+        inputLevel = 0
     }
 
     // MARK: Save (typed + voice) — blocks on near-duplicates before insertion

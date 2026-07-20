@@ -38,5 +38,25 @@ struct OffloadShortcuts: AppShortcutsProvider {
             shortTitle: "Tell Offload",
             systemImageName: "waveform"
         )
+        // The other direction: getting an answer out, hands-free.
+        AppShortcut(
+            intent: DailyBriefIntent(),
+            phrases: [
+                "What's on my plate in \(.applicationName)",
+                "What do I have today in \(.applicationName)",
+                "Ask \(.applicationName) about my day"
+            ],
+            shortTitle: "My day",
+            systemImageName: "sun.max"
+        )
+        AppShortcut(
+            intent: CommitmentsIntent(),
+            phrases: [
+                "What do I owe someone in \(.applicationName)",
+                "Check what I owe in \(.applicationName)"
+            ],
+            shortTitle: "What I owe",
+            systemImageName: "person.2"
+        )
     }
 }

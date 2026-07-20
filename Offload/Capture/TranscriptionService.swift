@@ -17,6 +17,30 @@ final class TranscriptionService: @unchecked Sendable {
     /// assigned closure is responsible for hopping to the main actor before touching UI.
     var onTranscript: (@Sendable (String) -> Void)?
 
+    /// Live input level, 0…1, emitted from the audio tap for the waveform. Fires on an audio
+    /// thread — hop to the main actor before touching UI state.
+    var onLevel: (@Sendable (Double) -> Void)?
+
+    /// RMS of the buffer mapped onto a rough 0…1 scale. Returns nil for non-float formats
+    /// rather than guessing.
+    nonisolated static func normalizedLevel(_ buffer: AVAudioPCMBuffer) -> Double? {
+        guard let channel = buffer.floatChannelData?[0] else { return nil }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return nil }
+
+        var sum: Float = 0
+        for i in 0..<count {
+            let sample = channel[i]
+            sum += sample * sample
+        }
+        let rms = (sum / Float(count)).squareRoot()
+
+        // Speech sits low in linear terms; map through dB for a scale that feels right.
+        let db = 20 * log10(max(rms, 0.000_001))
+        let normalized = (Double(db) + 50) / 50      // -50 dB → 0, 0 dB → 1
+        return min(1, max(0, normalized))
+    }
+
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -63,8 +87,13 @@ final class TranscriptionService: @unchecked Sendable {
             self.request = nil
             throw TranscriptionError.engineFailed
         }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [request] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [request, weak self] buffer, _ in
             request.append(buffer)
+            // Cheap RMS off the same buffer we're already handed — drives the live waveform so
+            // silence actually looks like silence.
+            if let level = Self.normalizedLevel(buffer) {
+                self?.onLevel?(level)
+            }
         }
 
         engine.prepare()

@@ -14,6 +14,7 @@ struct DayPlanView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(DayPlanner.dayStartHourKey) private var dayStartHour = DayPlanner.defaultDayStartHour
     @AppStorage(DayPlanner.dayEndHourKey) private var dayEndHour = DayPlanner.defaultDayEndHour
+    @AppStorage(EnergyProfile.storageKey) private var energyRaw = EnergyProfile.morning.rawValue
 
     @State private var plan = DayPlanner.Plan()
     @State private var dropped: Set<String> = []
@@ -71,13 +72,15 @@ struct DayPlanView: View {
             }
             .onChange(of: dayStartHour) { _, _ in recompute() }
             .onChange(of: dayEndHour) { _, _ in recompute() }
+            .onChange(of: energyRaw) { _, _ in withAnimation(Motion.standard) { recompute() } }
         }
     }
 
     private func recompute() {
         plan = DayPlanner.plan(
             tasks: tasks, events: events, on: day, now: Date(),
-            dayStartHour: dayStartHour, dayEndHour: dayEndHour
+            dayStartHour: dayStartHour, dayEndHour: dayEndHour,
+            energyProfile: EnergyProfile(rawValue: energyRaw)
         )
     }
 
@@ -109,6 +112,11 @@ struct DayPlanView: View {
                     }
                     Picker("End", selection: $dayEndHour) {
                         ForEach(15...23, id: \.self) { Text(SettingsView.hourLabel($0)).tag($0) }
+                    }
+                    Picker("Best hours", selection: $energyRaw) {
+                        ForEach(EnergyProfile.allCases) { profile in
+                            Label(profile.label, systemImage: profile.icon).tag(profile.rawValue)
+                        }
                     }
                 } label: {
                     Label("\(SettingsView.hourLabel(dayStartHour))–\(SettingsView.hourLabel(dayEndHour))",

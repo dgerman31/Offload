@@ -23,7 +23,7 @@ struct AddTaskSheet: View {
     @State private var projects = ProjectStore()
     @FocusState private var titleFocused: Bool
 
-    private let categories = HomeGrouping.categoryOrder
+    private var categories: [String] { CustomCategories.all() }
     private let priorities = ["high", "medium", "low"]
 
     /// A date phrase spotted in the title, offered but never auto-applied.

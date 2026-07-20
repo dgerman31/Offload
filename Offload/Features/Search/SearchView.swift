@@ -11,6 +11,31 @@ struct SearchView: View {
     @State private var smartList: SmartList?
     @State private var selectedPerson: People.Commitment?
     @State private var appeared = false
+    @State private var selecting = false
+    @State private var selected: Set<String> = []
+
+    /// The tasks currently on screen — what "Select" acts on.
+    private var visibleTasks: [TaskItem] {
+        if isSearching { return store.results }
+        if let person = selectedPerson { return person.open }
+        if smartList != nil { return listResults }
+        return []
+    }
+
+    private var selectedTasks: [TaskItem] {
+        visibleTasks.filter { selected.contains($0.id) }
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+
+    private func endSelecting() {
+        withAnimation(Motion.standard) {
+            selecting = false
+            selected.removeAll()
+        }
+    }
 
     private let categories = HomeGrouping.categoryOrder
     private let priorities = ["high", "medium", "low"]
@@ -22,6 +47,7 @@ struct SearchView: View {
         case week = "This week"
         case high = "High priority"
         case unscheduled = "Unscheduled"
+        case waiting = "Waiting on"
         case done = "Completed"
 
         var id: String { rawValue }
@@ -33,6 +59,7 @@ struct SearchView: View {
             case .week:        return "calendar"
             case .high:        return "flame.fill"
             case .unscheduled: return "tray.fill"
+            case .waiting:     return "hourglass"
             case .done:        return "checkmark.circle.fill"
             }
         }
@@ -44,6 +71,7 @@ struct SearchView: View {
             case .week:        return Color.Offload.teal
             case .high:        return Color.Offload.accent(for: "Personal")
             case .unscheduled: return Color.Offload.muted
+            case .waiting:     return Color.Offload.amber
             case .done:        return Color.Offload.green
             }
         }
@@ -51,7 +79,10 @@ struct SearchView: View {
         /// Pure predicate so the filtering is directly testable.
         func matches(_ task: TaskItem, now: Date, calendar: Calendar = .current) -> Bool {
             if self == .done { return task.status == "completed" }
+            if self == .waiting { return task.status == "waiting" }
             guard task.status != "completed" else { return false }
+            // Blocked work belongs in "Waiting on", not mixed into your live lists.
+            guard task.status != "waiting" else { return false }
             let due = DueDate.parse(task.dueDate)
             switch self {
             case .overdue:
@@ -68,8 +99,8 @@ struct SearchView: View {
                 return task.priority == "high"
             case .unscheduled:
                 return due == nil
-            case .done:
-                return false
+            case .waiting, .done:
+                return false   // handled above
             }
         }
     }
@@ -116,6 +147,22 @@ struct SearchView: View {
             .background(Color.Offload.background)
             .navigationTitle("Search")
             .searchable(text: $store.query, prompt: "Tasks, projects, ideas…")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    if !visibleTasks.isEmpty {
+                        Button(selecting ? "Done" : "Select") {
+                            withAnimation(Motion.standard) {
+                                selecting.toggle()
+                                if !selecting { selected.removeAll() }
+                            }
+                        }
+                        .font(.Offload.taskTitle)
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if selecting && !selectedTasks.isEmpty { bulkBar }
+            }
             .task { await store.observe() }
             .task { withAnimation(Motion.settle) { appeared = true } }
             .sheet(item: $editing) { task in
@@ -159,6 +206,74 @@ struct SearchView: View {
                 .appearIn(index, when: appeared)
             }
         }
+    }
+
+    // MARK: Bulk actions
+
+    /// Acting on one task at a time is fine; clearing a backlog isn't. This appears only once
+    /// something is selected, so it never sits there as dead chrome.
+    private var bulkBar: some View {
+        HStack(spacing: 10) {
+            Text("\(selectedTasks.count)")
+                .font(.system(.callout, design: .rounded)).fontWeight(.bold)
+                .foregroundStyle(.white)
+                .frame(minWidth: 28, minHeight: 28)
+                .background(Color.Offload.indigo, in: .circle)
+
+            Button {
+                Task {
+                    await TaskActions.completeAll(selectedTasks)
+                    endSelecting()
+                }
+            } label: {
+                Label("Done", systemImage: "checkmark")
+                    .font(.caption).fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(Color.Offload.green.opacity(0.15), in: .capsule)
+                    .foregroundStyle(Color.Offload.green)
+            }
+            .buttonStyle(.pressable)
+
+            Menu {
+                ForEach(TaskActions.Snooze.allCases) { preset in
+                    Button {
+                        Task {
+                            await TaskActions.snoozeAll(selectedTasks, preset)
+                            endSelecting()
+                        }
+                    } label: {
+                        Label(preset.rawValue, systemImage: preset.icon)
+                    }
+                }
+            } label: {
+                Label("Snooze", systemImage: "clock.arrow.circlepath")
+                    .font(.caption).fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(Color.Offload.amber.opacity(0.15), in: .capsule)
+                    .foregroundStyle(Color.Offload.amber)
+            }
+
+            Button(role: .destructive) {
+                Task {
+                    await TaskActions.deleteAll(selectedTasks)
+                    endSelecting()
+                }
+            } label: {
+                Label("Delete", systemImage: "trash")
+                    .font(.caption).fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(Color.Offload.red.opacity(0.13), in: .capsule)
+                    .foregroundStyle(Color.Offload.red)
+            }
+            .buttonStyle(.pressable)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     // MARK: People
@@ -291,15 +406,34 @@ struct SearchView: View {
         } else {
             VStack(spacing: 2) {
                 ForEach(tasks) { task in
-                    TaskRowView(task: task, onEdit: { editing = task }) {
-                        Task { await store.toggleComplete(task) }
+                    HStack(spacing: 10) {
+                        if selecting {
+                            Button {
+                                withAnimation(Motion.quick) { toggleSelection(task.id) }
+                                Haptics.light()
+                            } label: {
+                                Image(systemName: selected.contains(task.id)
+                                      ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                                    .foregroundStyle(selected.contains(task.id)
+                                                     ? Color.Offload.indigo : Color.Offload.muted)
+                            }
+                            .buttonStyle(.pressable(scale: 0.85))
+                            .padding(.leading, 12)
+                        }
+                        TaskRowView(task: task, onEdit: { selecting ? toggleSelection(task.id) : (editing = task) }) {
+                            Task { await store.toggleComplete(task) }
+                        }
+                        .padding(.horizontal, selecting ? 0 : 12)
+                        .padding(.trailing, selecting ? 12 : 0)
+                        .taskContextMenu(task, onEdit: { editing = $0 })
                     }
-                    .padding(.horizontal, 12)
                     .scrollAppearSubtle()
                 }
             }
             .padding(.vertical, 6)
             .offloadCard()
+            .safeAreaInset(edge: .bottom) { EmptyView() }
         }
     }
 

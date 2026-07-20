@@ -301,6 +301,7 @@ struct CalendarView: View {
         case let .task(task):
             Button { editing = task } label: { taskRow(task) }
                 .buttonStyle(.pressable(scale: 0.98))
+                .taskContextMenu(task, onEdit: { editing = $0 })
         }
     }
 

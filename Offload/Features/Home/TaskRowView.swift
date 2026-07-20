@@ -67,6 +67,7 @@ struct TaskRowView: View {
                             chip(category, color: Color.Offload.indigo)
                         }
                         priorityBadge(task.priority)
+                        statusBadge(task.status)
                         if let due = task.dueDate, !due.isEmpty {
                             metaLabel(Self.formatDue(due), icon: "calendar")
                         }
@@ -155,6 +156,30 @@ struct TaskRowView: View {
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(Color.Offload.muted)
+    }
+
+    /// Started / blocked states — "in progress" and "waiting on someone" both look identical
+    /// to untouched work without this.
+    @ViewBuilder
+    private func statusBadge(_ status: String) -> some View {
+        switch status {
+        case "in_progress":
+            Label("Started", systemImage: "circle.lefthalf.filled")
+                .font(.caption2).fontWeight(.semibold)
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Color.Offload.teal.opacity(0.14), in: .capsule)
+                .foregroundStyle(Color.Offload.teal)
+        case "waiting":
+            Label("Waiting", systemImage: "hourglass")
+                .font(.caption2).fontWeight(.semibold)
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Color.Offload.amber.opacity(0.16), in: .capsule)
+                .foregroundStyle(Color.Offload.amber)
+        default:
+            EmptyView()
+        }
     }
 
     @ViewBuilder

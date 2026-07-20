@@ -192,8 +192,14 @@ final class ExtractionService: TaskExtracting {
             throw ExtractionError.modelUnavailable
         }
 
-        // Base instructions plus anything this user has taught us by correcting the model.
+        // Base instructions plus anything this user has taught us by correcting the model,
+        // plus any categories they've defined for themselves.
         var instructions = Self.instructions(now: Date())
+        let custom = CustomCategories.load()
+        if !custom.isEmpty {
+            instructions += "\n\nThis user has added their own categories: \(custom.joined(separator: ", ")). "
+                + "Use one of those when it genuinely fits better than the standard set."
+        }
         if let learned = await personalizationFragment() {
             instructions += "\n\n" + learned
         }

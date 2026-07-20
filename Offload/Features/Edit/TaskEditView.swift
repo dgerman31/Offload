@@ -19,7 +19,7 @@ struct TaskEditView: View {
     @State private var projectId: String?
     @State private var projects = ProjectStore()
 
-    private let categories = HomeGrouping.categoryOrder
+    private var categories: [String] { CustomCategories.all() }
     private let priorities = ["high", "medium", "low"]
 
     init(task: TaskItem) {

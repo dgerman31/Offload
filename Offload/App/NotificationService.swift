@@ -88,6 +88,8 @@ final class NotificationService {
             content.sound = .default
             content.interruptionLevel = task.priority == "high" ? .timeSensitive : .active
             content.threadIdentifier = "offload-tasks"
+            // Lets you finish or defer straight from the banner.
+            content.categoryIdentifier = NotificationDelegate.taskCategory
 
             let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: due)
             let request = UNNotificationRequest(

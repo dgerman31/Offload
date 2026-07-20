@@ -27,8 +27,12 @@ struct InsightsView: View {
             VStack(spacing: 16) {
                 statGrid.appearIn(0, when: appeared)
                 loadCard.appearIn(1, when: appeared).scrollAppear()
+                reviewCard.appearIn(2, when: appeared).scrollAppear()
+                if !habitNotes.isEmpty {
+                    habitsCard.appearIn(2, when: appeared).scrollAppear()
+                }
                 if !weekly.categoryMix.isEmpty {
-                    categoryCard.appearIn(2, when: appeared).scrollAppear()
+                    categoryCard.appearIn(3, when: appeared).scrollAppear()
                 }
                 reflectionCard.appearIn(3, when: appeared).scrollAppear()
             }
@@ -145,6 +149,69 @@ struct InsightsView: View {
         case .light: return Color.Offload.teal
         case .full:  return Color.Offload.amber
         case .heavy: return Color.Offload.red
+        }
+    }
+
+    // MARK: Habits
+
+    private var habitNotes: [String] {
+        HabitLearning.observations(HabitLearning.learn(from: store.allTasks, now: Date()))
+    }
+
+    /// Patterns derived from your own completion history — shown only once there's enough of
+    /// it to mean something, so the app never claims to know you before it does.
+    private var habitsCard: some View {
+        card("How you work", icon: "waveform.path.ecg", tint: Color.Offload.teal) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(habitNotes, id: \.self) { note in
+                    HStack(alignment: .top, spacing: 9) {
+                        Circle()
+                            .fill(Color.Offload.teal)
+                            .frame(width: 5, height: 5)
+                            .padding(.top, 7)
+                        Text(note)
+                            .font(.Offload.body)
+                            .foregroundStyle(Color.Offload.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Week review
+
+    /// The slower failures a daily view can't see: the task snoozed four times, the thing
+    /// that's sat undated for a month, the week where you took on more than you closed.
+    private var reviewCard: some View {
+        let findings = WeekReview.findings(tasks: store.allTasks, now: Date())
+        return card("Your week", icon: "calendar.badge.clock", tint: Color.Offload.amber) {
+            VStack(alignment: .leading, spacing: 12) {
+                if findings.completed > 0 || findings.captured > 0 {
+                    HStack(spacing: 8) {
+                        loadChip("\(Int(findings.completionRate * 100))%", "finished", Color.Offload.green)
+                        if findings.overdue > 0 {
+                            loadChip("\(findings.overdue)", "overdue", Color.Offload.red)
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(WeekReview.observations(findings), id: \.self) { line in
+                        HStack(alignment: .top, spacing: 9) {
+                            Circle()
+                                .fill(Color.Offload.amber)
+                                .frame(width: 5, height: 5)
+                                .padding(.top, 7)
+                            Text(line)
+                                .font(.Offload.body)
+                                .foregroundStyle(Color.Offload.text)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
         }
     }
 

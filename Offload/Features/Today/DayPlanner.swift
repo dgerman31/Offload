@@ -113,7 +113,8 @@ enum DayPlanner {
         let startOfDay = calendar.startOfDay(for: day)
 
         return tasks
-            .filter { $0.status != "completed" && !$0.deleted }
+            // "waiting" is blocked on someone else — scheduling time for it would be a lie.
+            .filter { $0.status != "completed" && $0.status != "waiting" && !$0.deleted }
             .filter { task in
                 guard let due = DueDate.parse(task.dueDate) else { return true }   // undated
                 return due < startOfDay || calendar.isDate(due, inSameDayAs: day)  // overdue or today
@@ -140,7 +141,8 @@ enum DayPlanner {
         calendar: Calendar = .current,
         dayStartHour: Int = defaultDayStartHour,
         dayEndHour: Int = defaultDayEndHour,
-        limit: Int = 12
+        limit: Int = 12,
+        energyProfile: EnergyProfile? = nil
     ) -> Plan {
         let slots = freeSlots(events: events, on: day, now: now, calendar: calendar,
                               dayStartHour: dayStartHour, dayEndHour: dayEndHour)
@@ -158,19 +160,33 @@ enum DayPlanner {
 
         for task in ordered {
             let effort = task.effortMinutes ?? EnergyBatch.defaultEffort
-            var placed = false
 
+            // Consider every slot that fits, then take the best one rather than merely the
+            // first: with an energy profile set, demanding work gets your peak hours and
+            // admin is nudged out of them. Ties break earliest, so the day still front-loads.
+            var best: (index: Int, start: Date, end: Date, penalty: Int)?
             for index in slots.indices {
-                let slotEnd = slots[index].end
                 let start = cursors[index]
-                guard let end = calendar.date(byAdding: .minute, value: effort, to: start), end <= slotEnd else { continue }
+                guard let end = calendar.date(byAdding: .minute, value: effort, to: start),
+                      end <= slots[index].end else { continue }
 
-                result.scheduled.append(ScheduledTask(task: task, start: start, end: end))
-                cursors[index] = calendar.date(byAdding: .minute, value: bufferMinutes, to: end) ?? end
-                placed = true
-                break
+                let penalty = energyProfile.map {
+                    EnergyProfile.penalty(for: task, at: start, profile: $0, calendar: calendar)
+                } ?? 0
+
+                if let current = best {
+                    if penalty < current.penalty { best = (index, start, end, penalty) }
+                } else {
+                    best = (index, start, end, penalty)
+                }
             }
-            if !placed { result.unplaced.append(task) }
+
+            if let best {
+                result.scheduled.append(ScheduledTask(task: task, start: best.start, end: best.end))
+                cursors[best.index] = calendar.date(byAdding: .minute, value: bufferMinutes, to: best.end) ?? best.end
+            } else {
+                result.unplaced.append(task)
+            }
         }
 
         result.scheduled.sort { $0.start < $1.start }

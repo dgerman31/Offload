@@ -61,7 +61,7 @@ struct CaptureView: View {
                 // A live ring while dictating, so the mic never feels ambiguous.
                 .overlay(alignment: .topTrailing) {
                     if vm.isListening {
-                        listeningPulse.padding(14)
+                        WaveformView(level: vm.inputLevel).padding(14)
                     }
                 }
 

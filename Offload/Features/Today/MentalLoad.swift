@@ -11,6 +11,8 @@ struct MentalLoad: Equatable, Sendable {
     var overdue = 0
     var dueToday = 0
     var unscheduled = 0
+    /// Blocked on someone else — open, but not yours to act on.
+    var waiting = 0
     /// 0–100; lower is calmer.
     var score = 0
 
@@ -73,6 +75,12 @@ struct MentalLoad: Equatable, Sendable {
 
         for task in tasks where task.status != "completed" && !task.deleted {
             load.openLoops += 1
+            // Blocked on someone else: still an open loop, but not yours to carry today.
+            if task.status == "waiting" {
+                load.waiting += 1
+                weighted += 0.3
+                continue
+            }
             if let due = DueDate.parse(task.dueDate) {
                 if due < startOfToday {
                     load.overdue += 1

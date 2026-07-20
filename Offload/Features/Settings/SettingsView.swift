@@ -13,6 +13,7 @@ struct SettingsView: View {
     @AppStorage(NotificationService.briefHourKey) private var briefHour = NotificationService.defaultBriefHour
     @AppStorage(NotificationService.reviewEnabledKey) private var reviewEnabled = false
     @AppStorage(NotificationService.reviewHourKey) private var reviewHour = NotificationService.defaultReviewHour
+    @AppStorage(EnergyProfile.storageKey) private var energyRaw = EnergyProfile.morning.rawValue
     @State private var notificationsDenied = false
 
     /// "8 AM" / "9 PM" for the reminder-time pickers.
@@ -132,6 +133,18 @@ struct SettingsView: View {
                         Slider(value: $dedupeThreshold, in: 0.7...0.95, step: 0.01)
                     }
                     NavigationLink("Correction history") { CorrectionHistoryView() }
+                    NavigationLink {
+                        CategoriesView()
+                    } label: {
+                        Label("Categories", systemImage: "tag.fill")
+                    }
+                    Picker(selection: $energyRaw) {
+                        ForEach(EnergyProfile.allCases) { profile in
+                            Label(profile.label, systemImage: profile.icon).tag(profile.rawValue)
+                        }
+                    } label: {
+                        Label("Best hours", systemImage: "bolt.fill")
+                    }
                 } header: {
                     Text("Learning")
                 } footer: {
@@ -165,6 +178,7 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    ExportDataButton()
                     Button(role: .destructive) {
                         confirmingErase = true
                     } label: {
@@ -177,7 +191,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Data")
                 } footer: {
-                    Text("Permanently deletes every task, project, and capture on this iPhone. This can't be undone.")
+                    Text("Export writes one readable JSON file you own — no lock-in. Erase permanently deletes every task, project, and capture on this iPhone and can't be undone.")
                 }
             }
             .navigationTitle("Settings")

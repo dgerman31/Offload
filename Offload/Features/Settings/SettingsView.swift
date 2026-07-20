@@ -37,6 +37,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Insights", systemImage: "chart.line.uptrend.xyaxis")
                     }
+                    NavigationLink {
+                        JournalView()
+                    } label: {
+                        Label("Journal", systemImage: "book.closed.fill")
+                    }
                 }
 
                 Section {

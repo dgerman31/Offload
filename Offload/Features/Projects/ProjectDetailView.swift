@@ -7,6 +7,8 @@ struct ProjectDetailView: View {
     @State private var editing: TaskItem?
     @State private var addingSubfolder = false
     @State private var addingTask = false
+    @State private var brief: String?
+    @State private var generatingBrief = false
 
     init(project: Project) {
         self.project = project
@@ -15,6 +17,44 @@ struct ProjectDetailView: View {
 
     private var isEmpty: Bool {
         store.todo.isEmpty && store.done.isEmpty && store.subfolders.isEmpty
+    }
+
+    /// "Where are we with this?" — answered in a couple of sentences, written on-device from
+    /// the project's real numbers rather than invented.
+    private var briefCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Where this stands".uppercased(), systemImage: "text.alignleft")
+                .font(.caption2).fontWeight(.bold)
+                .tracking(0.9)
+                .foregroundStyle(Color.Offload.indigo)
+
+            Text(brief ?? ProjectBrief.deterministicBrief(
+                ProjectBrief.facts(project: project, tasks: store.todo + store.done, now: Date())
+            ))
+            .font(.Offload.body)
+            .foregroundStyle(Color.Offload.text)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                generatingBrief = true
+                Task {
+                    brief = await ProjectBrief.generate(project: project, tasks: store.todo + store.done)
+                    generatingBrief = false
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if generatingBrief { ProgressView().controlSize(.small) }
+                    Label(brief == nil ? "Write a brief" : "Rewrite", systemImage: "sparkles")
+                        .font(.caption).fontWeight(.semibold)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
+                .foregroundStyle(Color.Offload.indigo)
+            }
+            .buttonStyle(.pressable)
+            .disabled(generatingBrief)
+        }
+        .padding(.vertical, 4)
     }
 
     var body: some View {
@@ -29,6 +69,13 @@ struct ProjectDetailView: View {
                         .buttonStyle(.borderedProminent)
                 }
                 .listRowBackground(Color.Offload.background)
+            }
+
+            if !store.todo.isEmpty || !store.done.isEmpty {
+                Section {
+                    briefCard
+                        .listRowBackground(Color.Offload.background)
+                }
             }
 
             if !store.subfolders.isEmpty {

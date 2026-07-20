@@ -199,28 +199,36 @@ enum CaptureMapper {
 
     /// Words that indicate the user actually said *when*. Deliberately broad on days and
     /// deliberately narrow on anything that could be a coincidence.
+    /// Matched on word boundaries, never as substrings — a bare "am" happily appears inside
+    /// "tambe", "name" and "example", which is exactly how a research note became a 1 AM task.
+    /// Bare am/pm are therefore handled only by the digit pattern below ("3pm", "9 am").
     private static let dateWords = [
         "today", "tomorrow", "tonight", "yesterday", "morning", "afternoon", "evening", "night",
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-        "mon ", "tue ", "wed ", "thu ", "fri ", "sat ", "sun ",
-        "january", "february", "march", "april", "may ", "june", "july", "august",
+        "mon", "tue", "tues", "wed", "thu", "thurs", "fri", "sat", "sun",
+        "january", "february", "march", "april", "may", "june", "july", "august",
         "september", "october", "november", "december",
-        "week", "weekend", "month", "year", "deadline", "due", "by ", "before ", "after ",
-        "asap", "urgent", "now", "later", "soon", "next ", "this ", "every ", "daily",
-        "weekly", "monthly", "annually", "am", "pm", "o'clock", "noon", "midnight",
-        "birthday", "anniversary", "appointment", "meeting at"
+        "week", "weekend", "weekday", "month", "year", "deadline", "due", "by", "before",
+        "after", "asap", "urgent", "now", "later", "soon", "next", "every", "daily",
+        "weekly", "monthly", "annually", "noon", "midnight", "oclock",
+        "birthday", "anniversary", "appointment", "eod", "eow"
     ]
 
     /// Did the capture actually mention *when*? This is the guard that stops a thought typed
     /// at 12:48 AM from becoming a task due at 1:00 AM: with no temporal language at all, the
     /// model has nothing to resolve, so any date it produces is invention.
     static func hasTemporalSignal(_ text: String) -> Bool {
-        let lower = " " + text.lowercased() + " "
-        // A digit that looks like a time or a date ("3pm", "at 4", "5/12", "the 14th").
-        if lower.range(of: #"\d{1,2}\s*(:|am|pm|st|nd|rd|th|/|-)"#, options: .regularExpression) != nil {
+        let lower = text.lowercased().replacingOccurrences(of: "o'clock", with: "oclock")
+
+        // A number that reads as a time or a date: "3pm", "9 am", "14:30", "5/12", "the 14th".
+        if lower.range(of: #"\d{1,2}\s*(:\d|am\b|pm\b|st\b|nd\b|rd\b|th\b|/|-)"#,
+                       options: .regularExpression) != nil {
             return true
         }
-        return dateWords.contains { lower.contains($0) }
+
+        // Whole words only.
+        let pattern = "\\b(" + dateWords.joined(separator: "|") + ")\\b"
+        return lower.range(of: pattern, options: .regularExpression) != nil
     }
 
     /// Hours nobody means to be working. A derived time landing here is a bug, not a plan.

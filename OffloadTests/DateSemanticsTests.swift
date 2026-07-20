@@ -46,6 +46,17 @@ struct DateSemanticsTests {
         #expect(!CaptureMapper.hasTemporalSignal("buy milk"))
     }
 
+    @Test("Temporal words are matched whole — 'am' inside 'tambe' is not a time")
+    func temporalSignalWordBoundaries() {
+        // These substrings are why the bug happened: "am" in tambe, "now" in known.
+        #expect(!CaptureMapper.hasTemporalSignal("research project tambe ai"))
+        #expect(!CaptureMapper.hasTemporalSignal("ask about the known issues"))
+        #expect(!CaptureMapper.hasTemporalSignal("email the summary"))
+        // But real usages still register.
+        #expect(CaptureMapper.hasTemporalSignal("call at 9 am"))
+        #expect(CaptureMapper.hasTemporalSignal("do it now"))
+    }
+
     @Test("A capture with no timing gets no due date, whatever the model returns")
     func noTimingMeansNoDate() {
         // Model hallucinates 1 AM because it was told "now" is 12:48 AM.

@@ -78,14 +78,29 @@ struct DayPlannerTests {
 
     @Test("Candidates are overdue first, then priority, then quickest")
     func candidateOrdering() {
+        // Whole-day so they stay flexible; a committed time would make them constraints.
+        var highToday = TaskItem(title: "High today", priority: "high", dueDate: iso(15))
+        highToday.dueIsAllDay = true
+        var overdue = TaskItem(title: "Overdue", priority: "low", dueDate: iso(10, day: 16))
+        overdue.dueIsAllDay = true
+
         let tasks = [
             TaskItem(title: "Low undated", priority: "low"),
-            TaskItem(title: "High today", priority: "high", dueDate: iso(15)),
-            TaskItem(title: "Overdue", priority: "low", dueDate: iso(10, day: 16)),
+            highToday,
+            overdue,
             TaskItem(title: "Tomorrow", priority: "high", dueDate: iso(10, day: 19))
         ]
         let picked = DayPlanner.candidates(from: tasks, on: date(9), now: date(8), calendar: utcCalendar)
         #expect(picked.map(\.title) == ["Overdue", "High today", "Low undated"])   // tomorrow excluded
+    }
+
+    @Test("A task committed to a time today is a constraint, not a candidate")
+    func committedTaskExcluded() {
+        // Same task as above but with a real time — the planner must leave it alone.
+        let committed = TaskItem(title: "Standup", priority: "high", dueDate: iso(15))
+        #expect(committed.hasSpecificTime)
+        let picked = DayPlanner.candidates(from: [committed], on: date(9), now: date(8), calendar: utcCalendar)
+        #expect(picked.isEmpty)
     }
 
     // MARK: Planning

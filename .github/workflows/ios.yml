@@ -58,16 +58,24 @@ jobs:
       # disappears and fails the build. Resolve a real UDID instead.
       # (No `pipefail` here on purpose: `head -1` closes the pipe early, which would otherwise
       # kill the upstream command and silently yield an empty id.)
+      # Runner images rotate their simulator sets, so a hardcoded device name eventually
+      # vanishes. Pick a real one — but only from an iOS 26 runtime, since anything older
+      # can't satisfy the deployment target and xcodebuild will reject it as a destination.
+      # (simctl groups devices under `-- iOS 26.2 --` headers, hence the awk state machine.
+      # `-showdestinations` isn't reliable here: it returns only placeholders when
+      # CoreSimulator hasn't enumerated yet.)
       - name: Pick a simulator
         id: sim
         run: |
-          # Ask xcodebuild rather than simctl: simctl happily lists iPhones on runtimes older
-          # than our iOS 26 deployment target, which aren't valid destinations for the scheme.
-          DESTS=$(xcodebuild -project Offload.xcodeproj -scheme Offload -showdestinations 2>/dev/null || true)
-          echo "$DESTS"
-          UDID=$(echo "$DESTS" | grep "platform:iOS Simulator" | grep "name:iPhone" \
-                 | sed -n -E 's/.*id:([0-9A-Fa-f-]{36}).*/\1/p' | head -1)
-          if [ -z "$UDID" ]; then echo "::error::No usable iPhone simulator for this scheme"; exit 1; fi
+          LIST=$(xcrun simctl list devices available)
+          echo "$LIST"
+          UDID=$(echo "$LIST" | awk '
+            /^-- iOS 26/ { ok = 1; next }
+            /^-- /       { ok = 0; next }
+            ok && /iPhone/ {
+              if (match($0, /[0-9A-Fa-f-]{36}/)) { print substr($0, RSTART, RLENGTH); exit }
+            }')
+          if [ -z "$UDID" ]; then echo "::error::No iOS 26 iPhone simulator on this runner"; exit 1; fi
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 

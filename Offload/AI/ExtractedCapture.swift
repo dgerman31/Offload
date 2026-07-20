@@ -31,6 +31,9 @@ struct ExtractedTask {
     @Guide(description: "Context tags, each chosen only from: home, work, car, outside, store, gym, phone, computer, meeting, errands")
     var contextTags: [String]
 
+    @Guide(description: "Names of people this task actually involves — someone you owe something to, are meeting, or must contact. Use the name exactly as the user said it (\"Sarah\", \"Dr. Patel\", \"mom\"). Empty when no specific person is named; never invent one.")
+    var people: [String] = []
+
     @Guide(description: "ISO 8601 datetime if the user implied timing, else nil")
     var dueDate: String?
 

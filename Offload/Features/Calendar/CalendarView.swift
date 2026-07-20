@@ -60,7 +60,7 @@ struct CalendarView: View {
             .task { await store.loadEvents() }
             .task { withAnimation(Motion.settle) { appeared = true } }
             .sheet(item: $editing) { task in
-                NavigationStack { TaskEditView(task: task) }
+                NavigationStack { TaskDetailView(task: task) }
             }
             .sheet(isPresented: $addingTask) {
                 AddTaskSheet(initialDate: store.selectedDate)

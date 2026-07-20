@@ -73,6 +73,17 @@ struct TaskRowView: View {
                         if let effort = task.effortMinutes {
                             metaLabel("\(effort)m", icon: "timer")
                         }
+                        // Who this involves — obligations to people are the loops that nag
+                        // hardest, so they earn a visible chip.
+                        ForEach(People.decode(task.people), id: \.self) { person in
+                            Label(person, systemImage: "person.fill")
+                                .font(.caption2).fontWeight(.medium)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color.Offload.indigo.opacity(0.13), in: .capsule)
+                                .foregroundStyle(Color.Offload.indigo)
+                        }
                         ForEach(contextTags, id: \.self) { tag in
                             Label(tag, systemImage: Self.tagIcon(tag))
                                 .font(.caption2)

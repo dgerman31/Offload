@@ -24,6 +24,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
     var calendarEventId: String?
     var metadata: String?           // JSON
     var deleted: Bool
+    var people: String?             // JSON array of names this task involves
 
     static let databaseTableName = "tasks"
 
@@ -43,7 +44,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         case effortMinutes = "effort_minutes"
         case energyLevel = "energy_level"
         case calendarEventId = "calendar_event_id"
-        case metadata, deleted
+        case metadata, deleted, people
     }
 
     init(
@@ -66,7 +67,8 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         energyLevel: String? = nil,
         calendarEventId: String? = nil,
         metadata: String? = nil,
-        deleted: Bool = false
+        deleted: Bool = false,
+        people: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -88,5 +90,6 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         self.calendarEventId = calendarEventId
         self.metadata = metadata
         self.deleted = deleted
+        self.people = people
     }
 }

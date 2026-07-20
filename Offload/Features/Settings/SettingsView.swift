@@ -32,6 +32,11 @@ struct SettingsView: View {
             List {
                 Section("Your progress") {
                     progressRow
+                    NavigationLink {
+                        InsightsView()
+                    } label: {
+                        Label("Insights", systemImage: "chart.line.uptrend.xyaxis")
+                    }
                 }
 
                 Section {

@@ -136,6 +136,11 @@ final class ExtractionService: TaskExtracting {
           "Send invites". A weekend move might yield 6–8 tasks, some with their own subtasks.
         Everyday single tasks and a couple of unrelated errands are NOT a project — return nil.
 
+        people: list anyone the task genuinely involves — someone you owe something to, are
+        meeting, or need to contact. Use their name exactly as said ("Sarah", "mom", "Dr.
+        Patel"). "Send Sarah the deck" → ["Sarah"]. "Call mom back" → ["mom"]. "Buy milk" →
+        empty. Never invent a name, and don't list people merely mentioned in passing.
+
         isAppointment: set true ONLY for a real calendar event happening at a specific time —
         a meeting, doctor's appointment, reservation, or a call scheduled for a set time. Leave
         it false for ordinary to-dos, errands, and reminders, even when they have a due date.

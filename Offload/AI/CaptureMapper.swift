@@ -61,7 +61,8 @@ enum CaptureMapper {
                 dueDateConfidence: dueDate == nil ? nil : 0.5,
                 recurrenceRule: nonEmpty(t.recurrenceRule),
                 contextTags: encodeTags(t.contextTags),
-                effortMinutes: trustEffort ? t.effortMinutes : nil
+                effortMinutes: trustEffort ? t.effortMinutes : nil,
+                people: People.encode(t.people)
             )
             tasks.append(parent)
             // Only a real, time-anchored appointment becomes a calendar event.

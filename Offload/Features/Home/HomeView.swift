@@ -132,7 +132,7 @@ struct HomeView: View {
                 Task { await NotificationSync.shared.refresh() }
             }
             .sheet(item: $editing) { task in
-                NavigationStack { TaskEditView(task: task) }
+                NavigationStack { TaskDetailView(task: task) }
             }
             .sheet(isPresented: $addingTask) {
                 AddTaskSheet(initialDate: isToday ? nil : selectedDay)

@@ -143,6 +143,12 @@ final class AppDatabase: Sendable {
                 """)
         }
 
+        // Who a task involves, as a JSON array of names — so "what do I owe Sarah?" is a
+        // query rather than a memory exercise (spec §4, relationship tracking).
+        migrator.registerMigration("v3_task_people") { db in
+            try db.execute(sql: "ALTER TABLE tasks ADD COLUMN people TEXT;")
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

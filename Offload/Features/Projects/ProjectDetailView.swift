@@ -95,7 +95,7 @@ struct ProjectDetailView: View {
         }
         .task { await store.observe() }
         .sheet(item: $editing) { task in
-            NavigationStack { TaskEditView(task: task) }
+            NavigationStack { TaskDetailView(task: task) }
         }
         .sheet(isPresented: $addingSubfolder) {
             NewProjectSheet(parent: project) { title in

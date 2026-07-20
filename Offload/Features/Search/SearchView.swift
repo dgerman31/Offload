@@ -9,6 +9,7 @@ struct SearchView: View {
     @State private var store = SearchStore()
     @State private var editing: TaskItem?
     @State private var smartList: SmartList?
+    @State private var selectedPerson: People.Commitment?
     @State private var appeared = false
 
     private let categories = HomeGrouping.categoryOrder
@@ -98,8 +99,13 @@ struct SearchView: View {
                         selectedListHeader(smartList)
                         results(listResults, emptyTitle: "Nothing here",
                                 emptyBody: "This list is empty — which is usually good news.")
+                    } else if let person = selectedPerson {
+                        personHeader(person)
+                        results(person.open, emptyTitle: "Nothing outstanding",
+                                emptyBody: "You're all square with \(person.name).")
                     } else {
                         smartListGrid
+                        if !commitments.isEmpty { peopleSection }
                     }
                 }
                 .padding(.horizontal, 18)
@@ -113,7 +119,7 @@ struct SearchView: View {
             .task { await store.observe() }
             .task { withAnimation(Motion.settle) { appeared = true } }
             .sheet(item: $editing) { task in
-                NavigationStack { TaskEditView(task: task) }
+                NavigationStack { TaskDetailView(task: task) }
             }
         }
     }
@@ -153,6 +159,94 @@ struct SearchView: View {
                 .appearIn(index, when: appeared)
             }
         }
+    }
+
+    // MARK: People
+
+    private var commitments: [People.Commitment] {
+        People.commitments(from: store.all, now: Date())
+    }
+
+    /// "What do I owe Sarah?" — the loops that nag hardest are usually obligations to people,
+    /// and they're invisible in a flat list.
+    private var peopleSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("People", systemImage: "person.2.fill")
+                .font(.caption2).fontWeight(.bold)
+                .tracking(0.9)
+                .foregroundStyle(Color.Offload.indigo)
+
+            VStack(spacing: 8) {
+                ForEach(commitments) { commitment in
+                    Button {
+                        withAnimation(Motion.standard) { selectedPerson = commitment }
+                        Haptics.light()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(initials(commitment.name))
+                                .font(.system(.caption, design: .rounded)).fontWeight(.bold)
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x8A6FE0)],
+                                                   startPoint: .top, endPoint: .bottom),
+                                    in: .circle
+                                )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(commitment.name)
+                                    .font(.Offload.taskTitle)
+                                    .foregroundStyle(Color.Offload.text)
+                                    .lineLimit(1)
+                                Text(People.summary(for: commitment))
+                                    .font(.Offload.data)
+                                    .foregroundStyle(commitment.overdueCount > 0
+                                                     ? Color.Offload.red : Color.Offload.muted)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.Offload.muted)
+                        }
+                    }
+                    .buttonStyle(.pressable(scale: 0.99))
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .offloadCard()
+    }
+
+    private func personHeader(_ commitment: People.Commitment) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                withAnimation(Motion.standard) { selectedPerson = nil }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.Offload.indigo)
+                    .frame(width: 30, height: 30)
+                    .background(Color.Offload.indigo.opacity(0.10), in: .circle)
+            }
+            .buttonStyle(.pressable(scale: 0.88))
+            .accessibilityLabel("Back to lists")
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(commitment.name)
+                    .font(.system(.title3, design: .rounded).weight(.bold))
+                    .foregroundStyle(Color.Offload.text)
+                Text(People.summary(for: commitment))
+                    .font(.Offload.data)
+                    .foregroundStyle(Color.Offload.muted)
+            }
+            Spacer()
+        }
+    }
+
+    private func initials(_ name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2)
+        let letters = parts.compactMap { $0.first }.map(String.init).joined()
+        return letters.isEmpty ? "?" : letters.uppercased()
     }
 
     private func selectedListHeader(_ list: SmartList) -> some View {

@@ -34,8 +34,11 @@ struct ExtractedTask {
     @Guide(description: "Names of people this task actually involves — someone you owe something to, are meeting, or must contact. Use the name exactly as the user said it (\"Sarah\", \"Dr. Patel\", \"mom\"). Empty when no specific person is named; never invent one.")
     var people: [String] = []
 
-    @Guide(description: "ISO 8601 datetime if the user implied timing, else nil")
+    @Guide(description: "When the user said they'd DO this, ISO 8601. Include a time ONLY if they stated one (\"3pm\"); otherwise give just the date at 00:00. nil unless they actually mentioned when — never guess from the current time.")
     var dueDate: String?
+
+    @Guide(description: "A hard deadline if the user stated one (\"due Friday\", \"before the 5th\"), ISO 8601. This is when it MUST be finished, which is often different from when they'll do it. nil if no deadline was stated.")
+    var deadline: String?
 
     @Guide(description: "Recurrence as an iCalendar RRULE if implied (e.g. weekly), else nil")
     var recurrenceRule: String?

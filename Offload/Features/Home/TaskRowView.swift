@@ -69,7 +69,12 @@ struct TaskRowView: View {
                         priorityBadge(task.priority)
                         statusBadge(task.status)
                         if let due = task.dueDate, !due.isEmpty {
-                            metaLabel(Self.formatDue(due), icon: "calendar")
+                            metaLabel(Self.formatDue(due, allDay: task.dueIsAllDay), icon: "calendar")
+                        }
+                        // A hard deadline is different from when you plan to do it, and worth
+                        // its own, more urgent-looking chip.
+                        if let deadline = task.deadline, !deadline.isEmpty {
+                            metaLabel("due \(Self.formatDue(deadline, allDay: true))", icon: "flag.fill")
                         }
                         if let effort = task.effortMinutes {
                             metaLabel("\(effort)m", icon: "timer")
@@ -125,16 +130,19 @@ struct TaskRowView: View {
         }
     }
 
-    /// Human-friendly due display ("Today 5:00 PM" / "Jul 20, 9:00 AM") instead of raw ISO.
-    static func formatDue(_ iso: String) -> String {
+    /// Human-friendly due display. A whole-day task says "Today" — never "Today 12:00 AM",
+    /// which is both wrong and alarming.
+    static func formatDue(_ iso: String, allDay: Bool = false) -> String {
         guard let date = DueDate.parse(iso) else { return iso }
         let df = DateFormatter()
-        if Calendar.current.isDateInToday(date) {
-            df.dateFormat = "'Today' h:mm a"
-        } else if Calendar.current.isDateInTomorrow(date) {
-            df.dateFormat = "'Tomorrow' h:mm a"
+        let calendar = Calendar.current
+
+        if calendar.isDateInToday(date) {
+            df.dateFormat = allDay ? "'Today'" : "'Today' h:mm a"
+        } else if calendar.isDateInTomorrow(date) {
+            df.dateFormat = allDay ? "'Tomorrow'" : "'Tomorrow' h:mm a"
         } else {
-            df.dateFormat = "MMM d, h:mm a"
+            df.dateFormat = allDay ? "MMM d" : "MMM d, h:mm a"
         }
         return df.string(from: date)
     }

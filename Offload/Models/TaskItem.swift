@@ -26,6 +26,13 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
     var deleted: Bool
     var people: String?             // JSON array of names this task involves
 
+    /// A hard deadline, distinct from `dueDate` ("when I plan to do it"). Conflating the two
+    /// is the classic task-app mistake: a due date is not a do date.
+    var deadline: String?
+    /// True when `dueDate` means a *day* rather than a moment — so a task scheduled for
+    /// "Friday" doesn't have to pretend it happens at midnight.
+    var dueIsAllDay: Bool
+
     static let databaseTableName = "tasks"
 
     enum CodingKeys: String, CodingKey {
@@ -44,7 +51,8 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         case effortMinutes = "effort_minutes"
         case energyLevel = "energy_level"
         case calendarEventId = "calendar_event_id"
-        case metadata, deleted, people
+        case metadata, deleted, people, deadline
+        case dueIsAllDay = "due_is_all_day"
     }
 
     init(
@@ -68,7 +76,9 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         calendarEventId: String? = nil,
         metadata: String? = nil,
         deleted: Bool = false,
-        people: String? = nil
+        people: String? = nil,
+        deadline: String? = nil,
+        dueIsAllDay: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -91,5 +101,13 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         self.metadata = metadata
         self.deleted = deleted
         self.people = people
+        self.deadline = deadline
+        self.dueIsAllDay = dueIsAllDay
+    }
+
+    /// A specific moment the user (or the planner) committed to — as opposed to a whole-day
+    /// intention. Only these are real time commitments; everything else is flexible.
+    var hasSpecificTime: Bool {
+        dueDate != nil && !dueIsAllDay
     }
 }

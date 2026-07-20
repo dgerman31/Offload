@@ -15,7 +15,10 @@ struct TaskEditView: View {
     @State private var category: String
     @State private var priority: String
     @State private var hasDueDate: Bool
+    @State private var hasTime: Bool
     @State private var dueDate: Date
+    @State private var hasDeadline: Bool
+    @State private var deadline: Date
     @State private var projectId: String?
     @State private var projects = ProjectStore()
 
@@ -30,7 +33,11 @@ struct TaskEditView: View {
         _priority = State(initialValue: task.priority)
         let parsed = DueDate.parse(task.dueDate)
         _hasDueDate = State(initialValue: parsed != nil)
+        _hasTime = State(initialValue: parsed != nil && !task.dueIsAllDay)
         _dueDate = State(initialValue: parsed ?? Date())
+        let parsedDeadline = DueDate.parse(task.deadline)
+        _hasDeadline = State(initialValue: parsedDeadline != nil)
+        _deadline = State(initialValue: parsedDeadline ?? Date())
         _projectId = State(initialValue: task.projectId)
     }
 
@@ -66,11 +73,30 @@ struct TaskEditView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            Section("Due") {
-                Toggle("Has a due date", isOn: $hasDueDate)
+            Section {
+                Toggle("Scheduled", isOn: $hasDueDate.animation(Motion.standard))
                 if hasDueDate {
-                    DatePicker("Due", selection: $dueDate)
+                    Toggle("Specific time", isOn: $hasTime.animation(Motion.standard))
+                    DatePicker(hasTime ? "When" : "Day", selection: $dueDate,
+                               displayedComponents: hasTime ? [.date, .hourAndMinute] : [.date])
                 }
+            } header: {
+                Text("When you'll do it")
+            } footer: {
+                Text(hasDueDate && hasTime
+                     ? "A committed time. Plan my day will work around it rather than move it."
+                     : "Leave the time off to keep this flexible so it can be planned into a free slot.")
+            }
+
+            Section {
+                Toggle("Has a deadline", isOn: $hasDeadline.animation(Motion.standard))
+                if hasDeadline {
+                    DatePicker("Due by", selection: $deadline, displayedComponents: [.date])
+                }
+            } header: {
+                Text("Deadline")
+            } footer: {
+                Text("A due date is not a do date — you might start something Monday that isn't due until Friday.")
             }
         }
         .navigationTitle("Edit task")
@@ -96,12 +122,20 @@ struct TaskEditView: View {
         edited.priority = priority
         edited.projectId = projectId
         if hasDueDate {
-            edited.dueDate = ISO8601DateFormatter().string(from: dueDate)
+            // Store a whole-day intention at the start of that day; the flag carries the
+            // meaning so the hour is never mistaken for a commitment.
+            let stored = hasTime ? dueDate : Calendar.current.startOfDay(for: dueDate)
+            edited.dueDate = DueDate.canonicalString(from: stored)
             edited.dueDateConfidence = 1.0   // user-specified = certain
+            edited.dueIsAllDay = !hasTime
         } else {
             edited.dueDate = nil
             edited.dueDateConfidence = nil
+            edited.dueIsAllDay = false
         }
+        edited.deadline = hasDeadline
+            ? DueDate.canonicalString(from: Calendar.current.startOfDay(for: deadline))
+            : nil
         await TaskEditService.save(edited, original: original)
         dismiss()
     }

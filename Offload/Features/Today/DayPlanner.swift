@@ -21,6 +21,9 @@ enum DayPlanner {
     static let bufferMinutes = 5
     /// Gaps shorter than this aren't worth planning into.
     static let minimumSlotMinutes = 10
+    /// Fill about two thirds of free time. Planning to 100% is the classic time-blocking
+    /// failure — the first interruption invalidates the whole day.
+    static let planningRatio = 0.67
 
     struct FreeSlot: Identifiable, Sendable, Equatable {
         var start: Date
@@ -99,9 +102,33 @@ enum DayPlanner {
 
     // MARK: Planning
 
-    /// Which tasks are candidates for today: open, not deleted, and either due today, overdue,
-    /// or undated (the "whenever" pile is exactly what a plan is for). Ordered most-pressing
-    /// first — overdue, then priority, then shortest, so early wins build momentum.
+    /// Tasks the user already committed to a specific time today. These are NOT candidates —
+    /// they're constraints. Moving someone's 1pm lunch to 9am because it happened to be
+    /// "unscheduled work due today" is exactly the wrong behaviour: fixed commitments get
+    /// blocked out first, and flexible work fills in around them.
+    static func fixedCommitments(from tasks: [TaskItem], on day: Date, calendar: Calendar = .current) -> [TaskItem] {
+        tasks.filter { task in
+            guard task.status != "completed", !task.deleted, task.hasSpecificTime,
+                  let due = DueDate.parse(task.dueDate) else { return false }
+            return calendar.isDate(due, inSameDayAs: day)
+        }
+    }
+
+    /// Turn fixed commitments into busy blocks so free time is computed around them, exactly
+    /// like calendar events.
+    static func busyBlocks(from tasks: [TaskItem], on day: Date, calendar: Calendar = .current) -> [CalendarEvent] {
+        fixedCommitments(from: tasks, on: day, calendar: calendar).compactMap { task in
+            guard let start = DueDate.parse(task.dueDate) else { return nil }
+            let minutes = task.effortMinutes ?? EnergyBatch.defaultEffort
+            let end = calendar.date(byAdding: .minute, value: minutes, to: start) ?? start
+            return CalendarEvent(id: "task-\(task.id)", title: task.title, start: start,
+                                 end: end, isAllDay: false, location: nil, colorHex: nil)
+        }
+    }
+
+    /// Which tasks are candidates for placing: open, not deleted, not blocked on someone else,
+    /// and *flexible* — undated, whole-day, or overdue. Anything with a committed time is left
+    /// exactly where the user put it. Ordered most-pressing first, so early wins build momentum.
     static func candidates(from tasks: [TaskItem], on day: Date, now: Date, calendar: Calendar = .current) -> [TaskItem] {
         func rank(_ p: String) -> Int {
             switch p {
@@ -117,7 +144,9 @@ enum DayPlanner {
             .filter { $0.status != "completed" && $0.status != "waiting" && !$0.deleted }
             .filter { task in
                 guard let due = DueDate.parse(task.dueDate) else { return true }   // undated
-                return due < startOfDay || calendar.isDate(due, inSameDayAs: day)  // overdue or today
+                if due < startOfDay { return true }                                // overdue
+                // Due today: only movable if the user never committed to a specific time.
+                return calendar.isDate(due, inSameDayAs: day) && !task.hasSpecificTime
             }
             .sorted { a, b in
                 let aOverdue = (DueDate.parse(a.dueDate).map { $0 < startOfDay }) ?? false
@@ -144,12 +173,20 @@ enum DayPlanner {
         limit: Int = 12,
         energyProfile: EnergyProfile? = nil
     ) -> Plan {
-        let slots = freeSlots(events: events, on: day, now: now, calendar: calendar,
+        // Fixed commitments block time exactly like calendar events — the user's 1pm lunch is
+        // as real as a meeting invite.
+        let blocked = events + busyBlocks(from: tasks, on: day, calendar: calendar)
+        let slots = freeSlots(events: blocked, on: day, now: now, calendar: calendar,
                               dayStartHour: dayStartHour, dayEndHour: dayEndHour)
         let ordered = Array(candidates(from: tasks, on: day, now: now, calendar: calendar).prefix(limit))
 
         var result = Plan()
         result.freeMinutes = slots.reduce(0) { $0 + $1.minutes }
+
+        // Plan roughly two thirds of what's free. A day packed to 100% survives contact with
+        // reality for about an hour, and leaves no room for the things you didn't foresee.
+        let plannableMinutes = Int(Double(result.freeMinutes) * planningRatio)
+        var committedMinutes = 0
         guard !slots.isEmpty else {
             result.unplaced = ordered
             return result
@@ -160,6 +197,12 @@ enum DayPlanner {
 
         for task in ordered {
             let effort = task.effortMinutes ?? EnergyBatch.defaultEffort
+
+            // Stop once the day is reasonably full rather than cramming every free minute.
+            if committedMinutes + effort > plannableMinutes, !result.scheduled.isEmpty {
+                result.unplaced.append(task)
+                continue
+            }
 
             // Consider every slot that fits, then take the best one rather than merely the
             // first: with an energy profile set, demanding work gets your peak hours and
@@ -184,6 +227,7 @@ enum DayPlanner {
             if let best {
                 result.scheduled.append(ScheduledTask(task: task, start: best.start, end: best.end))
                 cursors[best.index] = calendar.date(byAdding: .minute, value: bufferMinutes, to: best.end) ?? best.end
+                committedMinutes += effort
             } else {
                 result.unplaced.append(task)
             }

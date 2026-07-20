@@ -346,8 +346,12 @@ struct CalendarView: View {
                     .font(.Offload.taskTitle)
                     .foregroundStyle(Color.Offload.text)
                 HStack(spacing: 8) {
-                    if let due = DueDate.parse(task.dueDate) {
+                    if let due = DueDate.parse(task.dueDate), !task.dueIsAllDay {
                         Text(Self.time(due))
+                            .font(.Offload.data)
+                            .foregroundStyle(Color.Offload.muted)
+                    } else if task.dueIsAllDay {
+                        Text("Anytime")
                             .font(.Offload.data)
                             .foregroundStyle(Color.Offload.muted)
                     }

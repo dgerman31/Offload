@@ -58,8 +58,13 @@ enum DayTimeline {
         on day: Date,
         calendar: Calendar = .current
     ) -> [DayItem] {
+        // A task we turned into a calendar event would otherwise appear twice — once as the
+        // task, once as the event we created from it. Show the task, since that's the thing
+        // you can actually tick off.
+        let ownEventIds = Set(tasks.compactMap(\.calendarEventId))
+
         let dayEvents = events
-            .filter { calendar.isDate($0.start, inSameDayAs: day) }
+            .filter { calendar.isDate($0.start, inSameDayAs: day) && !ownEventIds.contains($0.id) }
             .map { DayItem.event($0) }
 
         let dayTasks = tasks

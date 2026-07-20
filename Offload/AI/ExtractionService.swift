@@ -45,13 +45,23 @@ final class ExtractionService: TaskExtracting {
         Extract INTENT, not words: figure out what the user needs to DO, never echo their \
         phrasing back at them.
 
-        The current date and time is \(nowStr). Resolve relative timing against it and set \
-        dueDate (ISO 8601) accordingly:
-        - "right now", "rn", "on my way", "heading to", "about to" → within the next hour (≈ now + 1 hour).
-        - "later", "later today", "this evening" → this evening, today.
-        - "tonight" → around 20:00 today.
-        - "tomorrow" → the next day; "this weekend" → the coming Saturday.
-        Only set dueDate or recurrenceRule when the user actually implies timing — otherwise leave them nil.
+        The current date and time is \(nowStr) — use it ONLY to resolve words the user actually
+        said, never as a default.
+
+        TIMING. Most captures have no timing at all, and inventing some is worse than leaving
+        it out. Follow these exactly:
+        - If the user named no day and no time, dueDate is nil. Not "today", not "in an hour",
+          not the current time. Nil.
+        - Give a date WITHOUT a time (midnight) unless they stated a time of day. "Friday" is a
+          day, not 9am on Friday. Only "3pm", "after lunch", "first thing" etc. earn a time.
+        - Resolve real references against now: "tomorrow" → the next day, "this weekend" → the
+          coming Saturday, "tonight" → today around 20:00, "next week" → seven days on.
+        - NEVER schedule anything between 10pm and 7am unless the user explicitly said a
+          night-time hour. Someone capturing a thought at 1am is not planning to work at 2am.
+        - deadline is separate from dueDate: it's when something MUST be finished ("due Friday",
+          "before the 5th"). A due date is not a do date — a task can be started Monday for a
+          Friday deadline. Set only what the user actually stated, and leave the other nil.
+        - recurrenceRule only when they describe a repeat ("every week", "each morning").
 
         CAPTURE WHAT WAS SAID — NEVER INVENT A PLAN. This is the most important rule.
         You are recording the user's thoughts, not designing a strategy to achieve them.
@@ -141,11 +151,14 @@ final class ExtractionService: TaskExtracting {
         Patel"). "Send Sarah the deck" → ["Sarah"]. "Call mom back" → ["mom"]. "Buy milk" →
         empty. Never invent a name, and don't list people merely mentioned in passing.
 
-        isAppointment: set true ONLY for a real calendar event happening at a specific time —
-        a meeting, doctor's appointment, reservation, or a call scheduled for a set time. Leave
-        it false for ordinary to-dos, errands, and reminders, even when they have a due date.
-        "dentist at 3pm Tuesday" → isAppointment true. "call the dentist to book" → false.
-        "buy milk tomorrow" → false.
+        isAppointment: this writes to the user's REAL calendar, so it must be certain. True
+        ONLY when the thing is already arranged AND the user stated its time.
+        - "dentist at 3pm Tuesday" → true. It exists and it has a time.
+        - "schedule a meeting with Dr. Patel" → FALSE. This is a task about *arranging* a
+          meeting; no meeting exists yet and there is no time. Same for "book", "set up",
+          "find a time", "reschedule", "confirm".
+        - "call the dentist to book" → false. "buy milk tomorrow" → false.
+        If you cannot name the exact time it starts, it is not an appointment.
 
         Worked examples:
         1) "I really need to email the quarterly report before I leave work today, then pick up \
@@ -171,6 +184,17 @@ final class ExtractionService: TaskExtracting {
         functionality" or "Launch app" — the user never said any of that.
         9) "brainstorm names for the newsletter" → one task "Brainstorm newsletter names". \
         Not a project, no steps, no due date.
+        10) "I want to create a new research project Tambe AI, I need to schedule a meeting \
+        with Dr. Bannazadeh and continue reviewing CT scans" (captured at 12:48am) → \
+        suggestedProject "Tambe AI" with tasks "Schedule meeting with Dr. Bannazadeh" \
+        (isAppointment FALSE — it's about arranging one) and "Continue reviewing CT scans" \
+        (category Work — it's this person's research, not their personal health). \
+        dueDate nil on BOTH: no day or time was mentioned. Do NOT schedule them for 1am or \
+        2am just because it is currently after midnight.
+
+        category: file by which part of the user's LIFE it belongs to, not by subject matter. \
+        A clinician reviewing scans, a nurse's shift, a therapist's notes are all Work. Health \
+        means the user's own health — their appointments, exercise, medication.
 
         When the user implies timing on a specific day, call checkCalendarAvailability for that \
         date and pick a due time that avoids the busy windows.

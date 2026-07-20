@@ -327,10 +327,14 @@ struct HomeView: View {
 
     // MARK: Plan my day
 
-    /// Only worth offering when there's actually loose work to place.
-    private var showPlanPrompt: Bool {
-        !unscheduled.isEmpty || !overdueTasks.isEmpty
+    /// Anything the planner could actually place — undated work, whole-day intentions, and
+    /// overdue items. Previously this only counted strictly undated tasks, so captured work
+    /// (which nearly always got *some* date) never triggered the prompt.
+    private var plannableTasks: [TaskItem] {
+        DayPlanner.candidates(from: store.allTasks, on: now, now: now)
     }
+
+    private var showPlanPrompt: Bool { !plannableTasks.isEmpty }
 
     private var planDayCard: some View {
         Button { planningDay = true } label: {
@@ -366,7 +370,7 @@ struct HomeView: View {
     }
 
     private var planPromptSubtitle: String {
-        let loose = unscheduled.count + overdueTasks.count
+        let loose = plannableTasks.count
         return "Fit \(loose) loose task\(loose == 1 ? "" : "s") into your free time"
     }
 
@@ -570,10 +574,17 @@ struct HomeView: View {
                             .foregroundStyle(Color.Offload.text)
                             .strikethrough(task.status == "completed", color: Color.Offload.muted)
                         Spacer(minLength: 8)
-                        if let due = DueDate.parse(task.dueDate) {
+                        // Whole-day work has no clock time to show — saying "12:00 AM" would
+                        // be both wrong and alarming.
+                        if let due = DueDate.parse(task.dueDate), !task.dueIsAllDay {
                             Text(CalendarView.time(due))
                                 .font(.Offload.data)
                                 .foregroundStyle(tint)
+                                .lineLimit(1).fixedSize()
+                        } else if task.dueIsAllDay {
+                            Text("Anytime")
+                                .font(.Offload.data)
+                                .foregroundStyle(Color.Offload.muted)
                                 .lineLimit(1).fixedSize()
                         }
                     }

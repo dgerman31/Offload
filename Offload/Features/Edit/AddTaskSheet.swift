@@ -17,6 +17,7 @@ struct AddTaskSheet: View {
     @State private var category = "Personal"
     @State private var priority = "medium"
     @State private var hasDueDate: Bool
+    @State private var hasTime = false
     @State private var dueDate: Date
     @State private var projectId: String?
     @State private var recurrence: RecurrenceChoice = .none
@@ -34,11 +35,11 @@ struct AddTaskSheet: View {
 
     private func apply(_ match: QuickDate.Match) {
         title = match.cleanedTitle
-        // A day without a time means 9am, not whatever hour the detector assumed.
-        dueDate = match.hasTime
-            ? match.date
-            : (Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: match.date) ?? match.date)
+        dueDate = match.date
         hasDueDate = true
+        // "tomorrow 1pm" is a commitment; bare "tomorrow" is a day, and inventing an hour for
+        // it would make the planner treat it as fixed.
+        hasTime = match.hasTime
     }
 
     static func friendly(_ date: Date, hasTime: Bool) -> String {
@@ -119,13 +120,25 @@ struct AddTaskSheet: View {
                         .lineLimit(2...8)
                 }
 
-                Section("When") {
+                Section {
                     Toggle("Schedule it", isOn: $hasDueDate.animation(Motion.standard))
                     if hasDueDate {
-                        DatePicker("Due", selection: $dueDate)
+                        // A day and a time are different commitments — "Friday" shouldn't
+                        // silently become "Friday at 9am" and get treated as fixed.
+                        Toggle("Set a specific time", isOn: $hasTime.animation(Motion.standard))
+                        DatePicker(hasTime ? "When" : "Day", selection: $dueDate,
+                                   displayedComponents: hasTime ? [.date, .hourAndMinute] : [.date])
                         Picker("Repeat", selection: $recurrence) {
                             ForEach(RecurrenceChoice.allCases) { Text($0.rawValue).tag($0) }
                         }
+                    }
+                } header: {
+                    Text("When")
+                } footer: {
+                    if hasDueDate && !hasTime {
+                        Text("Without a time this stays flexible, so Plan my day can find it a slot.")
+                    } else if hasDueDate {
+                        Text("With a time this is a commitment — Plan my day will schedule around it, never move it.")
                     }
                 }
 
@@ -165,6 +178,12 @@ struct AddTaskSheet: View {
         }
     }
 
+    /// A whole-day task is stored at the start of that day; the flag carries the meaning, so
+    /// the stored hour is never mistaken for an intention.
+    private var storedDueDate: Date {
+        hasTime ? dueDate : Calendar.current.startOfDay(for: dueDate)
+    }
+
     private func add() async {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
@@ -176,9 +195,10 @@ struct AddTaskSheet: View {
             category: category,
             priority: priority,
             projectId: projectId,
-            dueDate: hasDueDate ? DueDate.canonicalString(from: dueDate) : nil,
+            dueDate: hasDueDate ? DueDate.canonicalString(from: storedDueDate) : nil,
             dueDateConfidence: hasDueDate ? 1.0 : nil,   // typed by hand = certain
-            recurrenceRule: hasDueDate ? recurrence.rrule : nil
+            recurrenceRule: hasDueDate ? recurrence.rrule : nil,
+            dueIsAllDay: hasDueDate && !hasTime
         )
         await TaskActions.create(task)
         Haptics.success()

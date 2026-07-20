@@ -149,6 +149,16 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "ALTER TABLE tasks ADD COLUMN people TEXT;")
         }
 
+        // Separate "when I'll do it" from "when it's actually due", and let a due date mean a
+        // *day* rather than a moment. Conflating the two is what produced tasks scheduled for
+        // 1 AM: every date had to pretend to be a precise time.
+        migrator.registerMigration("v4_due_semantics") { db in
+            try db.execute(sql: """
+                ALTER TABLE tasks ADD COLUMN deadline TEXT;
+                ALTER TABLE tasks ADD COLUMN due_is_all_day INTEGER DEFAULT 0;
+                """)
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

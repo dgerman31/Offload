@@ -39,6 +39,10 @@ enum CaptureMapper {
         // The model invents effort estimates freely (a bare "Launch app" coming back as 180m).
         // Only trust one when the capture itself carried a duration signal.
         let trustEffort = sourceText.map(hasDurationSignal) ?? true
+        // Likewise for dates: with no temporal language in the capture there is nothing to
+        // resolve, so any date the model returns is invention — and at 12:48 AM that
+        // invention becomes a task due at 1 AM.
+        let trustDates = sourceText.map(hasTemporalSignal) ?? true
         let project: Project? = {
             guard extracted.tasks.count >= minTasksForProject,
                   let name = extracted.suggestedProject?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -50,7 +54,9 @@ enum CaptureMapper {
         var tasks: [TaskItem] = []
         var appointmentTaskIds: Set<String> = []
         for t in extracted.tasks {
-            let dueDate = DueDate.normalize(t.dueDate)
+            let resolved = resolveDue(t.dueDate, trustDates: trustDates, calendar: calendar)
+            let dueDate = resolved.value
+            let isAllDay = resolved.isAllDay
             let parent = TaskItem(
                 title: actionTitle(t.title),
                 descriptionText: nonEmpty(t.details),
@@ -62,11 +68,15 @@ enum CaptureMapper {
                 recurrenceRule: nonEmpty(t.recurrenceRule),
                 contextTags: encodeTags(t.contextTags),
                 effortMinutes: trustEffort ? t.effortMinutes : nil,
-                people: People.encode(t.people)
+                people: People.encode(t.people),
+                deadline: trustDates ? DueDate.normalize(t.deadline) : nil,
+                dueIsAllDay: isAllDay
             )
             tasks.append(parent)
-            // Only a real, time-anchored appointment becomes a calendar event.
-            if t.isAppointment, dueDate != nil {
+            // Writing to someone's real calendar needs more than the model's say-so: a genuine
+            // time, and a title that isn't itself about *arranging* the thing.
+            if isRealAppointment(title: parent.title, isAppointment: t.isAppointment,
+                                 dueDate: dueDate, isAllDay: isAllDay) {
                 appointmentTaskIds.insert(parent.id)
             }
 
@@ -162,6 +172,65 @@ enum CaptureMapper {
         return title
     }
 
+    /// Decide what a model-supplied due date actually means.
+    ///
+    /// Three outcomes: dropped entirely (the capture never mentioned time), kept as a
+    /// whole-day intention (a date with no meaningful hour, or an hour nobody works), or kept
+    /// as a real moment. The middle case is the important one — "Friday" should stay Friday
+    /// rather than becoming Friday at midnight.
+    static func resolveDue(
+        _ raw: String?,
+        trustDates: Bool,
+        calendar: Calendar = .current
+    ) -> (value: String?, isAllDay: Bool) {
+        guard trustDates, let parsed = DueDate.parse(raw) else { return (nil, false) }
+
+        // Midnight almost always means "that day", not "at 00:00".
+        let components = calendar.dateComponents([.hour, .minute], from: parsed)
+        let looksDayOnly = (components.hour ?? 0) == 0 && (components.minute ?? 0) == 0
+
+        // A time in the small hours is a resolution artefact, not an intention.
+        if looksDayOnly || isSleepingHour(parsed, calendar: calendar) {
+            let dayStart = calendar.startOfDay(for: parsed)
+            return (DueDate.canonicalString(from: dayStart), true)
+        }
+        return (DueDate.canonicalString(from: parsed), false)
+    }
+
+    /// Words that indicate the user actually said *when*. Deliberately broad on days and
+    /// deliberately narrow on anything that could be a coincidence.
+    private static let dateWords = [
+        "today", "tomorrow", "tonight", "yesterday", "morning", "afternoon", "evening", "night",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "mon ", "tue ", "wed ", "thu ", "fri ", "sat ", "sun ",
+        "january", "february", "march", "april", "may ", "june", "july", "august",
+        "september", "october", "november", "december",
+        "week", "weekend", "month", "year", "deadline", "due", "by ", "before ", "after ",
+        "asap", "urgent", "now", "later", "soon", "next ", "this ", "every ", "daily",
+        "weekly", "monthly", "annually", "am", "pm", "o'clock", "noon", "midnight",
+        "birthday", "anniversary", "appointment", "meeting at"
+    ]
+
+    /// Did the capture actually mention *when*? This is the guard that stops a thought typed
+    /// at 12:48 AM from becoming a task due at 1:00 AM: with no temporal language at all, the
+    /// model has nothing to resolve, so any date it produces is invention.
+    static func hasTemporalSignal(_ text: String) -> Bool {
+        let lower = " " + text.lowercased() + " "
+        // A digit that looks like a time or a date ("3pm", "at 4", "5/12", "the 14th").
+        if lower.range(of: #"\d{1,2}\s*(:|am|pm|st|nd|rd|th|/|-)"#, options: .regularExpression) != nil {
+            return true
+        }
+        return dateWords.contains { lower.contains($0) }
+    }
+
+    /// Hours nobody means to be working. A derived time landing here is a bug, not a plan.
+    static let sleepingHours = 22..<7
+
+    static func isSleepingHour(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let hour = calendar.component(.hour, from: date)
+        return hour >= 22 || hour < 7
+    }
+
     /// Did the capture actually say anything about how long something takes? Digits cover
     /// "20 min"/"a 2 hour block"; the word list covers spoken durations. Deliberately narrow —
     /// timing words like "tomorrow" say WHEN, not HOW LONG, so they don't count.
@@ -173,6 +242,24 @@ enum CaptureMapper {
             "a while", "long time", "all day", "half day", "takes"
         ]
         return durationWords.contains { lower.contains($0) }
+    }
+
+    /// Verbs that mean "arrange this" rather than "this is arranged". A task whose whole
+    /// point is *to book a thing* has no time yet, so it must never become a calendar event —
+    /// "Schedule a meeting with Dr. Bannazadeh" is a to-do, not a meeting.
+    private static let arrangingVerbs = [
+        "schedule", "book", "arrange", "set up", "setup", "organise", "organize",
+        "plan ", "find a time", "reschedule", "confirm", "ask about", "email about",
+        "call to", "reach out", "follow up"
+    ]
+
+    /// Should this become a real calendar event? Only when the model says it's an appointment,
+    /// it has a genuine time (not a whole-day placeholder), and the title isn't about
+    /// *arranging* something. Writing to someone's real calendar deserves all three.
+    static func isRealAppointment(title: String, isAppointment: Bool, dueDate: String?, isAllDay: Bool) -> Bool {
+        guard isAppointment, !isAllDay, dueDate != nil else { return false }
+        let lower = title.lowercased()
+        return !arrangingVerbs.contains { lower.hasPrefix($0) || lower.contains(" \($0)") }
     }
 
     /// Guardrail against under-prioritized imminent work: something due today or already

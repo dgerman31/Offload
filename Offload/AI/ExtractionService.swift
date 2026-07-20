@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import GRDB
 
 /// Runs core extraction through the on-device model (spec §3.2 / §9). One fresh
 /// `LanguageModelSession` per capture (spec §9: don't accumulate unrelated context),
@@ -17,6 +18,23 @@ final class ExtractionService: TaskExtracting {
                 return "On-device AI is unavailable — your words were saved and will be organized when it's ready."
             }
         }
+    }
+
+    private let db: AppDatabase
+
+    init(db: AppDatabase = .shared) {
+        self.db = db
+    }
+
+    /// Recent corrections rendered as few-shot guidance, so the model adopts this user's
+    /// filing habits instead of repeating a mistake they've already fixed by hand.
+    private func personalizationFragment() async -> String? {
+        let data = try? await db.dbQueue.read { database in
+            (try Correction.order(Column("created_at").desc).limit(40).fetchAll(database),
+             try TaskItem.filter(Column("deleted") == false).fetchAll(database))
+        }
+        guard let (corrections, tasks) = data else { return nil }
+        return Personalization.promptFragment(Personalization.lessons(corrections: corrections, tasks: tasks))
     }
 
     /// Built fresh each call so the model knows "now" and can resolve relative timing.
@@ -169,9 +187,15 @@ final class ExtractionService: TaskExtracting {
             throw ExtractionError.modelUnavailable
         }
 
+        // Base instructions plus anything this user has taught us by correcting the model.
+        var instructions = Self.instructions(now: Date())
+        if let learned = await personalizationFragment() {
+            instructions += "\n\n" + learned
+        }
+
         let session = LanguageModelSession(
             tools: [CalendarAvailabilityTool()],
-            instructions: Self.instructions(now: Date())
+            instructions: instructions
         )
 
         if UserDefaults.standard.bool(forKey: Self.deliberateModeKey) {

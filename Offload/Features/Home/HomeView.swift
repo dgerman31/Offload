@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var selectedDay = Calendar.current.startOfDay(for: Date())
     @State private var appeared = false
     @State private var addingTask = false
+    @State private var planningDay = false
     private var patterns: PatternService { PatternService.shared }
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
@@ -60,6 +61,9 @@ struct HomeView: View {
 
                     if isToday, !summary.isClear || summary.nextTask != nil {
                         nowAndNext.appearIn(2, when: appeared).scrollAppear()
+                    }
+                    if isToday, showPlanPrompt {
+                        planDayCard.appearIn(2, when: appeared).scrollAppear()
                     }
                     if !patterns.suggestions.isEmpty {
                         suggestionsCard.appearIn(3, when: appeared).scrollAppear()
@@ -124,6 +128,11 @@ struct HomeView: View {
             }
             .sheet(isPresented: $addingTask) {
                 AddTaskSheet(initialDate: isToday ? nil : selectedDay)
+            }
+            .sheet(isPresented: $planningDay) {
+                DayPlanView(tasks: store.allTasks, events: store.rangeEvents, day: now) {
+                    Task { await NotificationSync.shared.refresh() }
+                }
             }
             .overlay(alignment: .bottom) { undoOverlay }
             .animation(Motion.standard, value: store.undo?.id)
@@ -298,6 +307,51 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    // MARK: Plan my day
+
+    /// Only worth offering when there's actually loose work to place.
+    private var showPlanPrompt: Bool {
+        !unscheduled.isEmpty || !overdueTasks.isEmpty
+    }
+
+    private var planDayCard: some View {
+        Button { planningDay = true } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x8A6FE0)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: .rect(cornerRadius: 12, style: .continuous)
+                    )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Plan my day")
+                        .font(.Offload.taskTitle)
+                        .foregroundStyle(Color.Offload.text)
+                    Text(planPromptSubtitle)
+                        .font(.Offload.data)
+                        .foregroundStyle(Color.Offload.muted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.Offload.muted)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .offloadCard()
+        }
+        .buttonStyle(.pressable(scale: 0.99))
+    }
+
+    private var planPromptSubtitle: String {
+        let loose = unscheduled.count + overdueTasks.count
+        return "Fit \(loose) loose task\(loose == 1 ? "" : "s") into your free time"
     }
 
     private func iconBadge(_ symbol: String, tint: Color) -> some View {

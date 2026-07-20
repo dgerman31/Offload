@@ -7,6 +7,20 @@ struct SettingsView: View {
     @Environment(ModelAvailability.self) private var availability
     @AppStorage(ExtractionService.deliberateModeKey) private var deliberateMode = false
     @AppStorage(CaptureService.dedupeThresholdKey) private var dedupeThreshold = 0.85
+    @AppStorage(AppTheme.storageKey) private var themeRaw = AppTheme.system.rawValue
+    @AppStorage(NotificationService.remindersEnabledKey) private var remindersEnabled = false
+    @AppStorage(NotificationService.briefEnabledKey) private var briefEnabled = false
+    @AppStorage(NotificationService.briefHourKey) private var briefHour = NotificationService.defaultBriefHour
+    @AppStorage(NotificationService.reviewEnabledKey) private var reviewEnabled = false
+    @AppStorage(NotificationService.reviewHourKey) private var reviewHour = NotificationService.defaultReviewHour
+    @State private var notificationsDenied = false
+
+    /// "8 AM" / "9 PM" for the reminder-time pickers.
+    static func hourLabel(_ hour: Int) -> String {
+        let suffix = hour < 12 ? "AM" : "PM"
+        let display = hour % 12 == 0 ? 12 : hour % 12
+        return "\(display) \(suffix)"
+    }
     @State private var statsStore = StatsStore()
     @State private var insight: String?
     @State private var generatingInsight = false
@@ -20,8 +34,48 @@ struct SettingsView: View {
                     progressRow
                 }
 
+                Section {
+                    Picker("Appearance", selection: $themeRaw) {
+                        ForEach(AppTheme.allCases) { theme in
+                            Label(theme.label, systemImage: theme.icon).tag(theme.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: themeRaw) { _, _ in Haptics.light() }
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Automatic follows your iPhone's light/dark setting.")
+                }
+
                 Section("On-device AI") {
                     availabilityCard
+                }
+
+                Section {
+                    Toggle("Remind me when tasks are due", isOn: $remindersEnabled)
+                    Toggle("Morning brief", isOn: $briefEnabled)
+                    if briefEnabled {
+                        Picker("Brief at", selection: $briefHour) {
+                            ForEach(5...11, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
+                        }
+                    }
+                    Toggle("Evening review", isOn: $reviewEnabled)
+                    if reviewEnabled {
+                        Picker("Review at", selection: $reviewHour) {
+                            ForEach(18...23, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
+                        }
+                    }
+                    if notificationsDenied {
+                        Label("Notifications are off for Offload — turn them on in iOS Settings.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.Offload.body)
+                            .foregroundStyle(Color.Offload.amber)
+                    }
+                } header: {
+                    Text("Reminders")
+                } footer: {
+                    Text("All scheduled on-device — nothing is sent to a server. The morning brief tells you what the day holds before it starts.")
                 }
 
                 Section {
@@ -118,6 +172,14 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .task { await statsStore.observe() }
+            .task { notificationsDenied = !(await NotificationService.shared.isAuthorized) && anyNotificationOn }
+            // Turning any reminder on is the natural moment to ask for permission; changing a
+            // time reschedules immediately so the UI never lies about when you'll be nudged.
+            .onChange(of: remindersEnabled) { _, on in Task { await applyNotificationSettings(requesting: on) } }
+            .onChange(of: briefEnabled) { _, on in Task { await applyNotificationSettings(requesting: on) } }
+            .onChange(of: reviewEnabled) { _, on in Task { await applyNotificationSettings(requesting: on) } }
+            .onChange(of: briefHour) { _, _ in Task { await applyNotificationSettings(requesting: false) } }
+            .onChange(of: reviewHour) { _, _ in Task { await applyNotificationSettings(requesting: false) } }
             // Destructive and irreversible — always confirm first (spec §5.7).
             .confirmationDialog("Erase all tasks?", isPresented: $confirmingErase, titleVisibility: .visible) {
                 Button("Erase everything", role: .destructive) {
@@ -133,6 +195,27 @@ struct SettingsView: View {
                 Text("This deletes every task, project, and capture on this iPhone. It can't be undone.")
             }
         }
+    }
+
+    private var anyNotificationOn: Bool { remindersEnabled || briefEnabled || reviewEnabled }
+
+    /// Ask for permission when a switch is first turned on, then push the whole schedule.
+    private func applyNotificationSettings(requesting: Bool) async {
+        let service = NotificationService.shared
+        if requesting, !(await service.isAuthorized) {
+            _ = await service.requestAuthorization()
+        }
+        let authorized = await service.isAuthorized
+        notificationsDenied = anyNotificationOn && !authorized
+
+        await service.scheduleEveningReview(enabled: reviewEnabled, hour: reviewHour)
+        await service.scheduleDailyBrief(
+            enabled: briefEnabled,
+            hour: briefHour,
+            summary: "Open Offload to see what today holds."
+        )
+        // Task reminders reconcile against live data, which the Home screen owns.
+        await NotificationSync.shared.refresh(remindersEnabled: remindersEnabled)
     }
 
     private var progressRow: some View {

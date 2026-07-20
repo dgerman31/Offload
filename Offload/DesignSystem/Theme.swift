@@ -15,11 +15,14 @@ extension Color {
         static let red      = Color(hex: 0xEF4444)   // overdue / blocked
 
         // Surfaces + text — adapt to light/dark.
-        static let background = Color(light: 0xFAFAF8, dark: 0x0E1020) // warm off-white / deep indigo-black
+        // Light mode is a cool, airy off-white (cards float as pure white above it); dark mode
+        // is the deep indigo-black from the design language, never a flat neutral grey.
+        static let background = Color(light: 0xF5F6FB, dark: 0x0E1020)
         static let surface    = Color(light: 0xFFFFFF, dark: 0x181B2E) // cards, inputs
-        static let text       = Color(light: 0x1F2937, dark: 0xECECEC) // primary text
+        static let elevated   = Color(light: 0xFFFFFF, dark: 0x1F2340) // sheets, popovers
+        static let text       = Color(light: 0x141A2E, dark: 0xECECEC) // primary text
         static let muted      = Color(light: 0x6B7280, dark: 0x9AA0AA) // secondary text
-        static let divider    = Color(light: 0xE5E7EB, dark: 0x2C3050)
+        static let divider    = Color(light: 0xE7E9F2, dark: 0x2C3050)
 
         /// Barely-there edge that separates layered surfaces in dark mode, where shadow alone
         /// can't. Near-invisible in light mode so cards read as pure depth, not outlines.

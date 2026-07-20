@@ -11,6 +11,7 @@ struct CalendarView: View {
     @State private var store = CalendarStore()
     @State private var editing: TaskItem?
     @State private var appeared = false
+    @State private var addingTask = false
     @Namespace private var selectionNamespace
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
@@ -39,11 +40,20 @@ struct CalendarView: View {
                         .buttonStyle(.pressable)
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { capture.beginCapture() } label: {
-                        Image(systemName: "bolt.circle.fill").font(.title2)
+                    HStack(spacing: 14) {
+                        // Adds straight onto the day you're looking at.
+                        Button { addingTask = true } label: {
+                            Image(systemName: "plus.circle.fill").font(.title2)
+                        }
+                        .buttonStyle(.pressable(scale: 0.9))
+                        .accessibilityLabel("Add task on this day")
+
+                        Button { capture.beginCapture() } label: {
+                            Image(systemName: "bolt.circle.fill").font(.title2)
+                        }
+                        .buttonStyle(.pressable(scale: 0.9))
+                        .accessibilityLabel("Quick Capture")
                     }
-                    .buttonStyle(.pressable(scale: 0.9))
-                    .accessibilityLabel("Quick Capture")
                 }
             }
             .task { await store.observeTasks() }
@@ -51,6 +61,9 @@ struct CalendarView: View {
             .task { withAnimation(Motion.settle) { appeared = true } }
             .sheet(item: $editing) { task in
                 NavigationStack { TaskEditView(task: task) }
+            }
+            .sheet(isPresented: $addingTask) {
+                AddTaskSheet(initialDate: store.selectedDate)
             }
         }
     }

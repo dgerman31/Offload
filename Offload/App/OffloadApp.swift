@@ -16,6 +16,7 @@ struct OffloadApp: App {
                 .environment(availability)
                 .environment(capture)
                 .tint(Color.Offload.indigo)
+                .themed()   // honour the light/dark preference from Settings
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -24,8 +25,11 @@ struct OffloadApp: App {
                 // cheap opportunistic pattern pass so suggestions feel fresh.
                 availability.refresh()
                 Task { await PatternService.shared.refresh() }
+                Task { await NotificationSync.shared.refresh() }
             case .background:
                 BackgroundSynthesis.schedule()
+                // Leaving the app is exactly when the schedule must be correct.
+                Task { await NotificationSync.shared.refresh() }
             default:
                 break
             }

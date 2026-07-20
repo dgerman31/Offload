@@ -53,12 +53,7 @@ final class TodayStore {
     }
 
     func toggleComplete(_ item: TaskItem) async {
-        var updated = item
-        let nowCompleted = updated.status != "completed"
-        updated.status = nowCompleted ? "completed" : "open"
-        updated.completedAt = nowCompleted ? ISO8601DateFormatter().string(from: Date()) : nil
-        let toSave = updated
-        try? await db.dbQueue.write { try toSave.update($0) }
+        await TaskActions.toggleComplete(item, db: db)
     }
 
     /// Pure bucketing (testable): open tasks due today go into time slots by hour; open

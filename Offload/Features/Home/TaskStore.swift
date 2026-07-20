@@ -19,8 +19,14 @@ final class TaskStore {
     /// dashboard needs them to count today's progress.
     private(set) var allTasks: [TaskItem] = []
 
-    /// Today's calendar events, for the Home dashboard's day view.
-    private(set) var todayEvents: [CalendarEvent] = []
+    /// Calendar events across the visible window (the week strip's fortnight plus whichever
+    /// day is selected), so switching days doesn't trigger a fetch every tap.
+    private(set) var rangeEvents: [CalendarEvent] = []
+
+    /// Just today's, for the day summary.
+    var todayEvents: [CalendarEvent] {
+        rangeEvents.filter { Calendar.current.isDate($0.start, inSameDayAs: Date()) }
+    }
 
     var undo: UndoState?
 
@@ -53,38 +59,51 @@ final class TaskStore {
         }
     }
 
-    /// Load the events for the current day so Home can show the real shape of it.
-    func loadTodayEvents(now: Date = Date(), calendar: Calendar = .current) async {
+    /// Load events covering the week strip *and* the selected day in one fetch, so tapping
+    /// through days is instant and the strip's density dots are already populated.
+    func loadEvents(around day: Date, now: Date = Date(), calendar: Calendar = .current) async {
         guard await calendarReader.requestAccess() else {
-            todayEvents = []
+            rangeEvents = []
             return
         }
-        let start = calendar.startOfDay(for: now)
-        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? now
-        todayEvents = await calendarReader.events(from: start, to: end)
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        let start = calendar.startOfDay(for: min(weekStart, day))
+        let end = calendar.date(byAdding: .day, value: 21, to: start) ?? start
+        rangeEvents = await calendarReader.events(from: start, to: end)
     }
 
     /// Toggle completion. Writes an immutable copy (the async @Sendable write can't capture a var).
     func toggleComplete(_ item: TaskItem) async {
-        var updated = item
-        let nowCompleted = updated.status != "completed"
-        updated.status = nowCompleted ? "completed" : "open"
-        updated.completedAt = nowCompleted ? ISO8601DateFormatter().string(from: Date()) : nil
-        let toSave = updated
-        try? await db.dbQueue.write { try toSave.update($0) }
-        // Offer undo when a task leaves the list (completed).
+        let nowCompleted = item.status != "completed"
+        let follow = await TaskActions.toggleComplete(item, db: db)
+        // Offer undo when a task leaves the list (completed), and say so when finishing it
+        // scheduled the next occurrence — otherwise a repeating task silently reappearing
+        // looks like a bug rather than the feature it is.
         if nowCompleted {
-            undo = UndoState(message: "Completed “\(item.title)”", restore: item)
+            let message = follow != nil
+                ? "Completed “\(item.title)” · next one scheduled"
+                : "Completed “\(item.title)”"
+            undo = UndoState(message: message, restore: item)
         }
     }
 
     /// Soft-delete (sets `deleted = 1`; the observation filters it out).
     func delete(_ item: TaskItem) async {
-        var updated = item
-        updated.deleted = true
-        let toSave = updated
-        try? await db.dbQueue.write { try toSave.update($0) }
+        await TaskActions.delete(item, db: db)
         undo = UndoState(message: "Deleted “\(item.title)”", restore: item)
+    }
+
+    /// Push a task out to a later moment, with undo back to where it was.
+    func snooze(_ item: TaskItem, _ preset: TaskActions.Snooze) async {
+        await TaskActions.snooze(item, preset, db: db)
+        Haptics.light()
+        undo = UndoState(message: "Snoozed to \(preset.rawValue.lowercased())", restore: item)
+    }
+
+    /// open → in progress → done.
+    func advanceStatus(_ item: TaskItem) async {
+        await TaskActions.advanceStatus(item, db: db)
+        Haptics.light()
     }
 
     /// Reverse the last undoable action by writing its prior state back.

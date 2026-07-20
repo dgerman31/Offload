@@ -19,7 +19,7 @@ struct TaskContextMenu: View {
             }
 
             Button {
-                Task { await TaskActions.advanceStatus(task) }
+                Task { await TaskActions.advanceStatus(task) }; Haptics.light()
             } label: {
                 Label(statusActionLabel, systemImage: statusActionIcon)
             }
@@ -27,7 +27,7 @@ struct TaskContextMenu: View {
             Menu {
                 ForEach(TaskActions.Snooze.allCases) { preset in
                     Button {
-                        Task { await TaskActions.snooze(task, preset) }
+                        Task { await TaskActions.snooze(task, preset) }; Haptics.light()
                     } label: {
                         Label(preset.rawValue, systemImage: preset.icon)
                     }
@@ -37,16 +37,16 @@ struct TaskContextMenu: View {
             }
 
             if task.status == "waiting" {
-                Button { Task { await TaskActions.clearWaiting(task) } } label: {
+                Button { Task { await TaskActions.clearWaiting(task) }; Haptics.light() } label: {
                     Label("No longer waiting", systemImage: "play.circle")
                 }
             } else if task.status != "completed" {
-                Button { Task { await TaskActions.setWaiting(task, on: nil) } } label: {
+                Button { Task { await TaskActions.setWaiting(task, on: nil) }; Haptics.light() } label: {
                     Label("Waiting on someone", systemImage: "hourglass")
                 }
             }
 
-            Button { Task { await TaskActions.duplicate(task) } } label: {
+            Button { Task { await TaskActions.duplicate(task) }; Haptics.light() } label: {
                 Label("Duplicate", systemImage: "plus.square.on.square")
             }
 
@@ -59,7 +59,7 @@ struct TaskContextMenu: View {
             Divider()
 
             Button(role: .destructive) {
-                Task { await TaskActions.delete(task) }
+                Task { await TaskActions.delete(task) }; Haptics.light()
             } label: {
                 Label("Delete", systemImage: "trash")
             }

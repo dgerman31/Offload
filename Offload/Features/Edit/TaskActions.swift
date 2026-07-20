@@ -118,7 +118,6 @@ enum TaskActions {
         }
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }
-        Haptics.light()
     }
 
     /// Unblock — back into the live list.
@@ -128,7 +127,6 @@ enum TaskActions {
         updated.status = "open"
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }
-        Haptics.light()
     }
 
     /// Copy a task as a fresh, open one — for the things you do again and again but that
@@ -142,7 +140,6 @@ enum TaskActions {
         copy.calendarEventId = nil
         let toInsert = copy
         try? await db.dbQueue.write { try toInsert.insert($0) }
-        Haptics.success()
     }
 
     /// Bulk operations for multi-select. One transaction, so a long list doesn't half-apply.
@@ -159,7 +156,6 @@ enum TaskActions {
             for item in updates { try item.update(database) }
             for follow in followUps { try follow.insert(database) }
         }
-        Haptics.success()
     }
 
     static func deleteAll(_ items: [TaskItem], db: AppDatabase = .shared) async {
@@ -171,7 +167,6 @@ enum TaskActions {
         try? await db.dbQueue.write { database in
             for item in updates { try item.update(database) }
         }
-        Haptics.warning()
     }
 
     static func snoozeAll(_ items: [TaskItem], _ preset: Snooze, db: AppDatabase = .shared, now: Date = Date()) async {
@@ -186,7 +181,6 @@ enum TaskActions {
         try? await db.dbQueue.write { database in
             for item in updates { try item.update(database) }
         }
-        Haptics.light()
     }
 
     static func delete(_ item: TaskItem, db: AppDatabase = .shared) async {

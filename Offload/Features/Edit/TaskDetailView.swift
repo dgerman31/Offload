@@ -15,6 +15,7 @@ struct TaskDetailView: View {
     @State private var editing = false
     @State private var focusing = false
     @State private var appeared = false
+    @State private var newStep = ""
 
     init(task: TaskItem) {
         self.taskId = task.id
@@ -28,9 +29,7 @@ struct TaskDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header.appearIn(0, when: appeared)
-                if !store.subtasks.isEmpty {
-                    subtaskCard.appearIn(1, when: appeared).scrollAppear()
-                }
+                subtaskCard.appearIn(1, when: appeared).scrollAppear()
                 metaCard.appearIn(2, when: appeared).scrollAppear()
                 actionsCard.appearIn(3, when: appeared).scrollAppear()
             }
@@ -132,7 +131,15 @@ struct TaskDetailView: View {
     private var subtaskCard: some View {
         card("Steps", icon: "list.bullet.indent", tint: tint) {
             VStack(spacing: 10) {
-                ForEach(store.subtasks) { sub in
+                subtaskList
+                addStepField
+            }
+        }
+    }
+
+    private var subtaskList: some View {
+        VStack(spacing: 10) {
+            ForEach(store.subtasks) { sub in
                     Button {
                         Task { await TaskActions.toggleComplete(sub) }
                         Haptics.light()
@@ -150,9 +157,46 @@ struct TaskDetailView: View {
                         }
                     }
                     .buttonStyle(.pressable(scale: 0.99))
-                }
             }
         }
+    }
+
+    /// Break a task down after the fact — the AI's decomposition is a starting point, not a
+    /// verdict, and realising a task has steps usually happens once you're staring at it.
+    private var addStepField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 15))
+                .foregroundStyle(Color.Offload.muted)
+            TextField("Add a step", text: $newStep)
+                .font(.Offload.body)
+                .submitLabel(.done)
+                .onSubmit { Task { await addStep() } }
+            if !newStep.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button("Add") { Task { await addStep() } }
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundStyle(tint)
+                    .buttonStyle(.pressable)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func addStep() async {
+        let title = newStep.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        // Steps inherit their parent's context so they group and colour consistently.
+        let step = TaskItem(
+            title: title,
+            category: task.category,
+            priority: task.priority,
+            parentTaskId: task.id,
+            projectId: task.projectId,
+            contextTags: task.contextTags
+        )
+        await TaskActions.create(step)
+        newStep = ""
+        Haptics.light()
     }
 
     // MARK: Meta

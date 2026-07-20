@@ -6,6 +6,7 @@ struct ProjectDetailView: View {
     @State private var store: ProjectDetailStore
     @State private var editing: TaskItem?
     @State private var addingSubfolder = false
+    @State private var addingTask = false
 
     init(project: Project) {
         self.project = project
@@ -87,10 +88,17 @@ struct ProjectDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { addingSubfolder = true } label: {
-                    Image(systemName: "folder.badge.plus")
+                Menu {
+                    Button { addingTask = true } label: {
+                        Label("Add task", systemImage: "plus.circle")
+                    }
+                    Button { addingSubfolder = true } label: {
+                        Label("Add subfolder", systemImage: "folder.badge.plus")
+                    }
+                } label: {
+                    Image(systemName: "plus")
                 }
-                .accessibilityLabel("Add subfolder")
+                .accessibilityLabel("Add to project")
             }
         }
         .task { await store.observe() }
@@ -101,6 +109,9 @@ struct ProjectDetailView: View {
             NewProjectSheet(parent: project) { title in
                 Task { await store.addSubfolder(named: title) }
             }
+        }
+        .sheet(isPresented: $addingTask) {
+            AddTaskSheet(initialProjectId: project.id)
         }
     }
 }

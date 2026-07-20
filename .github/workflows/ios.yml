@@ -54,6 +54,20 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      # Runner images rotate their simulator sets, so a hardcoded device name eventually
+      # disappears and fails the build. Resolve a real UDID instead.
+      # (No `pipefail` here on purpose: `head -1` closes the pipe early, which would otherwise
+      # kill the upstream command and silently yield an empty id.)
+      - name: Pick a simulator
+        id: sim
+        run: |
+          LIST=$(xcrun simctl list devices available)
+          echo "$LIST"
+          UDID=$(echo "$LIST" | sed -n -E 's/^[[:space:]]*iPhone[^(]*\(([0-9A-Fa-f-]{36})\).*/\1/p' | head -1)
+          if [ -z "$UDID" ]; then echo "::error::No iPhone simulator available on this runner"; exit 1; fi
+          echo "Using simulator $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
       # `test` already builds — the old `clean build test` compiled the world twice, and
       # `clean` is meaningless on a fresh runner that has no derived data to begin with.
       # No `||` retry on a second device: it doubled the cost of every genuine test failure.
@@ -63,7 +77,7 @@ jobs:
           xcodebuild test \
             -project Offload.xcodeproj \
             -scheme Offload \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
             -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
             ONLY_ACTIVE_ARCH=YES \

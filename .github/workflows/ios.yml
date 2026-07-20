@@ -54,31 +54,16 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      # Resolve a real simulator UDID instead of hardcoding a device name. A wrong name used
-      # to mean a full retry on a second device — which doubled the cost of every genuine
-      # test failure.
-      - name: Pick a simulator
-        id: sim
-        run: |
-          set -euo pipefail
-          LIST=$(xcrun simctl list devices available)
-          UDID=$(echo "$LIST" | grep -E "iPhone .*Pro " | head -1 | grep -oE '[0-9A-F-]{36}' || true)
-          if [ -z "$UDID" ]; then
-            UDID=$(echo "$LIST" | grep "iPhone" | head -1 | grep -oE '[0-9A-F-]{36}')
-          fi
-          NAME=$(echo "$LIST" | grep "$UDID" | sed -E 's/^ *//; s/ \(.*//')
-          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-          echo "Using $NAME ($UDID)"
-
       # `test` already builds — the old `clean build test` compiled the world twice, and
       # `clean` is meaningless on a fresh runner that has no derived data to begin with.
+      # No `||` retry on a second device: it doubled the cost of every genuine test failure.
       - name: Test (Simulator)
         run: |
           set -o pipefail
           xcodebuild test \
             -project Offload.xcodeproj \
             -scheme Offload \
-            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
             -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
             ONLY_ACTIVE_ARCH=YES \

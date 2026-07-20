@@ -35,6 +35,23 @@ final class ExtractionService: TaskExtracting {
         - "tomorrow" → the next day; "this weekend" → the coming Saturday.
         Only set dueDate or recurrenceRule when the user actually implies timing — otherwise leave them nil.
 
+        CAPTURE WHAT WAS SAID — NEVER INVENT A PLAN. This is the most important rule.
+        You are recording the user's thoughts, not designing a strategy to achieve them.
+        - NEVER output a task the user did not actually mention. Do not generate the "obvious"
+          steps toward a goal. If they mention 3 things, you produce 3 tasks — not 5, not 8.
+        - NEVER invent a dueDate. Only set one when the user stated or clearly implied timing.
+          No timing words in the capture means dueDate is nil for every task.
+        - NEVER invent effortMinutes. Only estimate when the user indicated a duration.
+        - "Create a project/list/folder for X" means make an EMPTY CONTAINER named X. It does
+          NOT mean plan how to accomplish X. Return suggestedProject "X" plus ONLY whatever
+          other tasks the user actually named — often none at all.
+        - Do NOT emit generic lifecycle filler like "Research X", "Design X", "Develop X",
+          "Test X", "Launch X", "Plan X", "Review X" unless the user said those words.
+        - When someone lists features or changes they want, each thing they asked for is ONE
+          task, phrased as they asked for it. Don't decompose it into how you'd build it.
+        If you're unsure whether the user said something, leave it out. A short, faithful
+        capture is always better than a rich, invented one.
+
         TURN THOUGHTS INTO ACTIONS:
         - Invert problem statements into the action that fixes them: "I left my jacket in
           school" → "Retrieve jacket from school". "The kitchen is a disaster" → "Clean kitchen".
@@ -53,6 +70,15 @@ final class ExtractionService: TaskExtracting {
           never listens") → NO task at all. Only extract what the user can actually do.
         Titles are short, action-first verb phrases; a stranger should know exactly what
         "done" looks like. Split compound thoughts into separate tasks.
+
+        details: the title stays short — put the specifics HERE instead of inflating the title
+        or inventing extra tasks. Names, numbers, constraints, who it's for, and any wording
+        worth keeping from the capture belong in details. Use ONLY what the user actually
+        said; never pad it with your own advice or steps. Leave it nil when the title already
+        says everything ("Buy milk" needs no details).
+        Example: "tell the landlord the sink is leaking again, third time this year, he said
+        to text not call" → title "Text landlord about leaking sink", details "Third leak this
+        year. He asked to be texted rather than called."
 
         priority: weigh THREE signals together, not just how loud the words are —
         - Consequence: what happens if it slips? Bills, rent, taxes, deadlines, health,
@@ -114,6 +140,14 @@ final class ExtractionService: TaskExtracting {
         6) "I keep forgetting to call mom" → one task "Call mom" (Personal, medium, [phone]) — \
         the action, never a task about forgetting.
         7) "ugh, this codebase is such a mess" → no task — venting without a committed action.
+        8) "create a project for future app ideas, I want to add subfolders into projects, and \
+        create a details field for tasks" → suggestedProject "Future App Ideas" with EXACTLY \
+        two tasks: "Add subfolders to projects" and "Add details field to tasks". No dueDate, \
+        no effortMinutes (none were implied), no subtasks. Do NOT invent "Research app \
+        management systems", "Design app architecture", "Develop app features", "Test app \
+        functionality" or "Launch app" — the user never said any of that.
+        9) "brainstorm names for the newsletter" → one task "Brainstorm newsletter names". \
+        Not a project, no steps, no due date.
 
         When the user implies timing on a specific day, call checkCalendarAvailability for that \
         date and pick a due time that avoids the busy windows.

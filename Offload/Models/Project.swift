@@ -13,6 +13,8 @@ struct Project: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
     var category: String?
     var metadata: String?
     var deleted: Bool
+    /// Parent project, when this one is a subfolder. nil = top-level.
+    var parentProjectId: String?
 
     static let databaseTableName = "projects"
 
@@ -24,6 +26,7 @@ struct Project: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
         case createdAt = "created_at"
         case dueDate = "due_date"
         case category, metadata, deleted
+        case parentProjectId = "parent_project_id"
     }
 
     init(
@@ -36,7 +39,8 @@ struct Project: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
         dueDate: String? = nil,
         category: String? = nil,
         metadata: String? = nil,
-        deleted: Bool = false
+        deleted: Bool = false,
+        parentProjectId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -48,5 +52,6 @@ struct Project: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
         self.category = category
         self.metadata = metadata
         self.deleted = deleted
+        self.parentProjectId = parentProjectId
     }
 }

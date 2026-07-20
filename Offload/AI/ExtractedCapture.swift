@@ -19,6 +19,9 @@ struct ExtractedTask {
     @Guide(description: "Concise, actionable title, 2–6 words")
     var title: String
 
+    @Guide(description: "The specifics that don't belong in the short title — names, numbers, constraints, context worth keeping from what the user said. Use ONLY their own information, never invented advice or steps. nil when the title already says everything.")
+    var details: String?
+
     @Guide(.anyOf(["Work", "Personal", "Health", "Finance", "Projects", "Ideas", "Habits", "Other"]))
     var category: String
 

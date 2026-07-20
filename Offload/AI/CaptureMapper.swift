@@ -28,8 +28,17 @@ enum CaptureMapper {
     }
 
     /// Build a `Project` (only for genuine multi-step clusters) and the `TaskItem`s, linked to it.
-    /// `now` grounds the due-date priority guardrail below (defaulted so callers stay simple).
-    static func map(_ extracted: ExtractedCapture, now: Date = Date(), calendar: Calendar = .current) -> Result {
+    /// `now` grounds the due-date priority guardrail; `sourceText` (the raw capture) grounds the
+    /// invented-effort guard. Both defaulted so callers stay simple.
+    static func map(
+        _ extracted: ExtractedCapture,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        sourceText: String? = nil
+    ) -> Result {
+        // The model invents effort estimates freely (a bare "Launch app" coming back as 180m).
+        // Only trust one when the capture itself carried a duration signal.
+        let trustEffort = sourceText.map(hasDurationSignal) ?? true
         let project: Project? = {
             guard extracted.tasks.count >= minTasksForProject,
                   let name = extracted.suggestedProject?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -44,6 +53,7 @@ enum CaptureMapper {
             let dueDate = DueDate.normalize(t.dueDate)
             let parent = TaskItem(
                 title: actionTitle(t.title),
+                descriptionText: nonEmpty(t.details),
                 category: normalizedCategory(t.category),
                 priority: resolvedPriority(normalizedPriority(t.priority), dueDate: dueDate, now: now, calendar: calendar),
                 projectId: project?.id,
@@ -51,7 +61,7 @@ enum CaptureMapper {
                 dueDateConfidence: dueDate == nil ? nil : 0.5,
                 recurrenceRule: nonEmpty(t.recurrenceRule),
                 contextTags: encodeTags(t.contextTags),
-                effortMinutes: t.effortMinutes
+                effortMinutes: trustEffort ? t.effortMinutes : nil
             )
             tasks.append(parent)
             // Only a real, time-anchored appointment becomes a calendar event.
@@ -143,6 +153,19 @@ enum CaptureMapper {
             title = String(first).uppercased() + title.dropFirst()
         }
         return title
+    }
+
+    /// Did the capture actually say anything about how long something takes? Digits cover
+    /// "20 min"/"a 2 hour block"; the word list covers spoken durations. Deliberately narrow —
+    /// timing words like "tomorrow" say WHEN, not HOW LONG, so they don't count.
+    static func hasDurationSignal(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if lower.rangeOfCharacter(from: .decimalDigits) != nil { return true }
+        let durationWords = [
+            "minute", "min ", "mins", "hour", "hr", "hrs", "quick", "quickly", "brief",
+            "a while", "long time", "all day", "half day", "takes"
+        ]
+        return durationWords.contains { lower.contains($0) }
     }
 
     /// Guardrail against under-prioritized imminent work: something due today or already

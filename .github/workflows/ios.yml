@@ -3,16 +3,31 @@ name: iOS Build
 # Compiles Offload on a real Apple Silicon Mac (Xcode 26) every push / PR.
 # This is our feedback loop: since the app can't be built on the author's machine,
 # CI is the source of truth for "does it compile + do the tests pass".
+#
+# Speed notes: a normal push only runs the test pass. The unsigned .ipa is a SECOND full
+# Release compile, so it's opt-in — add "[ipa]" to the commit message, or run this workflow
+# manually from the Actions tab, when you actually want to sideload.
 
 on:
   push:
     branches: [ main ]
   pull_request:
-  workflow_dispatch:   # lets you run it manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      build_ipa:
+        description: "Also build a sideloadable .ipa"
+        type: boolean
+        default: true
 
 concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # `brew update` alone can cost more than the install itself.
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+  HOMEBREW_NO_ANALYTICS: 1
 
 jobs:
   build:
@@ -23,7 +38,15 @@ jobs:
       - name: Select Xcode 26
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.0"   # Foundation Models needs the iOS 26 SDK. Adjust if the runner lists a different 26.x.
+          xcode-version: "26.0"   # Foundation Models needs the iOS 26 SDK.
+
+      # Fetching + resolving GRDB every run is pure waste; the checkout is deterministic.
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .spm-cache
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -31,27 +54,40 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Show available simulators
-        run: xcrun simctl list devices available | grep -i iphone || true
+      # Resolve a real simulator UDID instead of hardcoding a device name. A wrong name used
+      # to mean a full retry on a second device — which doubled the cost of every genuine
+      # test failure.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          LIST=$(xcrun simctl list devices available)
+          UDID=$(echo "$LIST" | grep -E "iPhone .*Pro " | head -1 | grep -oE '[0-9A-F-]{36}' || true)
+          if [ -z "$UDID" ]; then
+            UDID=$(echo "$LIST" | grep "iPhone" | head -1 | grep -oE '[0-9A-F-]{36}')
+          fi
+          NAME=$(echo "$LIST" | grep "$UDID" | sed -E 's/^ *//; s/ \(.*//')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using $NAME ($UDID)"
 
-      - name: Build & test (Simulator)
+      # `test` already builds — the old `clean build test` compiled the world twice, and
+      # `clean` is meaningless on a fresh runner that has no derived data to begin with.
+      - name: Test (Simulator)
         run: |
           set -o pipefail
-          xcodebuild \
+          xcodebuild test \
             -project Offload.xcodeproj \
             -scheme Offload \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
-            clean build test | xcbeautify || \
-          xcodebuild \
-            -project Offload.xcodeproj \
-            -scheme Offload \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-            clean build test
+            ONLY_ACTIVE_ARCH=YES \
+            | xcbeautify
 
-      # Build an UNSIGNED .ipa for sideloading. Sideloadly/AltStore re-sign it with
-      # the user's free Apple ID at install time, so no signing is needed here.
+      # Build an UNSIGNED .ipa for sideloading. Sideloadly/AltStore re-sign it with the
+      # user's free Apple ID at install time, so no signing is needed here.
       - name: Build unsigned .ipa
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ipa]')
         run: |
           set -o pipefail
           xcodebuild \
@@ -60,9 +96,10 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
+            -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            clean build
+            build | xcbeautify
           APP="build/Build/Products/Release-iphoneos/Offload.app"
           test -d "$APP" || { echo "App not found at $APP"; exit 1; }
           rm -rf Payload Offload.ipa
@@ -72,6 +109,7 @@ jobs:
           ls -lh Offload.ipa
 
       - name: Upload .ipa artifact
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ipa]')
         uses: actions/upload-artifact@v4
         with:
           name: Offload-ipa

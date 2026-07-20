@@ -55,6 +55,63 @@ struct CaptureMapperTests {
         #expect(result.tasks.map(\.title) == ["Go home", "Grab charger", "Water plants"])
     }
 
+    // MARK: Invented-effort guard
+
+    @Test("Duration signals are recognized; timing words alone are not")
+    func durationSignals() {
+        #expect(CaptureMapper.hasDurationSignal("call mom for 20 minutes"))
+        #expect(CaptureMapper.hasDurationSignal("quick call to the bank"))
+        #expect(CaptureMapper.hasDurationSignal("this takes an hour"))
+        // "tomorrow" says WHEN, not HOW LONG.
+        #expect(!CaptureMapper.hasDurationSignal("email the report tomorrow"))
+        #expect(!CaptureMapper.hasDurationSignal("add subfolders to projects"))
+    }
+
+    @Test("Effort estimates are dropped when the capture implied no duration")
+    func inventedEffortDropped() {
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Launch app", category: "Projects", priority: "medium",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil,
+                                  effortMinutes: 180, subtasks: [])],
+            suggestedProject: nil)
+        let result = CaptureMapper.map(extracted, sourceText: "add subfolders to projects")
+        #expect(result.tasks.first?.effortMinutes == nil)
+    }
+
+    @Test("Effort estimates survive when the capture actually mentioned a duration")
+    func genuineEffortKept() {
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Review deck", category: "Work", priority: "medium",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil,
+                                  effortMinutes: 30, subtasks: [])],
+            suggestedProject: nil)
+        let result = CaptureMapper.map(extracted, sourceText: "spend 30 minutes reviewing the deck")
+        #expect(result.tasks.first?.effortMinutes == 30)
+    }
+
+    // MARK: Details
+
+    @Test("Model details land on the task; blank details become nil")
+    func detailsMapped() {
+        let withDetails = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Text landlord", details: "Third leak this year.",
+                                  category: "Personal", priority: "medium", contextTags: [],
+                                  dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil)
+        #expect(CaptureMapper.map(withDetails).tasks.first?.descriptionText == "Third leak this year.")
+
+        let blank = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Buy milk", details: "   ", category: "Personal",
+                                  priority: "medium", contextTags: [], dueDate: nil,
+                                  recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil)
+        #expect(CaptureMapper.map(blank).tasks.first?.descriptionText == nil)
+    }
+
     // MARK: Priority guardrail — imminent work is never "low"
 
     private var utcCalendar: Calendar {

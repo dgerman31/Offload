@@ -134,6 +134,15 @@ final class AppDatabase: Sendable {
                 """)
         }
 
+        // Nested projects: a project can live inside another, so "Future App Ideas" can hold
+        // subfolders. Self-FK, nullable — existing projects simply become top-level.
+        migrator.registerMigration("v2_project_subfolders") { db in
+            try db.execute(sql: """
+                ALTER TABLE projects ADD COLUMN parent_project_id TEXT;
+                CREATE INDEX idx_projects_parent ON projects(parent_project_id);
+                """)
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

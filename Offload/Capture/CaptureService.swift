@@ -112,7 +112,7 @@ final class CaptureService {
         do {
             // 2. Extract (typed output; no parsing).
             let extracted = try await extractor.extract(from: rawInput)
-            let mapped = CaptureMapper.map(extracted)
+            let mapped = CaptureMapper.map(extracted, sourceText: rawInput)
 
             // 2b. Dedup check (spec §3.5): compare new tasks against existing open tasks by
             // embedding similarity. Rather than warn after the fact, surface candidates the

@@ -20,7 +20,7 @@ struct ProjectStoreTests {
             try unrelated.insert(database)
         }
 
-        let summaries = try await db.dbQueue.read { try ProjectStore.fetchSummaries($0) }
+        let summaries = try await db.dbQueue.read { try ProjectStore.fetchTree($0).roots }
         #expect(summaries.count == 1)
         let s = try #require(summaries.first)
         #expect(s.total == 2)          // unrelated task excluded
@@ -34,7 +34,7 @@ struct ProjectStoreTests {
         let project = Project(title: "Someday")
         try await db.dbQueue.write { try project.insert($0) }
 
-        let summaries = try await db.dbQueue.read { try ProjectStore.fetchSummaries($0) }
+        let summaries = try await db.dbQueue.read { try ProjectStore.fetchTree($0).roots }
         #expect(summaries.first?.total == 0)
         #expect(summaries.first?.progress == 0)
     }

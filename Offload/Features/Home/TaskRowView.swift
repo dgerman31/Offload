@@ -51,33 +51,36 @@ struct TaskRowView: View {
                     .strikethrough(isCompleted, color: Color.Offload.muted)
                     .animation(Motion.standard, value: isCompleted)
 
+                // The details the AI kept from the capture — one line here, all of it in edit.
+                if !indented, let details = task.descriptionText, !details.isEmpty {
+                    Text(details)
+                        .font(.Offload.body)
+                        .foregroundStyle(Color.Offload.muted)
+                        .lineLimit(2)
+                }
+
                 if !indented {
-                    HStack(spacing: 8) {
+                    // FlowLayout, not HStack: chips keep their natural width and wrap to the
+                    // next line rather than being squeezed until words break mid-syllable.
+                    FlowLayout(spacing: 8, lineSpacing: 6) {
                         if let category = task.category, !category.isEmpty {
                             chip(category, color: Color.Offload.indigo)
                         }
                         priorityBadge(task.priority)
                         if let due = task.dueDate, !due.isEmpty {
-                            Label(Self.formatDue(due), systemImage: "calendar")
-                                .font(.Offload.data)
-                                .foregroundStyle(Color.Offload.muted)
-                                .lineLimit(1)
+                            metaLabel(Self.formatDue(due), icon: "calendar")
                         }
                         if let effort = task.effortMinutes {
-                            Label("\(effort)m", systemImage: "timer")
-                                .font(.Offload.data)
-                                .foregroundStyle(Color.Offload.muted)
+                            metaLabel("\(effort)m", icon: "timer")
                         }
-                    }
-                    if !contextTags.isEmpty {
-                        HStack(spacing: 6) {
-                            ForEach(contextTags, id: \.self) { tag in
-                                Label(tag, systemImage: Self.tagIcon(tag))
-                                    .font(.caption2)
-                                    .padding(.horizontal, 7).padding(.vertical, 2)
-                                    .background(Color.Offload.teal.opacity(0.14), in: .capsule)
-                                    .foregroundStyle(Color.Offload.teal)
-                            }
+                        ForEach(contextTags, id: \.self) { tag in
+                            Label(tag, systemImage: Self.tagIcon(tag))
+                                .font(.caption2)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color.Offload.teal.opacity(0.14), in: .capsule)
+                                .foregroundStyle(Color.Offload.teal)
                         }
                     }
                 }
@@ -127,9 +130,20 @@ struct TaskRowView: View {
     private func chip(_ text: String, color: Color) -> some View {
         Text(text)
             .font(.caption2).fontWeight(.semibold)
+            .lineLimit(1)
+            .fixedSize()                     // never break a word to fit
             .padding(.horizontal, 9).padding(.vertical, 4)
             .background(color.opacity(0.11), in: .capsule)
             .foregroundStyle(color)
+    }
+
+    /// Metadata pill (due date, effort) — single line, natural width.
+    private func metaLabel(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.Offload.data)
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(Color.Offload.muted)
     }
 
     @ViewBuilder
@@ -137,10 +151,12 @@ struct TaskRowView: View {
         switch priority {
         case "high":
             Label("High", systemImage: "exclamationmark.2")
-                .font(.caption).foregroundStyle(Color.Offload.red)
+                .font(.caption).lineLimit(1).fixedSize()
+                .foregroundStyle(Color.Offload.red)
         case "low":
             Label("Low", systemImage: "arrow.down")
-                .font(.caption).foregroundStyle(Color.Offload.muted)
+                .font(.caption).lineLimit(1).fixedSize()
+                .foregroundStyle(Color.Offload.muted)
         default:
             EmptyView()   // medium is the unremarkable default
         }

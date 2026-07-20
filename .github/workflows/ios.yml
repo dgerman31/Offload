@@ -32,6 +32,9 @@ env:
 jobs:
   build:
     runs-on: macos-15   # Apple Silicon runner. If a macos-26 image exists, this can be bumped.
+    # A simulator that fails to boot makes xcodebuild wait forever; fail fast instead of
+    # holding a runner for six hours.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -69,13 +72,26 @@ jobs:
         run: |
           LIST=$(xcrun simctl list devices available)
           echo "$LIST"
-          UDID=$(echo "$LIST" | awk '
-            /^-- iOS 26/ { ok = 1; next }
-            /^-- /       { ok = 0; next }
-            ok && /iPhone/ {
-              if (match($0, /[0-9A-Fa-f-]{36}/)) { print substr($0, RSTART, RLENGTH); exit }
-            }')
+          # Prefer a mainstream Pro handset — the exotic ones (Air, SE, "e" variants) are the
+          # ones that tend to hang on first boot. Fall back to any iOS 26 iPhone.
+          pick() {
+            echo "$LIST" | awk -v want="$1" '
+              /^-- iOS 26/ { ok = 1; next }
+              /^-- /       { ok = 0; next }
+              ok && index($0, want) {
+                if (match($0, /[0-9A-Fa-f-]{36}/)) { print substr($0, RSTART, RLENGTH); exit }
+              }'
+          }
+          UDID=$(pick "iPhone 17 Pro")
+          [ -z "$UDID" ] && UDID=$(pick "iPhone 16 Pro")
+          [ -z "$UDID" ] && UDID=$(pick "iPhone")
           if [ -z "$UDID" ]; then echo "::error::No iOS 26 iPhone simulator on this runner"; exit 1; fi
+
+          # Boot it here so a broken simulator fails this cheap step instead of hanging the
+          # 10-minute test step.
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b || true
+
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 

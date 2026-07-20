@@ -26,6 +26,33 @@ struct AddTaskSheet: View {
     private let categories = HomeGrouping.categoryOrder
     private let priorities = ["high", "medium", "low"]
 
+    /// A date phrase spotted in the title, offered but never auto-applied.
+    private var detected: QuickDate.Match? {
+        guard !hasDueDate else { return nil }   // they've already chosen a time
+        return QuickDate.parse(title)
+    }
+
+    private func apply(_ match: QuickDate.Match) {
+        title = match.cleanedTitle
+        // A day without a time means 9am, not whatever hour the detector assumed.
+        dueDate = match.hasTime
+            ? match.date
+            : (Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: match.date) ?? match.date)
+        hasDueDate = true
+    }
+
+    static func friendly(_ date: Date, hasTime: Bool) -> String {
+        let df = DateFormatter()
+        if Calendar.current.isDateInToday(date) {
+            df.dateFormat = hasTime ? "'today' h:mm a" : "'today'"
+        } else if Calendar.current.isDateInTomorrow(date) {
+            df.dateFormat = hasTime ? "'tomorrow' h:mm a" : "'tomorrow'"
+        } else {
+            df.dateFormat = hasTime ? "MMM d, h:mm a" : "MMM d"
+        }
+        return df.string(from: date)
+    }
+
     /// The handful of repeat rules worth one tap; anything more exotic can be dictated.
     enum RecurrenceChoice: String, CaseIterable, Identifiable {
         case none = "Never"
@@ -64,6 +91,28 @@ struct AddTaskSheet: View {
                     TextField("What needs doing?", text: $title, axis: .vertical)
                         .font(.Offload.taskTitle)
                         .focused($titleFocused)
+                    // Typing "tomorrow 1pm" offers to schedule it — never silently rewrites
+                    // what you typed, since guessing wrong on someone's own words is worse
+                    // than making them tap once.
+                    if let detected {
+                        Button {
+                            withAnimation(Motion.standard) { apply(detected) }
+                            Haptics.light()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "wand.and.stars")
+                                    .foregroundStyle(Color.Offload.indigo)
+                                Text("Schedule for \(Self.friendly(detected.date, hasTime: detected.hasTime))")
+                                    .font(.Offload.body)
+                                    .foregroundStyle(Color.Offload.text)
+                                Spacer(minLength: 0)
+                                Text("Use")
+                                    .font(.caption).fontWeight(.semibold)
+                                    .foregroundStyle(Color.Offload.indigo)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 Section {
                     TextField("Details (optional)", text: $details, axis: .vertical)

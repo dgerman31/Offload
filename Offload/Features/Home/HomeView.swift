@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var appeared = false
     @State private var addingTask = false
     @State private var planningDay = false
+    @State private var focusTask: TaskItem?
     private var patterns: PatternService { PatternService.shared }
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
@@ -64,6 +65,9 @@ struct HomeView: View {
                     }
                     if isToday, showPlanPrompt {
                         planDayCard.appearIn(2, when: appeared).scrollAppear()
+                    }
+                    if isToday, load.openLoops > 0 {
+                        mentalLoadCard.appearIn(3, when: appeared).scrollAppear()
                     }
                     if !patterns.suggestions.isEmpty {
                         suggestionsCard.appearIn(3, when: appeared).scrollAppear()
@@ -133,6 +137,9 @@ struct HomeView: View {
                 DayPlanView(tasks: store.allTasks, events: store.rangeEvents, day: now) {
                     Task { await NotificationSync.shared.refresh() }
                 }
+            }
+            .fullScreenCover(item: $focusTask) { task in
+                FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
             }
             .overlay(alignment: .bottom) { undoOverlay }
             .animation(Motion.standard, value: store.undo?.id)
@@ -354,6 +361,57 @@ struct HomeView: View {
         return "Fit \(loose) loose task\(loose == 1 ? "" : "s") into your free time"
     }
 
+    // MARK: Mental load
+
+    private var load: MentalLoad {
+        MentalLoad.compute(tasks: store.allTasks, now: now)
+    }
+
+    /// An inverse health ring: the honest headline for an app whose promise is that you get to
+    /// stop carrying things. Lower is calmer.
+    private var mentalLoadCard: some View {
+        let l = load
+        let tint = loadTint(l.band)
+        return card("Mental load", icon: l.band.symbol, tint: tint) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().stroke(tint.opacity(0.18), lineWidth: 7)
+                    Circle()
+                        .trim(from: 0, to: max(0.02, Double(l.score) / 100))
+                        .stroke(tint, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(Motion.settle, value: l.score)
+                    Text("\(l.score)")
+                        .font(.system(.callout, design: .rounded)).fontWeight(.bold)
+                        .foregroundStyle(Color.Offload.text)
+                        .contentTransition(.numericText(value: Double(l.score)))
+                }
+                .frame(width: 58, height: 58)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(l.headline)
+                        .font(.Offload.taskTitle)
+                        .foregroundStyle(Color.Offload.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(l.advice)
+                        .font(.Offload.data)
+                        .foregroundStyle(Color.Offload.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func loadTint(_ band: MentalLoad.Band) -> Color {
+        switch band {
+        case .clear: return Color.Offload.green
+        case .light: return Color.Offload.teal
+        case .full:  return Color.Offload.amber
+        case .heavy: return Color.Offload.red
+        }
+    }
+
     private func iconBadge(_ symbol: String, tint: Color) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 13, weight: .semibold))
@@ -488,6 +546,9 @@ struct HomeView: View {
     /// Long-press actions — snooze, status, delete — available anywhere a task appears.
     @ViewBuilder
     private func taskMenu(_ task: TaskItem) -> some View {
+        Button { focusTask = task } label: {
+            Label("Focus \(task.effortMinutes ?? 25) min", systemImage: "timer")
+        }
         Button { Task { await store.advanceStatus(task) } } label: {
             Label(task.status == "open" ? "Start it" : "Mark done",
                   systemImage: task.status == "open" ? "play.circle" : "checkmark.circle")

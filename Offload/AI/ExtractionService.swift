@@ -29,12 +29,7 @@ final class ExtractionService: TaskExtracting {
     /// Recent corrections rendered as few-shot guidance, so the model adopts this user's
     /// filing habits instead of repeating a mistake they've already fixed by hand.
     private func personalizationFragment() async -> String? {
-        let data = try? await db.dbQueue.read { database in
-            (try Correction.order(Column("created_at").desc).limit(40).fetchAll(database),
-             try TaskItem.filter(Column("deleted") == false).fetchAll(database))
-        }
-        guard let (corrections, tasks) = data else { return nil }
-        return Personalization.promptFragment(Personalization.lessons(corrections: corrections, tasks: tasks))
+        await Personalization.fragment(db: db)
     }
 
     /// The system prompt. Deliberately compact: the on-device model has a small context

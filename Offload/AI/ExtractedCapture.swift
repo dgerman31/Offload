@@ -55,3 +55,8 @@ struct ExtractedTask {
     @Guide(description: "Sub-step titles only if the task has 2+ distinct actions, else empty")
     var subtasks: [String]
 }
+
+// Both are plain value types; making Sendable explicit lets a cloud-extracted result cross
+// safely from the (nonisolated) network layer back to the main actor.
+extension ExtractedCapture: @unchecked Sendable {}
+extension ExtractedTask: @unchecked Sendable {}

@@ -17,6 +17,9 @@ struct DayPlanView: View {
     @AppStorage(EnergyProfile.storageKey) private var energyRaw = EnergyProfile.morning.rawValue
 
     @State private var plan = DayPlanner.Plan()
+    @State private var rationale: String?
+    @State private var usedAI = false
+    @State private var planning = false
     @State private var dropped: Set<String> = []
     @State private var applying = false
     @State private var appeared = false
@@ -67,24 +70,31 @@ struct DayPlanView: View {
             }
             .safeAreaInset(edge: .bottom) { applyBar }
             .task {
-                recompute()
+                await recompute()
                 withAnimation(Motion.settle) { appeared = true }
             }
-            .onChange(of: dayStartHour) { _, _ in recompute() }
-            .onChange(of: dayEndHour) { _, _ in recompute() }
-            .onChange(of: energyRaw) { _, _ in withAnimation(Motion.standard) { recompute() } }
+            .onChange(of: dayStartHour) { _, _ in Task { await recompute() } }
+            .onChange(of: dayEndHour) { _, _ in Task { await recompute() } }
+            .onChange(of: energyRaw) { _, _ in Task { await recompute() } }
         }
     }
 
-    private func recompute() {
+    private func recompute() async {
         // Start the day from when you actually woke, not a hardcoded hour — so an early or late
         // morning shifts the whole plan.
         let start = WakeTracker.dayStartHour(now: Date(), fallback: dayStartHour)
-        plan = DayPlanner.plan(
+        planning = true
+        let result = await SmartPlanner.plan(
             tasks: tasks, events: events, on: day, now: Date(),
             dayStartHour: start, dayEndHour: dayEndHour,
             energyProfile: EnergyProfile(rawValue: energyRaw)
         )
+        withAnimation(Motion.standard) {
+            plan = result.plan
+            rationale = result.rationale
+            usedAI = result.usedAI
+            planning = false
+        }
     }
 
     // MARK: Pieces
@@ -100,6 +110,27 @@ struct DayPlanView: View {
                 .font(.Offload.body)
                 .foregroundStyle(Color.Offload.muted)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // The AI's read on why the day is shaped this way — shown when Gemini ordered it.
+            if let rationale, usedAI {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(Color.Offload.indigo)
+                    Text(rationale)
+                        .font(.Offload.body)
+                        .foregroundStyle(Color.Offload.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.Offload.indigo.opacity(0.08), in: .rect(cornerRadius: 14, style: .continuous))
+                .transition(.opacity)
+            } else if planning {
+                Label("Thinking about the best order…", systemImage: "sparkles")
+                    .font(.Offload.data)
+                    .foregroundStyle(Color.Offload.muted)
+            }
 
             HStack(spacing: 8) {
                 Label("\(DayPlanner.formatted(plan.freeMinutes)) free", systemImage: "clock")

@@ -81,7 +81,7 @@ final class CaptureService {
 
     init(
         db: AppDatabase = .shared,
-        extractor: any TaskExtracting = ExtractionService(),
+        extractor: any TaskExtracting = SmartExtractionService(),
         embedder: any TextEmbedding = EmbeddingService(),
         calendarWriter: any CalendarWriting = EventKitCalendarWriter()
     ) {

@@ -174,14 +174,24 @@ enum DayPlanner {
         dayStartHour: Int = defaultDayStartHour,
         dayEndHour: Int = defaultDayEndHour,
         limit: Int = 12,
-        energyProfile: EnergyProfile? = nil
+        energyProfile: EnergyProfile? = nil,
+        preferredOrder: [String]? = nil
     ) -> Plan {
         // Fixed commitments block time exactly like calendar events — the user's 1pm lunch is
         // as real as a meeting invite.
         let blocked = events + busyBlocks(from: tasks, on: day, calendar: calendar)
         let slots = freeSlots(events: blocked, on: day, now: now, calendar: calendar,
                               dayStartHour: dayStartHour, dayEndHour: dayEndHour)
-        let ordered = Array(candidates(from: tasks, on: day, now: now, calendar: calendar).prefix(limit))
+        var pool = candidates(from: tasks, on: day, now: now, calendar: calendar)
+        // A smart planner can hand us an order that weighs things the greedy sort can't —
+        // deadlines, what pairs well, energy. Honour it; anything it didn't rank keeps its place.
+        if let preferredOrder {
+            let rank = Dictionary(preferredOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+            let ranked = pool.filter { rank[$0.id] != nil }.sorted { rank[$0.id]! < rank[$1.id]! }
+            let unranked = pool.filter { rank[$0.id] == nil }   // keeps its original order after the ranked
+            pool = ranked + unranked
+        }
+        let ordered = Array(pool.prefix(limit))
 
         var result = Plan()
         result.freeMinutes = slots.reduce(0) { $0 + $1.minutes }

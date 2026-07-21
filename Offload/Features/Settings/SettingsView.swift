@@ -59,6 +59,25 @@ struct SettingsView: View {
                     Text("Automatic follows your iPhone's light/dark setting.")
                 }
 
+                Section {
+                    NavigationLink {
+                        AISettingsView()
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Intelligence")
+                                Text(SecretStore.hasGeminiKey ? "Gemini connected" : "On-device only — add a key for more")
+                                    .font(.Offload.data)
+                                    .foregroundStyle(Color.Offload.muted)
+                            }
+                        } icon: {
+                            Image(systemName: "sparkles")
+                        }
+                    }
+                } header: {
+                    Text("AI")
+                }
+
                 Section("On-device AI") {
                     availabilityCard
                 }

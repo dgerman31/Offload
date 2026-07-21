@@ -111,22 +111,15 @@ enum ProjectBrief {
     static func generate(project: Project, tasks: [TaskItem], now: Date = Date()) async -> String {
         let facts = facts(project: project, tasks: tasks, now: now)
         let fallback = deterministicBrief(facts)
-        guard facts.total > 0, case .available = SystemLanguageModel.default.availability else {
-            return fallback
-        }
+        guard facts.total > 0 else { return fallback }
 
-        let session = LanguageModelSession(instructions: """
+        let system = """
             You summarise where a project stands, the way a colleague would if asked "where are \
             we with this?". Two or three short sentences: what's been done, what's actually \
             blocking or next, and — only if the numbers clearly justify it — one concrete \
             suggestion. Ground every claim in the figures you're given; never invent tasks, \
             dates or reasons. Warm and plain. No emojis, no exclamation marks, under 60 words.
-            """)
-
-        if let response = try? await session.respond(to: prompt(facts)) {
-            let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? fallback : text
-        }
-        return fallback
+            """
+        return await AIText.generate(system: system, prompt: prompt(facts)) ?? fallback
     }
 }

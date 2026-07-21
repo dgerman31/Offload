@@ -105,18 +105,17 @@ enum InsightsService {
         }
 
         let fallback = deterministicSummary(stats)
-        guard case .available = SystemLanguageModel.default.availability else { return fallback }
 
-        // Insight 2.0: not a stat readout — hand the model the real week (completions, open and
-        // overdue work, category mix, streak, and the top open tasks) and ask for a short, warm
-        // reflection followed by one or two concrete next steps drawn from that open work.
-        let session = LanguageModelSession(instructions: """
+        // Insight 2.0: not a stat readout — hand the model the real week and ask for a short,
+        // warm reflection plus one or two concrete next steps. Gemini first, on-device
+        // otherwise, deterministic if neither can answer.
+        let system = """
             You are a calm productivity companion writing a brief weekly note. Structure: two \
             short sentences of reflection on how the week went, then one or two concrete next \
             steps the person could take, drawn ONLY from their actual open or overdue tasks. \
             Warm and specific, grounded strictly in the data given — never invent tasks or \
             numbers. No emojis, no exclamation marks. Keep it under 60 words.
-            """)
+            """
         let prompt = """
             Completed this week: \(stats.completedCount). Captured this week: \(stats.capturedCount).
             Open tasks right now: \(stats.openCount) (overdue: \(stats.overdueCount)).
@@ -125,10 +124,7 @@ enum InsightsService {
             \(stats.categoryMix.isEmpty ? "" : "\nCategory mix (completed): " + stats.categoryMix.map { "\($0.category) \($0.count)" }.joined(separator: ", ") + ".")\
             \(stats.topOpenTasks.isEmpty ? "" : "\nTop open tasks: " + stats.topOpenTasks.map { "“\($0)”" }.joined(separator: ", ") + ".")
             """
-        if let response = try? await session.respond(to: prompt) {
-            return response.content
-        }
-        return fallback
+        return await AIText.generate(system: system, prompt: prompt) ?? fallback
     }
 
     static func deterministicSummary(_ stats: WeeklyStats) -> String {

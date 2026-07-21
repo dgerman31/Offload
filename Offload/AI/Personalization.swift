@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// Turns the correction ledger into few-shot guidance for the extractor.
 ///
@@ -58,6 +59,17 @@ enum Personalization {
             if result.count >= limit { break }
         }
         return result
+    }
+
+    /// Read the ledger and build the fragment in one call — shared by both the on-device and
+    /// cloud extraction paths so they personalise identically.
+    static func fragment(db: AppDatabase) async -> String? {
+        let data = try? await db.dbQueue.read { database in
+            (try Correction.order(Column("created_at").desc).limit(40).fetchAll(database),
+             try TaskItem.filter(Column("deleted") == false).fetchAll(database))
+        }
+        guard let (corrections, tasks) = data else { return nil }
+        return promptFragment(lessons(corrections: corrections, tasks: tasks))
     }
 
     /// Render lessons as an instruction block. Returns nil when there's nothing learned yet,

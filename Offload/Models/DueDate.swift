@@ -27,10 +27,10 @@ enum DueDate {
         return f
     }
 
-    private static func localFormatter(_ format: String) -> DateFormatter {
+    private static func localFormatter(_ format: String, timeZone: TimeZone = .current) -> DateFormatter {
         let df = DateFormatter()
         df.dateFormat = format
-        df.timeZone = .current
+        df.timeZone = timeZone
         df.locale = Locale(identifier: "en_US_POSIX")
         return df
     }
@@ -44,6 +44,25 @@ enum DueDate {
             if let d = localFormatter(format).date(from: s) { return d }
         }
         return nil
+    }
+
+    /// Interpret a model-emitted datetime as LOCAL wall-clock, ignoring any timezone the model
+    /// tacked on. Personal captures always mean the user's own time — honouring a stray "Z" is
+    /// exactly how "tomorrow 2pm" became "10am two days out". Strips a trailing Z or ±HH:MM
+    /// offset, then parses in the current timezone; only the model's output should use this.
+    static func parseLocal(_ s: String?, timeZone: TimeZone = .current) -> Date? {
+        guard let raw = s?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        let stripped = raw.replacingOccurrences(
+            of: "(Z|[+-]\\d{2}:?\\d{2})$", with: "", options: .regularExpression)
+        for format in localFormats {
+            if let d = localFormatter(format, timeZone: timeZone).date(from: stripped) { return d }
+        }
+        return parse(raw)   // fall back to the tolerant parser for anything unusual
+    }
+
+    /// Local-wall-clock parse, re-encoded to the canonical stored form.
+    static func normalizeLocal(_ s: String?, timeZone: TimeZone = .current) -> String? {
+        parseLocal(s, timeZone: timeZone).map(canonicalString(from:))
     }
 
     /// Re-encode to the canonical, always-parseable form (with timezone) for storage.

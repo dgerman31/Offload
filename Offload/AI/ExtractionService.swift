@@ -39,10 +39,13 @@ final class ExtractionService: TaskExtracting {
     /// so the prompt only has to steer, not police. Built fresh each call for the current time.
     /// `nonisolated` and `internal` so the prompt-budget test can guard its size in CI.
     nonisolated static func instructions(now: Date, categories: [String]) -> String {
-        let nowStr = ISO8601DateFormatter().string(from: now)
+        // Local time with offset, so "tomorrow"/"2pm" resolve in the user's day, not UTC.
+        let f = ISO8601DateFormatter(); f.timeZone = .current; f.formatOptions = [.withInternetDateTime]
+        let nowStr = f.string(from: now)
         return """
-        Convert a quick voice/text capture into the tasks the user actually means. Now: \(nowStr) \
-        (use only to resolve time words they actually said).
+        Convert a quick voice/text capture into the tasks the user actually means. Current LOCAL \
+        time: \(nowStr) (\(TimeZone.current.identifier)). Resolve time words against this local \
+        time — never shift a day or hour by a timezone.
 
         Core rules:
         - Capture only what they said. Never invent tasks, steps, dates, or effort. 3 things \
@@ -56,9 +59,9 @@ final class ExtractionService: TaskExtracting {
         remembering/forgetting/trying. Pure venting with no action → no task.
         - title: short action phrase. details: names/numbers/context worth keeping, from their \
         words only, else nil.
-        - dueDate: nil unless they said when. A day with no stated time is that date at 00:00 \
-        (all-day), not a morning. Resolve tomorrow/tonight/next week against now. Never choose \
-        an hour between 10pm–7am unless they named a night time.
+        - dueDate: nil unless they said when. Output it as a local wall-clock ISO time with NO \
+        "Z" or offset, e.g. 2026-07-22T14:00 for 2pm on the 22nd; a day with no time uses \
+        T00:00. Never choose an hour between 10pm–7am unless they named a night time.
         - deadline (when it MUST be done: "due Friday") is separate from dueDate (when they'll \
         do it). Set only what they stated; leave the other nil.
         - priority: high only if important AND time-sensitive or high-consequence \

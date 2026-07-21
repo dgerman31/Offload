@@ -93,7 +93,7 @@ enum CaptureMapper {
                 contextTags: encodeTags(t.contextTags),
                 effortMinutes: trustEffort ? t.effortMinutes : nil,
                 people: People.encode(t.people),
-                deadline: trustDates ? DueDate.normalize(t.deadline) : nil,
+                deadline: trustDates ? DueDate.normalizeLocal(t.deadline, timeZone: calendar.timeZone) : nil,
                 dueIsAllDay: isAllDay,
                 pinned: appointment
             )
@@ -208,7 +208,10 @@ enum CaptureMapper {
         trustDates: Bool,
         calendar: Calendar = .current
     ) -> (value: String?, isAllDay: Bool) {
-        guard trustDates, let parsed = DueDate.parse(raw) else { return (nil, false) }
+        // Local-first: the model means the user's wall clock, not UTC. Use the calendar's zone
+        // so this is deterministic in tests and correct in the user's real timezone.
+        guard trustDates, let parsed = DueDate.parseLocal(raw, timeZone: calendar.timeZone)
+        else { return (nil, false) }
 
         // Midnight almost always means "that day", not "at 00:00".
         let components = calendar.dateComponents([.hour, .minute], from: parsed)

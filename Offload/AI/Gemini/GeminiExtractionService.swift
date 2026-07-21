@@ -92,10 +92,14 @@ struct GeminiExtractionService {
     /// The instructions. This model has room to spare, so it can be fuller than the on-device
     /// prompt — but the deterministic guards still enforce the hard rules regardless.
     static func systemPrompt(now: Date, categories: [String]) -> String {
-        let nowStr = ISO8601DateFormatter().string(from: now)
+        let (localNow, tz) = Self.localNow(now)
         return """
         You convert a person's quick voice or text capture into the tasks they actually mean.
-        The current date/time is \(nowStr); use it only to resolve time words they actually said.
+        The current LOCAL date and time is \(localNow) (timezone \(tz)). Resolve every relative
+        time ("tomorrow", "tonight", "next week", "2pm") against THIS local time — "tomorrow" is
+        the next local calendar day; never shift a day or hour by a timezone.
+        Output dueDate and deadline as a local wall-clock ISO 8601 string with NO timezone suffix
+        and NO "Z" — e.g. 2026-07-22T14:00 for 2pm on the 22nd. Day but no time → use T00:00.
 
         Principles:
         - Capture only what they said. Never invent tasks, steps, dates, or effort. If they name
@@ -106,9 +110,9 @@ struct GeminiExtractionService {
         - A command TO the app makes a container, not a task: "create a project called X" → set
           suggestedProject to X, no task about creating it. But "I need to create a project" is
           the user's own work → a task.
-        - dueDate: null unless they said when. A day with no stated time is that date at 00:00
-          (all-day). Never pick an hour between 10pm–7am unless they named a night-time hour.
-          deadline (when it MUST be done) is separate from dueDate (when they'll do it).
+        - dueDate: null unless they said when. Never pick an hour between 10pm–7am unless they
+          named a night-time hour. deadline (when it MUST be done) is separate from dueDate
+          (when they'll do it) — set each only if stated.
         - priority high only if important AND time-sensitive or high-consequence (bills, health,
           owed to someone); low for someday/maybe; else medium.
         - category = the area of their LIFE, not the subject (a clinician reviewing scans is doing
@@ -120,6 +124,16 @@ struct GeminiExtractionService {
           one → false).
         Keep titles short action phrases; put specifics in details, using only their own words.
         """
+    }
+
+    /// The current time as a local wall-clock ISO string *with* offset (so the model knows the
+    /// real local time and date), plus the timezone name. Grounding in local time — not UTC —
+    /// is what stops "tomorrow 2pm" turning into "two days out at 10am".
+    static func localNow(_ now: Date) -> (iso: String, timezone: String) {
+        let f = ISO8601DateFormatter()
+        f.timeZone = .current
+        f.formatOptions = [.withInternetDateTime]
+        return (f.string(from: now), TimeZone.current.identifier)
     }
 }
 

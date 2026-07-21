@@ -107,6 +107,43 @@ struct DateSemanticsTests {
         #expect(result.tasks[0].dueIsAllDay)
     }
 
+    // MARK: Timezone — "tomorrow 2pm" must stay 2pm local
+
+    private var estCalendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "America/New_York")!
+        c.locale = Locale(identifier: "en_US")
+        return c
+    }
+
+    @Test("A model time with a stray Z is read as local wall-clock, not UTC")
+    func modelTimeIsLocalNotUTC() {
+        // The model meant 2pm but appended Z. In America/New_York that must be 2pm local — the
+        // old behaviour treated it as UTC and showed 10am (the exact bug reported).
+        let parsed = DueDate.parseLocal("2026-07-21T14:00:00Z", timeZone: estCalendar.timeZone)
+        let hour = parsed.map { estCalendar.component(.hour, from: $0) }
+        #expect(hour == 14)
+    }
+
+    @Test("End to end: 'tomorrow at 2pm' resolves to 2pm the next local day")
+    func tomorrowAtTwoResolvesLocally() {
+        let now = estCalendar.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 21))!  // Mon 9pm
+        // Model returns the 21st at 14:00 with a stray Z.
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Do the thing", category: "Work", priority: "medium",
+                                  contextTags: [], dueDate: "2026-07-21T14:00:00Z", recurrenceRule: nil,
+                                  effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil)
+        let result = CaptureMapper.map(extracted, now: now, calendar: estCalendar,
+                                       sourceText: "do the thing tomorrow at 2pm")
+        let due = DueDate.parse(result.tasks[0].dueDate)
+        #expect(due != nil)
+        #expect(result.tasks[0].hasSpecificTime)                       // a real time, not all-day
+        #expect(due.map { estCalendar.component(.hour, from: $0) } == 14)   // 2pm local, not 10am
+        #expect(due.map { estCalendar.component(.day, from: $0) } == 21)    // tomorrow, not 2 days out
+    }
+
     // MARK: The phantom calendar event
 
     @Test("A task about arranging a meeting is never a calendar event")

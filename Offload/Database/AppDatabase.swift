@@ -195,6 +195,13 @@ final class AppDatabase: Sendable {
                 """)
         }
 
+        // Manual drag-to-reorder: a user-set position. Null = never reordered (falls back to
+        // capture order). Nullable REAL so we can slot a task between two others without
+        // renumbering everything.
+        migrator.registerMigration("v7_task_sort_order") { db in
+            try db.execute(sql: "ALTER TABLE tasks ADD COLUMN sort_order REAL;")
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

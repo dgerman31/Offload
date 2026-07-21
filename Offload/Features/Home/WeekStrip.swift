@@ -11,10 +11,14 @@ struct WeekStrip: View {
     var now: Date = Date()
     var calendar: Calendar = .current
 
-    /// Two weeks of runway, starting from the current week's first day.
+    /// A long horizontal runway — a week of history plus ~two months ahead — so the strip acts
+    /// like a scrollable calendar you can page weeks into, not just a fixed fortnight. Far dates
+    /// (a meeting three weeks out) are reachable by scrolling or by the Day tab's date picker,
+    /// which scrolls this strip to match.
     private var days: [Date] {
-        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return [] }
-        return (0..<14).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart) }
+        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start,
+              let start = calendar.date(byAdding: .day, value: -7, to: thisWeek) else { return [] }
+        return (0..<70).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
 
     var body: some View {
@@ -29,8 +33,15 @@ struct WeekStrip: View {
                 .padding(.horizontal, 2)
             }
             .onAppear {
-                // Open on the selected day rather than the start of the fortnight.
+                // Open on the selected day rather than the start of the runway.
                 proxy.scrollTo(calendar.startOfDay(for: selected).timeIntervalSince1970, anchor: .center)
+            }
+            // Keep the strip in sync when the day changes from elsewhere (the date picker jump,
+            // the Today button) — scroll so the newly-selected day is visible.
+            .onChange(of: selected) { _, day in
+                withAnimation(Motion.standard) {
+                    proxy.scrollTo(calendar.startOfDay(for: day).timeIntervalSince1970, anchor: .center)
+                }
             }
         }
     }

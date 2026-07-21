@@ -33,13 +33,53 @@ final class ProjectDetailStore {
         }
         do {
             for try await (tasks, children) in observation.values(in: db.dbQueue) {
-                todo = tasks.filter { $0.status != "completed" }
+                // Manual order wins when set (drag-to-reorder); un-reordered tasks keep capture
+                // order. Sorting in Swift keeps this independent of any GRDB ordering nuance.
+                todo = ProjectDetailStore.byManualOrder(tasks.filter { $0.status != "completed" })
                 done = tasks.filter { $0.status == "completed" }
                 subfolders = children
             }
         } catch {
             // Observation ended.
         }
+    }
+
+    /// Reorder a list the way SwiftUI's `.onMove` intends, without depending on SwiftUI in a
+    /// store: `destination` is an offset in the pre-removal list. Pure, so it's unit-testable.
+    nonisolated static func moved(_ items: [TaskItem], fromOffsets source: IndexSet, toOffset destination: Int) -> [TaskItem] {
+        var result = items
+        let moving = source.sorted().map { result[$0] }
+        for index in source.sorted(by: >) { result.remove(at: index) }
+        let insertAt = destination - source.filter { $0 < destination }.count
+        result.insert(contentsOf: moving, at: min(max(insertAt, 0), result.count))
+        return result
+    }
+
+    /// Manual sort_order first (lower = higher), then capture order for anything never dragged.
+    nonisolated static func byManualOrder(_ tasks: [TaskItem]) -> [TaskItem] {
+        tasks.sorted { lhs, rhs in
+            let lo = lhs.sortOrder ?? .greatestFiniteMagnitude
+            let ro = rhs.sortOrder ?? .greatestFiniteMagnitude
+            if lo != ro { return lo < ro }
+            return lhs.createdAt < rhs.createdAt
+        }
+    }
+
+    /// Drag-to-reorder: apply the move locally for an instant response, then persist a compact
+    /// 0..<n ordering for the whole to-do list so it survives relaunch and future captures slot
+    /// below it.
+    func move(fromOffsets source: IndexSet, toOffset destination: Int) async {
+        let reordered = ProjectDetailStore.moved(todo, fromOffsets: source, toOffset: destination)
+        todo = reordered
+        let updates = reordered.enumerated().map { index, task -> TaskItem in
+            var t = task
+            t.sortOrder = Double(index)
+            return t
+        }
+        try? await db.dbQueue.write { database in
+            for task in updates { try task.update(database) }
+        }
+        Haptics.light()
     }
 
     /// Depth-first search for a project's node in the tree, returning its direct children.

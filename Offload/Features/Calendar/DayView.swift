@@ -48,11 +48,18 @@ struct DayView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Today") {
-                        withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: now) }
+                    HStack(spacing: 12) {
+                        Button("Today") {
+                            withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: now) }
+                        }
+                        .font(.Offload.taskTitle)
+                        .buttonStyle(.pressable)
+
+                        // Jump to ANY date — the week strip only reaches a couple of weeks, so a
+                        // meeting three weeks out needs a real calendar to land on. Tapping the
+                        // icon opens a month picker; picking a day retargets the whole tab there.
+                        jumpToDate
                     }
-                    .font(.Offload.taskTitle)
-                    .buttonStyle(.pressable)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 14) {
@@ -93,6 +100,23 @@ struct DayView: View {
                 FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
             }
         }
+    }
+
+    /// A compact calendar chip in the nav bar. Tapping it opens a month view to pick any date —
+    /// weeks or months out — and retargets the whole tab there. Normalizes to the start of the
+    /// chosen day so event loading and the timeline line up.
+    private var jumpToDate: some View {
+        DatePicker(
+            "Jump to date",
+            selection: Binding(
+                get: { selectedDay },
+                set: { withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: $0) } }
+            ),
+            displayedComponents: [.date]
+        )
+        .labelsHidden()
+        .datePickerStyle(.compact)
+        .accessibilityLabel("Jump to a date")
     }
 
     // MARK: Timeline

@@ -105,7 +105,7 @@ struct ProjectDetailView: View {
             }
 
             if !store.todo.isEmpty {
-                Section("Suggested order") {
+                Section("Order") {
                     ForEach(Array(store.todo.enumerated()), id: \.element.id) { index, task in
                         HStack(alignment: .top, spacing: 10) {
                             Text("\(index + 1)")
@@ -124,6 +124,11 @@ struct ProjectDetailView: View {
                         } onSnooze: { preset in
                             Task { await TaskActions.snooze(task, preset) }
                         }
+                    }
+                    // Drag to set your own order (tap Edit, then drag the handle). The order is
+                    // saved, so it survives relaunch and new captures slot beneath it.
+                    .onMove { source, destination in
+                        Task { await store.move(fromOffsets: source, toOffset: destination) }
                     }
                 }
             }
@@ -146,6 +151,10 @@ struct ProjectDetailView: View {
         .navigationTitle(project.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Drag-to-reorder the to-do list lives behind Edit (the reliable native pattern).
+            if !store.todo.isEmpty {
+                ToolbarItem(placement: .topBarLeading) { EditButton() }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button { addingTask = true } label: {

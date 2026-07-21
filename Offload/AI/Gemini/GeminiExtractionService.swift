@@ -152,11 +152,13 @@ struct GeminiExtractionService {
         yours: how many tasks, how they group, what matters, when, how long. Decide well; don't
         lean on the guardrails to fix a lazy call.
 
-        TIME. The current LOCAL time is \(localNow) (timezone \(tz)). Resolve every relative time
-        ("tomorrow", "tonight", "next week", "2pm") against THIS local clock — "tomorrow" is the
-        next local day; never shift a day or hour by a timezone. Output dueDate and deadline as a
-        local wall-clock ISO 8601 string with NO "Z" and NO offset (e.g. 2026-07-22T14:00 for 2pm
-        on the 22nd); a day with no time uses T00:00.
+        TIME. The current LOCAL time is \(localNow) (timezone \(tz)). Resolve EVERY date they give
+        — near or far — into an actual calendar date against this local clock: "tomorrow", "next
+        Tuesday", "in 3 weeks", "next month", "the 24th", "March 3", "2pm" all become concrete
+        dates/times. "meeting in 3 weeks at 2pm" → the real date three weeks out at 14:00, so the
+        app can put it on that day. Never shift a day or hour by a timezone. Output dueDate and
+        deadline as a local wall-clock ISO 8601 string with NO "Z" and NO offset (e.g.
+        2026-07-22T14:00 for 2pm on the 22nd); a day with no stated time uses T00:00.
 
         THINK FIRST. Use the `reasoning` field as a private scratchpad: in a sentence or two, work
         out what they actually need and how it should be shaped — then fill in everything else.

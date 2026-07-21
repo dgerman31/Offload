@@ -35,6 +35,9 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
     /// True when a human or a real calendar event fixed this exact time. Pinned times anchor
     /// the day; unpinned ones (the planner's guesses) reflow when the timeline self-heals.
     var pinned: Bool
+    /// User-set manual position for drag-to-reorder. Nil = never reordered (falls back to
+    /// capture order); lower sorts first within a list.
+    var sortOrder: Double?
 
     static let databaseTableName = "tasks"
 
@@ -56,6 +59,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         case calendarEventId = "calendar_event_id"
         case metadata, deleted, people, deadline, pinned
         case dueIsAllDay = "due_is_all_day"
+        case sortOrder = "sort_order"
     }
 
     init(
@@ -82,7 +86,8 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         people: String? = nil,
         deadline: String? = nil,
         dueIsAllDay: Bool = false,
-        pinned: Bool = false
+        pinned: Bool = false,
+        sortOrder: Double? = nil
     ) {
         self.id = id
         self.title = title
@@ -108,6 +113,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         self.deadline = deadline
         self.dueIsAllDay = dueIsAllDay
         self.pinned = pinned
+        self.sortOrder = sortOrder
     }
 
     /// A specific moment on the clock, as opposed to a whole-day intention.

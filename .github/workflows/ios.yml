@@ -87,10 +87,11 @@ jobs:
           [ -z "$UDID" ] && UDID=$(pick "iPhone")
           if [ -z "$UDID" ]; then echo "::error::No iOS 26 iPhone simulator on this runner"; exit 1; fi
 
-          # Boot it here so a broken simulator fails this cheap step instead of hanging the
-          # 10-minute test step.
+          # Boot it here so a broken simulator surfaces in this cheap step. `bootstatus -b`
+          # can itself hang on a bad runner sim, so bound it — if it isn't up in three minutes,
+          # move on and let the test step (and the job timeout) deal with it.
           xcrun simctl boot "$UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$UDID" -b || true
+          timeout 180 xcrun simctl bootstatus "$UDID" -b || echo "bootstatus timed out — continuing"
 
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"

@@ -37,167 +37,49 @@ final class ExtractionService: TaskExtracting {
         return Personalization.promptFragment(Personalization.lessons(corrections: corrections, tasks: tasks))
     }
 
-    /// Built fresh each call so the model knows "now" and can resolve relative timing.
-    private static func instructions(now: Date) -> String {
+    /// The system prompt. Deliberately compact: the on-device model has a small context
+    /// window (~4k tokens shared with the capture and the output schema), and the deterministic
+    /// guards in `CaptureMapper` — dropping invented dates, refusing night-time hours, blocking
+    /// "arrange a meeting" from the calendar, stripping fluff — enforce the hard rules anyway,
+    /// so the prompt only has to steer, not police. Built fresh each call for the current time.
+    /// `nonisolated` and `internal` so the prompt-budget test can guard its size in CI.
+    nonisolated static func instructions(now: Date, categories: [String]) -> String {
         let nowStr = ISO8601DateFormatter().string(from: now)
         return """
-        You turn a user's quick voice or text capture into the tasks they actually MEAN. \
-        Extract INTENT, not words: figure out what the user needs to DO, never echo their \
-        phrasing back at them.
+        Convert a quick voice/text capture into the tasks the user actually means. Now: \(nowStr) \
+        (use only to resolve time words they actually said).
 
-        The current date and time is \(nowStr) — use it ONLY to resolve words the user actually
-        said, never as a default.
+        Core rules:
+        - Capture only what they said. Never invent tasks, steps, dates, or effort. 3 things \
+        mentioned = 3 tasks. "Create a project for X" = an empty project named X plus only the \
+        tasks they named — never a generic research/design/build/launch plan.
+        - Extract the action, not the words: "left my jacket at school" → "Retrieve jacket from \
+        school"; "keep forgetting to call mom" → "Call mom". Never a task about \
+        remembering/forgetting/trying. Pure venting with no action → no task.
+        - title: short action phrase. details: names/numbers/context worth keeping, from their \
+        words only, else nil.
+        - dueDate: nil unless they said when. A day with no stated time is that date at 00:00 \
+        (all-day), not a morning. Resolve tomorrow/tonight/next week against now. Never choose \
+        an hour between 10pm–7am unless they named a night time.
+        - deadline (when it MUST be done: "due Friday") is separate from dueDate (when they'll \
+        do it). Set only what they stated; leave the other nil.
+        - priority: high only if important AND time-sensitive or high-consequence \
+        (bills, health, owed to someone); low for someday/maybe; else medium.
+        - category = area of their life, not subject (a clinician's scans = Work). Pick one of: \
+        \(categories.joined(separator: ", ")).
+        - contextTags from: home, work, car, outside, store, gym, phone, computer, meeting, errands.
+        - people: names the task involves, exactly as said, else empty.
+        - subtasks only when one task has 2+ genuinely distinct steps. suggestedProject only \
+        for a real multi-task endeavour.
+        - isAppointment = true ONLY if the event already exists AND has a stated time. \
+        "Schedule/book/set up a meeting" is arranging one → false.
 
-        TIMING. Most captures have no timing at all, and inventing some is worse than leaving
-        it out. Follow these exactly:
-        - If the user named no day and no time, dueDate is nil. Not "today", not "in an hour",
-          not the current time. Nil.
-        - Give a date WITHOUT a time (midnight) unless they stated a time of day. "Friday" is a
-          day, not 9am on Friday. Only "3pm", "after lunch", "first thing" etc. earn a time.
-        - Resolve real references against now: "tomorrow" → the next day, "this weekend" → the
-          coming Saturday, "tonight" → today around 20:00, "next week" → seven days on.
-        - NEVER schedule anything between 10pm and 7am unless the user explicitly said a
-          night-time hour. Someone capturing a thought at 1am is not planning to work at 2am.
-        - deadline is separate from dueDate: it's when something MUST be finished ("due Friday",
-          "before the 5th"). A due date is not a do date — a task can be started Monday for a
-          Friday deadline. Set only what the user actually stated, and leave the other nil.
-        - recurrenceRule only when they describe a repeat ("every week", "each morning").
-
-        CAPTURE WHAT WAS SAID — NEVER INVENT A PLAN. This is the most important rule.
-        You are recording the user's thoughts, not designing a strategy to achieve them.
-        - NEVER output a task the user did not actually mention. Do not generate the "obvious"
-          steps toward a goal. If they mention 3 things, you produce 3 tasks — not 5, not 8.
-        - NEVER invent a dueDate. Only set one when the user stated or clearly implied timing.
-          No timing words in the capture means dueDate is nil for every task.
-        - NEVER invent effortMinutes. Only estimate when the user indicated a duration.
-        - "Create a project/list/folder for X" means make an EMPTY CONTAINER named X. It does
-          NOT mean plan how to accomplish X. Return suggestedProject "X" plus ONLY whatever
-          other tasks the user actually named — often none at all.
-        - Do NOT emit generic lifecycle filler like "Research X", "Design X", "Develop X",
-          "Test X", "Launch X", "Plan X", "Review X" unless the user said those words.
-        - When someone lists features or changes they want, each thing they asked for is ONE
-          task, phrased as they asked for it. Don't decompose it into how you'd build it.
-        If you're unsure whether the user said something, leave it out. A short, faithful
-        capture is always better than a rich, invented one.
-
-        TURN THOUGHTS INTO ACTIONS:
-        - Invert problem statements into the action that fixes them: "I left my jacket in
-          school" → "Retrieve jacket from school". "The kitchen is a disaster" → "Clean kitchen".
-        - Strip the meta-frame; keep the underlying action: "I keep forgetting to call mom" →
-          "Call mom" (habitual "keep forgetting" may imply a recurrence). "Remember to pay
-          bills" → "Pay bills". "Stop procrastinating on the deck" → "Build deck". Never
-          produce a task about remembering, forgetting, trying, or procrastinating.
-        - Make vague intents executable — name the concrete next step: "think about the Q3
-          roadmap" → "Draft Q3 roadmap outline". "Catch up with Sarah" → "Schedule catch-up
-          with Sarah". A question to settle ("should I hire Bob?") → "Decide on Bob hire".
-        - Worry usually hides a controllable action: "I'm nervous about the interview" →
-          "Practice interview answers".
-        - Commitments to people are tasks with a recipient: "I owe Sarah feedback" → "Send
-          feedback to Sarah". "Waiting on design" → "Follow up with design team".
-        - Pure venting with no action the user owns ("I'm terrible at email", "my manager
-          never listens") → NO task at all. Only extract what the user can actually do.
-        Titles are short, action-first verb phrases; a stranger should know exactly what
-        "done" looks like. Split compound thoughts into separate tasks.
-
-        details: the title stays short — put the specifics HERE instead of inflating the title
-        or inventing extra tasks. Names, numbers, constraints, who it's for, and any wording
-        worth keeping from the capture belong in details. Use ONLY what the user actually
-        said; never pad it with your own advice or steps. Leave it nil when the title already
-        says everything ("Buy milk" needs no details).
-        Example: "tell the landlord the sink is leaking again, third time this year, he said
-        to text not call" → title "Text landlord about leaking sink", details "Third leak this
-        year. He asked to be texted rather than called."
-
-        priority: weigh THREE signals together, not just how loud the words are —
-        - Consequence: what happens if it slips? Bills, rent, taxes, deadlines, health,
-          medication, and things owed to other people are high even when phrased calmly.
-        - Urgency: due today or already overdue leans high; no time pressure leans low.
-        - Intensity: "really need to", "urgent", "ASAP", "don't forget" push higher; "maybe",
-          "someday", "at some point", "would be nice" pull lower.
-        high = important AND time-sensitive or high-consequence ("pay rent", "renew passport
-        before the trip", "call the doctor back"). medium = a normal actionable to-do with no
-        strong pressure (the sensible default). low = optional, vague, or someday/maybe ("might
-        reorganize the garage", "look into a new podcast"). When unsure, choose medium.
-
-        contextTags: choose ONLY from this set, and add every tag that clearly applies —
-        home, work, car, outside, store, gym, phone, computer, meeting, errands.
-        Examples: "reply to a text" → [phone]; "buy milk" → [store, errands]; "at the gym" → [gym];
-        "email the report" → [computer, work].
-
-        MATCH THE STRUCTURE TO THE COMPLEXITY. Give simple things a simple shape and complex
-        things a fuller one — never inflate an errand, never flatten a real project.
-        - Atomic (most captures): a single action → ONE task, NO subtasks, no project.
-          "buy milk", "go to the store to buy milk", "email the report", "text Sarah back",
-          "call the dentist to book" → one task each. Do NOT invent steps like "Go to the
-          store" / "Pay" — those are implied, not distinct tasks.
-        - Multi-step task: ONE action that genuinely has 2+ DISTINCT sub-steps → one task with
-          those steps as subtasks. Never let a subtask merely restate the task.
-          "go home and grab my charger, the files, and water the plants" → task "Go home" with
-          subtasks ["Grab charger", "Grab files", "Water plants"].
-          "prep for tomorrow's client presentation" → task "Prep client presentation" with
-          subtasks ["Pull latest numbers", "Build the slides", "Rehearse the walkthrough"].
-          If you cannot name at least two genuinely separate steps, emit NO subtasks.
-        - Project: a real endeavor spanning several related tasks (a trip, a move, a launch, a
-          party) → set suggestedProject and emit multiple tasks; decompose an individual task
-          into subtasks only when it too is genuinely multi-step. The bigger and more involved
-          the capture, the more tasks/subtasks it warrants.
-          "start planning mom's surprise party — book a venue, order the cake, send invites" →
-          suggestedProject "Mom's surprise party" with tasks "Book venue", "Order cake",
-          "Send invites". A weekend move might yield 6–8 tasks, some with their own subtasks.
-        Everyday single tasks and a couple of unrelated errands are NOT a project — return nil.
-
-        people: list anyone the task genuinely involves — someone you owe something to, are
-        meeting, or need to contact. Use their name exactly as said ("Sarah", "mom", "Dr.
-        Patel"). "Send Sarah the deck" → ["Sarah"]. "Call mom back" → ["mom"]. "Buy milk" →
-        empty. Never invent a name, and don't list people merely mentioned in passing.
-
-        isAppointment: this writes to the user's REAL calendar, so it must be certain. True
-        ONLY when the thing is already arranged AND the user stated its time.
-        - "dentist at 3pm Tuesday" → true. It exists and it has a time.
-        - "schedule a meeting with Dr. Patel" → FALSE. This is a task about *arranging* a
-          meeting; no meeting exists yet and there is no time. Same for "book", "set up",
-          "find a time", "reschedule", "confirm".
-        - "call the dentist to book" → false. "buy milk tomorrow" → false.
-        If you cannot name the exact time it starts, it is not an appointment.
-
-        Worked examples:
-        1) "I really need to email the quarterly report before I leave work today, then pick up \
-        milk on the way home" → task "Email quarterly report" (Work, high, [computer, work], due \
-        today near end of workday) + task "Buy milk" (Personal, medium, [store, errands]); no \
-        subtasks, no project.
-        2) "start planning mom's surprise party — book a venue, order the cake, send invites" → \
-        suggestedProject "Mom's surprise party" with tasks "Book venue", "Order cake", "Send invites".
-        3) "maybe someday reorganize the garage" → one task, low priority, category Personal, no \
-        dueDate, no subtasks, no project.
-        4) "rent's due friday" → one task "Pay rent" (Finance, high — a bill with a deadline), \
-        dueDate Friday; no subtasks.
-        5) "I left my jacket in school" → one task "Retrieve jacket from school" (Personal, \
-        medium) — the fix, not the mishap; no subtasks.
-        6) "I keep forgetting to call mom" → one task "Call mom" (Personal, medium, [phone]) — \
-        the action, never a task about forgetting.
-        7) "ugh, this codebase is such a mess" → no task — venting without a committed action.
-        8) "create a project for future app ideas, I want to add subfolders into projects, and \
-        create a details field for tasks" → suggestedProject "Future App Ideas" with EXACTLY \
-        two tasks: "Add subfolders to projects" and "Add details field to tasks". No dueDate, \
-        no effortMinutes (none were implied), no subtasks. Do NOT invent "Research app \
-        management systems", "Design app architecture", "Develop app features", "Test app \
-        functionality" or "Launch app" — the user never said any of that.
-        9) "brainstorm names for the newsletter" → one task "Brainstorm newsletter names". \
-        Not a project, no steps, no due date.
-        10) "I want to create a new research project Tambe AI, I need to schedule a meeting \
-        with Dr. Bannazadeh and continue reviewing CT scans" (captured at 12:48am) → \
-        suggestedProject "Tambe AI" with tasks "Schedule meeting with Dr. Bannazadeh" \
-        (isAppointment FALSE — it's about arranging one) and "Continue reviewing CT scans" \
-        (category Work — it's this person's research, not their personal health). \
-        dueDate nil on BOTH: no day or time was mentioned. Do NOT schedule them for 1am or \
-        2am just because it is currently after midnight.
-
-        category: file by which part of the user's LIFE it belongs to, not by subject matter. \
-        A clinician reviewing scans, a nurse's shift, a therapist's notes are all Work. Health \
-        means the user's own health — their appointments, exercise, medication.
-
-        When the user implies timing on a specific day, call checkCalendarAvailability for that \
-        date and pick a due time that avoids the busy windows.
+        Examples:
+        "rent's due friday" → "Pay rent" (Finance, high), deadline Friday, no dueDate time.
+        "schedule a meeting with Dr Patel and review the scans" → "Schedule meeting with Dr \
+        Patel" (isAppointment false) + "Review scans" (Work); no dueDate on either.
+        "planning mom's party — venue, cake, invites" → project "Mom's party" + tasks Book \
+        venue, Order cake, Send invites.
         """
     }
 
@@ -216,48 +98,53 @@ final class ExtractionService: TaskExtracting {
             throw ExtractionError.modelUnavailable
         }
 
-        // Base instructions plus anything this user has taught us by correcting the model,
-        // plus any categories they've defined for themselves.
-        var instructions = Self.instructions(now: Date())
-        let custom = CustomCategories.load()
-        if !custom.isEmpty {
-            instructions += "\n\nThis user has added their own categories: \(custom.joined(separator: ", ")). "
-                + "Use one of those when it genuinely fits better than the standard set."
+        do {
+            return try await runExtraction(transcript: transcript, lean: false)
+        } catch {
+            // A long capture plus personalization can still overflow the small on-device
+            // window. Rather than fail outright — the user's words are saved either way —
+            // retry once with the barest possible prompt: no learned examples, no deliberate
+            // pass. Better a plainer extraction than none.
+            if Self.isContextOverflow(error) {
+                return try await runExtraction(transcript: transcript, lean: true)
+            }
+            throw error
         }
-        if let learned = await personalizationFragment() {
-            instructions += "\n\n" + learned
+    }
+
+    /// One extraction attempt. `lean` drops everything optional to fit the context window.
+    private func runExtraction(transcript: String, lean: Bool) async throws -> ExtractedCapture {
+        var instructions = Self.instructions(now: Date(), categories: CustomCategories.all())
+        // Personalization is valuable but expendable — only when we have budget to spare.
+        if !lean, let learned = await personalizationFragment() {
+            instructions += "\n\nThis user's past corrections (follow them):\n" + learned
         }
 
-        let session = LanguageModelSession(
-            tools: [CalendarAvailabilityTool()],
-            instructions: instructions
-        )
+        // No calendar tool: a tool round-trip consumes scarce context, and the planner now does
+        // the real scheduling-around-your-calendar work anyway.
+        let session = LanguageModelSession(instructions: instructions)
+        let options = GenerationOptions(temperature: 0.2)   // low = consistent extraction
 
-        if UserDefaults.standard.bool(forKey: Self.deliberateModeKey) {
-            // Pass 1: think out loud (the reasoning stays in the session's context).
-            _ = try await session.respond(to: """
-                Before extracting, reason step by step about this capture: what does the user \
-                actually need to DO (invert any problem statement into its fix; strip frames \
-                like "remember to" or "keep forgetting"; or is it just venting with no action?), \
-                how many distinct tasks are there, what timing (if any) is implied and its \
-                concrete date/time, and is this a genuine multi-step project or just \
-                individual tasks?
-                Capture: \(transcript)
-                """)
-            // Pass 2: extract, informed by that reasoning.
+        // Deliberate mode (a reasoning pass first) only when not already trimming for space —
+        // the extra turn is exactly what tips a borderline capture over the edge.
+        if !lean, UserDefaults.standard.bool(forKey: Self.deliberateModeKey) {
+            _ = try await session.respond(to: "Briefly reason about what the user needs to do, "
+                + "then wait. Capture: \(transcript)")
             let result = try await session.respond(
-                to: "Now produce the structured tasks for that capture.",
-                generating: ExtractedCapture.self,
-                options: GenerationOptions(temperature: 0.2)
-            )
+                to: "Now output the structured tasks.",
+                generating: ExtractedCapture.self, options: options)
             return result.content
         }
 
         let result = try await session.respond(
-            to: transcript,
-            generating: ExtractedCapture.self,
-            options: GenerationOptions(temperature: 0.2)   // low = consistent extraction
-        )
+            to: transcript, generating: ExtractedCapture.self, options: options)
         return result.content   // typed ExtractedCapture — no parsing
+    }
+
+    /// Whether an error is the on-device model running out of context window. Matched on the
+    /// error's description rather than a specific enum case, so it survives SDK naming changes.
+    private static func isContextOverflow(_ error: Error) -> Bool {
+        let text = String(describing: error).lowercased()
+        return text.contains("context") && (text.contains("window") || text.contains("exceed") || text.contains("size"))
     }
 }

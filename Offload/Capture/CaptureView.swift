@@ -255,6 +255,11 @@ struct CaptureView: View {
                 .padding()
                 .background(Color.Offload.surface, in: .rect(cornerRadius: 12))
             }
+            // Quick-tap refinements (only when the model flagged real ambiguity). A confident
+            // capture shows none and saves with zero taps — exactly like before.
+            if !vm.chips.isEmpty {
+                chipRow
+            }
             // Dedup surface (spec §3.5): similar existing tasks — informed, never silent.
             if !similar.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -276,11 +281,44 @@ struct CaptureView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 40)
         // Auto-dismiss timing scales with how much there is to read; stay longer on warnings.
-        .task {
+        // With refinement chips present we DON'T auto-dismiss — the user needs time to tap — so
+        // the sheet waits for an explicit Done. Tapping every chip lets the timer resume.
+        .task(id: vm.chips.count) {
+            guard !vm.hasChips else { return }
             let seconds = min(5.0, 1.6 + Double(titles.count) * 0.5 + Double(similar.count) * 1.0)
             try? await Task.sleep(for: .seconds(seconds))
             finish()
         }
+    }
+
+    /// A single wrapping row of tappable refinement pills. Each tap patches the just-saved
+    /// task(s) locally and clears its question group; the row disappears when none remain.
+    private var chipRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Refine", systemImage: "wand.and.stars")
+                .font(.caption).fontWeight(.semibold)
+                .foregroundStyle(Color.Offload.muted)
+            FlowLayout(spacing: 8, lineSpacing: 8) {
+                ForEach(vm.chips) { chip in
+                    Button {
+                        Task { await vm.applyChip(chip) }
+                    } label: {
+                        Text(chip.label)
+                            .font(.caption).fontWeight(.semibold)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(Color.Offload.surface, in: .capsule)
+                            .foregroundStyle(Color.Offload.indigo)
+                            .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: 1))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .accessibilityLabel("Refine: \(chip.label)")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .animation(Motion.standard, value: vm.chips.count)
     }
 
     // MARK: Failure — never a bare apology; always the recovery path (spec §5.7)

@@ -32,41 +32,21 @@ struct DateSemanticsTests {
             suggestedProject: nil)
     }
 
-    // MARK: The 1 AM bug
+    // MARK: The 1 AM bug — now guarded by the sleeping-hour rail, not a word list
 
-    @Test("Temporal language is recognised; ordinary sentences aren't")
-    func temporalSignal() {
-        #expect(CaptureMapper.hasTemporalSignal("call mom tomorrow"))
-        #expect(CaptureMapper.hasTemporalSignal("meeting at 3pm"))
-        #expect(CaptureMapper.hasTemporalSignal("rent due friday"))
-        #expect(CaptureMapper.hasTemporalSignal("finish it by the 14th"))
-        // The actual failing capture — no day, no time, anywhere in it.
-        #expect(!CaptureMapper.hasTemporalSignal(
-            "I want to create a new research project tambe ai, i need to schedule a meeting w dr Bannazadeh and continue reviewing ct scans"))
-        #expect(!CaptureMapper.hasTemporalSignal("buy milk"))
-    }
-
-    @Test("Temporal words are matched whole — 'am' inside 'tambe' is not a time")
-    func temporalSignalWordBoundaries() {
-        // These substrings are why the bug happened: "am" in tambe, "now" in known.
-        #expect(!CaptureMapper.hasTemporalSignal("research project tambe ai"))
-        #expect(!CaptureMapper.hasTemporalSignal("ask about the known issues"))
-        #expect(!CaptureMapper.hasTemporalSignal("email the summary"))
-        // But real usages still register.
-        #expect(CaptureMapper.hasTemporalSignal("call at 9 am"))
-        #expect(CaptureMapper.hasTemporalSignal("do it now"))
-    }
-
-    @Test("A capture with no timing gets no due date, whatever the model returns")
-    func noTimingMeansNoDate() {
-        // Model hallucinates 1 AM because it was told "now" is 12:48 AM.
+    @Test("A due time in the small hours is demoted to a whole day, never a 1 AM moment")
+    func smallHoursNeverScheduled() {
+        // We trust the model on whether there's a date (Gemini doesn't invent them); the hard
+        // rail is that nothing is ever *scheduled* at 1 AM. So a 1 AM time becomes a whole-day
+        // intention, not a clock time.
         let result = CaptureMapper.map(
             extracted("Schedule a meeting with Dr. Bannazadeh", due: iso(20, 1)),
             now: date(20, 0, 48),
             calendar: utcCalendar,
             sourceText: "i need to schedule a meeting w dr Bannazadeh"
         )
-        #expect(result.tasks[0].dueDate == nil)
+        #expect(result.tasks[0].dueIsAllDay)
+        #expect(!result.tasks[0].hasSpecificTime)   // never a 1 AM commitment
     }
 
     @Test("A stated day survives, but never as a fake midnight time")
@@ -171,15 +151,15 @@ struct DateSemanticsTests {
             title: "Dentist checkup", isAppointment: true, dueDate: nil, isAllDay: false))
     }
 
-    @Test("End to end: the failing capture produces no event and no invented time")
+    @Test("End to end: the failing capture writes no calendar event and no 1 AM commitment")
     func failingCaptureEndToEnd() {
         let result = CaptureMapper.map(
             extracted("Schedule a meeting with Dr. Bannazadeh", due: iso(20, 1), isAppointment: true),
             now: date(20, 0, 48), calendar: utcCalendar,
             sourceText: "i need to schedule a meeting w dr Bannazadeh and continue reviewing ct scans"
         )
-        #expect(result.appointmentTaskIds.isEmpty)   // nothing written to the real calendar
-        #expect(result.tasks[0].dueDate == nil)      // and no 1 AM
+        #expect(result.appointmentTaskIds.isEmpty)   // arranging verb + all-day → nothing on the real calendar
+        #expect(!result.tasks[0].hasSpecificTime)    // and no 1 AM commitment (demoted to whole-day)
     }
 
     // MARK: The planner moving a committed lunch

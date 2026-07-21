@@ -55,40 +55,28 @@ struct CaptureMapperTests {
         #expect(result.tasks.map(\.title) == ["Go home", "Grab charger", "Water plants"])
     }
 
-    // MARK: Invented-effort guard
+    // MARK: Effort — trust the model, clamp only for data integrity
 
-    @Test("Duration signals are recognized; timing words alone are not")
-    func durationSignals() {
-        #expect(CaptureMapper.hasDurationSignal("call mom for 20 minutes"))
-        #expect(CaptureMapper.hasDurationSignal("quick call to the bank"))
-        #expect(CaptureMapper.hasDurationSignal("this takes an hour"))
-        // "tomorrow" says WHEN, not HOW LONG.
-        #expect(!CaptureMapper.hasDurationSignal("email the report tomorrow"))
-        #expect(!CaptureMapper.hasDurationSignal("add subfolders to projects"))
+    @Test("Effort clamp keeps sane values, rejects zero/negative, caps the absurd")
+    func effortClamp() {
+        #expect(CaptureMapper.clampedEffort(30) == 30)
+        #expect(CaptureMapper.clampedEffort(nil) == nil)
+        #expect(CaptureMapper.clampedEffort(0) == nil)          // not a real estimate
+        #expect(CaptureMapper.clampedEffort(-5) == nil)
+        #expect(CaptureMapper.clampedEffort(99999) == CaptureMapper.maxEffortMinutes)  // capped
     }
 
-    @Test("Effort estimates are dropped when the capture implied no duration")
-    func inventedEffortDropped() {
-        let extracted = ExtractedCapture(
-            summary: nil,
-            tasks: [ExtractedTask(title: "Launch app", category: "Projects", priority: "medium",
-                                  contextTags: [], dueDate: nil, recurrenceRule: nil,
-                                  effortMinutes: 180, subtasks: [])],
-            suggestedProject: nil)
-        let result = CaptureMapper.map(extracted, sourceText: "add subfolders to projects")
-        #expect(result.tasks.first?.effortMinutes == nil)
-    }
-
-    @Test("Effort estimates survive when the capture actually mentioned a duration")
-    func genuineEffortKept() {
+    @Test("The model's effort estimate is trusted even without a stated duration")
+    func inferredEffortKept() {
+        // New philosophy: Gemini can reasonably infer "review the deck" ≈ 20m — no word-list gate.
         let extracted = ExtractedCapture(
             summary: nil,
             tasks: [ExtractedTask(title: "Review deck", category: "Work", priority: "medium",
                                   contextTags: [], dueDate: nil, recurrenceRule: nil,
-                                  effortMinutes: 30, subtasks: [])],
+                                  effortMinutes: 20, subtasks: [])],
             suggestedProject: nil)
-        let result = CaptureMapper.map(extracted, sourceText: "spend 30 minutes reviewing the deck")
-        #expect(result.tasks.first?.effortMinutes == 30)
+        let result = CaptureMapper.map(extracted, sourceText: "review the deck")
+        #expect(result.tasks.first?.effortMinutes == 20)
     }
 
     // MARK: Details
@@ -161,24 +149,36 @@ struct CaptureMapperTests {
         #expect(CaptureMapper.encodeTags(["  "]) == nil)
     }
 
-    @Test("Tags outside the allowed vocabulary are dropped; duplicates collapse")
-    func tagFiltering() {
-        #expect(CaptureMapper.encodeTags(["phone", "banana"]) == "[\"phone\"]")
+    @Test("Novel tags are kept (open vocabulary); duplicates collapse; garbage dropped")
+    func tagOpenVocabulary() {
+        // New philosophy: a specific tag the old ten-word list didn't know is now welcome.
+        #expect(CaptureMapper.encodeTags(["phone", "kitchen"]) == "[\"phone\",\"kitchen\"]")
+        #expect(CaptureMapper.encodeTags(["school", "doctor"]) == "[\"school\",\"doctor\"]")
         #expect(CaptureMapper.encodeTags(["gym", "GYM", "gym"]) == "[\"gym\"]")
-        #expect(CaptureMapper.encodeTags(["unicorn", "wizardry"]) == nil)
+        // Light sanity bound only: a whole phrase is not a tag.
+        #expect(CaptureMapper.encodeTags(["at the grocery store downtown"]) == nil)
     }
 
-    @Test("A single task never becomes a project, even if the model suggests one")
-    func singleTaskNoProject() {
+    @Test("A suggested project is trusted, even for a single meaty task")
+    func suggestedProjectTrusted() {
+        // New philosophy (guard #6): if Gemini confidently names a project, take it — the prompt
+        // tells it not to over-organize a lone errand, so we no longer demand 2+ tasks as proof.
         let extracted = ExtractedCapture(
             summary: nil,
-            tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
-                                  contextTags: ["store"], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
-            suggestedProject: "Groceries"   // model over-eagerly suggested a project
+            tasks: [ExtractedTask(title: "Draft the pitch deck", category: "Work", priority: "high",
+                                  contextTags: ["computer"], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
+            suggestedProject: "Series A raise"
         )
         let result = CaptureMapper.map(extracted)
+        #expect(result.project?.title == "Series A raise")
+        #expect(result.tasks.first?.projectId == result.project?.id)
+    }
+
+    @Test("A suggested name with no tasks and no command makes no empty project")
+    func noEmptyProjectFromNoise() {
+        let extracted = ExtractedCapture(summary: nil, tasks: [], suggestedProject: "Stray name")
+        let result = CaptureMapper.map(extracted, sourceText: "hmm")
         #expect(result.project == nil)
-        #expect(result.tasks.first?.projectId == nil)
     }
 
     @Test("map() builds a project and links tasks to it")
@@ -226,31 +226,32 @@ struct CaptureMapperTests {
         #expect(result.tasks.first?.dueDateConfidence == 0.5)
     }
 
-    // MARK: Subtask restraint (punch list #4)
+    // MARK: Subtask cleanup — the model decides whether to decompose; we just tidy
 
-    @Test("A single sub-step is dropped — the task stands alone (no trivial decomposition)")
-    func loneSubtaskDropped() {
-        #expect(CaptureMapper.restrainedSubtasks(parentTitle: "Buy milk", subtasks: ["Go to the store"]) == [])
+    @Test("A single genuinely distinct sub-step is kept — the model's call is trusted")
+    func loneDistinctSubtaskKept() {
+        // New philosophy: no blanket "fewer than 2 → nuke them all". A distinct step stands.
+        #expect(CaptureMapper.cleanSubtasks(parentTitle: "Buy milk", subtasks: ["Go to the store"]) == ["Go to the store"])
     }
 
-    @Test("A subtask that restates the parent errand is dropped")
+    @Test("A subtask that restates the parent errand is still dropped (real cleanup)")
     func restatingSubtaskDropped() {
-        // Parent already says it; the subtask just repeats it → not a distinct step.
-        #expect(CaptureMapper.restrainedSubtasks(parentTitle: "Go to the store to buy milk",
-                                                 subtasks: ["Buy milk", "Go to the store"]) == [])
-        #expect(CaptureMapper.restrainedSubtasks(parentTitle: "Buy milk",
-                                                 subtasks: ["Buy milk!", "buy MILK"]) == [])
+        // Parent already says it; the subtask just repeats it → mechanical dedup, not judgment.
+        #expect(CaptureMapper.cleanSubtasks(parentTitle: "Go to the store to buy milk",
+                                            subtasks: ["Buy milk", "Go to the store"]) == [])
+        #expect(CaptureMapper.cleanSubtasks(parentTitle: "Buy milk",
+                                            subtasks: ["Buy milk!", "buy MILK"]) == [])
     }
 
-    @Test("Two or more genuinely distinct sub-steps are kept")
+    @Test("Distinct sub-steps are kept and duplicates collapse")
     func distinctSubtasksKept() {
-        let kept = CaptureMapper.restrainedSubtasks(parentTitle: "Go home",
-                                                    subtasks: ["Grab charger", "Water plants", "Grab charger"])
+        let kept = CaptureMapper.cleanSubtasks(parentTitle: "Go home",
+                                               subtasks: ["Grab charger", "Water plants", "Grab charger"])
         #expect(kept == ["Grab charger", "Water plants"])   // duplicate collapsed
     }
 
-    @Test("map() drops trivial single-subtask decomposition end to end")
-    func mapDropsTrivialSubtasks() {
+    @Test("map() still drops a subtask that only restates the parent, end to end")
+    func mapDropsRestatingSubtask() {
         let extracted = ExtractedCapture(
             summary: nil,
             tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
@@ -259,7 +260,7 @@ struct CaptureMapperTests {
             suggestedProject: nil
         )
         let result = CaptureMapper.map(extracted)
-        #expect(result.tasks.count == 1)   // just the parent; no child
+        #expect(result.tasks.count == 1)   // parent "Buy milk" is contained in the subtask → dropped
     }
 
     // MARK: Appointment classification (punch list #6)

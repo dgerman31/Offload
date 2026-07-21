@@ -5,7 +5,7 @@ import GRDB
 /// fake (the real on-device model can't run on a headless CI runner).
 @MainActor
 protocol TaskExtracting {
-    func extract(from transcript: String) async throws -> ExtractedCapture
+    func extract(from transcript: String) async throws -> ExtractionResult
 }
 
 /// How the user chose to resolve a near-duplicate before saving (spec §3.5).
@@ -47,6 +47,9 @@ struct PreparedCapture {
     /// Ids of tasks the model flagged as time-anchored appointments — those that survive the
     /// duplicate resolution become real calendar events during `finalize` (spec §3.3 write).
     var appointmentTaskIds: Set<String> = []
+    /// Fast, tappable refinements the model offered for this capture's ambiguities (Gemini
+    /// only). Surfaced on the success screen; applied to the just-saved tasks with no round-trip.
+    var chips: [ClarifyChip] = []
 }
 
 /// The end-to-end capture pipeline (spec §2.3). Persists the raw input FIRST so nothing
@@ -72,6 +75,10 @@ final class CaptureService {
         var taskTitles: [String]
         var projectTitle: String?
         var similarWarnings: [String] = []
+        /// Ids of the tasks actually inserted — the targets a tapped chip patches.
+        var insertedTaskIds: [String] = []
+        /// The clarifying chips to offer for this capture (empty on a confident capture).
+        var chips: [ClarifyChip] = []
     }
 
     private let db: AppDatabase
@@ -110,9 +117,14 @@ final class CaptureService {
         try await db.dbQueue.write { try initial.insert($0) }
 
         do {
-            // 2. Extract (typed output; no parsing).
-            let extracted = try await extractor.extract(from: rawInput)
-            let mapped = CaptureMapper.map(extracted, sourceText: rawInput)
+            // 2. Extract (typed output; no parsing). Gemini also returns clarifying chips and its
+            // own command-vs-to-do judgment; the on-device fallback returns neither.
+            let extraction = try await extractor.extract(from: rawInput)
+            let mapped = CaptureMapper.map(
+                extraction.capture,
+                sourceText: rawInput,
+                isCommand: extraction.isProjectCommand
+            )
 
             // 2b. Dedup check (spec §3.5): compare new tasks against existing open tasks by
             // embedding similarity. Rather than warn after the fact, surface candidates the
@@ -138,7 +150,8 @@ final class CaptureService {
                 tasks: mapped.tasks,
                 candidates: candidates,
                 existingById: Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
-                appointmentTaskIds: mapped.appointmentTaskIds
+                appointmentTaskIds: mapped.appointmentTaskIds,
+                chips: extraction.chips
             )
         } catch {
             // Keep the raw transcript; mark failed so it can be retried later.
@@ -213,12 +226,61 @@ final class CaptureService {
         let finalized = done
         try await db.dbQueue.write { try finalized.update($0) }
 
+        // Chips only make sense when there's a task to refine. A capture that produced a
+        // container-only command, or whose tasks were all deduped away, gets none.
+        let chips = finalTasks.isEmpty ? [] : prepared.chips
         return Outcome(
             addedTasks: finalTasks.count,
             taskTitles: finalTasks.map(\.title),
             projectTitle: insertProject ? project?.title : nil,
-            similarWarnings: warnings
+            similarWarnings: warnings,
+            insertedTaskIds: finalTasks.map(\.id),
+            chips: chips
         )
+    }
+
+    // MARK: Chips — apply a tapped refinement to the just-saved tasks (no round-trip)
+
+    /// Apply one clarifying chip's deterministic patch to the given tasks and persist it. Per-task
+    /// patches (due date, priority, recurrence, category) come from `ClarifyChip.patch`; the one
+    /// exception is `.assignProject`, which creates/reuses a container and links the tasks here.
+    /// Best-effort and idempotent — a chip the user taps twice does no harm.
+    func applyChip(_ chip: ClarifyChip, toTaskIds ids: [String], now: Date = Date()) async {
+        guard !ids.isEmpty else { return }
+        if case let .assignProject(name) = chip.action {
+            await assignProject(named: name, toTaskIds: ids)
+            return
+        }
+        try? await db.dbQueue.write { database in
+            for id in ids {
+                guard var task = try TaskItem.fetchOne(database, key: id) else { continue }
+                task = chip.patch(task, now: now)
+                try task.update(database)
+            }
+        }
+    }
+
+    /// Find-or-create a project by title (case-insensitive) and link the tasks to it. Reusing an
+    /// existing container by name means tapping "Add to Groceries" twice doesn't spawn duplicates.
+    private func assignProject(named name: String, toTaskIds ids: [String]) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try? await db.dbQueue.write { database in
+            let existing = try Project
+                .filter(Column("deleted") == false)
+                .fetchAll(database)
+                .first { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }
+            let project: Project
+            if let existing { project = existing } else {
+                project = Project(title: trimmed)
+                try project.insert(database)
+            }
+            for id in ids {
+                guard var task = try TaskItem.fetchOne(database, key: id) else { continue }
+                task.projectId = project.id
+                try task.update(database)
+            }
+        }
     }
 
     // MARK: Convenience (no-UI path: keep both, as before)

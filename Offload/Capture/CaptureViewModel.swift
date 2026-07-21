@@ -16,6 +16,13 @@ final class CaptureViewModel {
         case failed(String)
     }
 
+    /// Clarifying chips to offer on the success screen, and the tasks they patch. Cleared the
+    /// moment the sheet finishes, so they never linger into the next capture.
+    var chips: [ClarifyChip] = []
+    private var chipTargetIds: [String] = []
+    /// Groups already resolved this session (tapping one chip answers its whole question).
+    private var resolvedChipGroups: Set<String> = []
+
     var text = ""
     var phase: Phase = .editing
     var isListening = false
@@ -125,8 +132,7 @@ final class CaptureViewModel {
                 // Common case: nothing similar — insert straight away, no behavior change.
                 let outcome = try await service.finalize(prepared, resolutions: [:])
                 Haptics.success()
-                phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
-                              project: outcome.projectTitle, similar: outcome.similarWarnings)
+                showDone(outcome)
             } else {
                 // Block before saving: hand the candidates to the UI for a per-item choice.
                 pending = prepared
@@ -138,6 +144,29 @@ final class CaptureViewModel {
             Haptics.warning()
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// Move to the success screen, stashing any clarifying chips and the tasks they patch.
+    private func showDone(_ outcome: CaptureService.Outcome) {
+        chips = outcome.chips
+        chipTargetIds = outcome.insertedTaskIds
+        resolvedChipGroups = []
+        phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
+                      project: outcome.projectTitle, similar: outcome.similarWarnings)
+    }
+
+    /// True while there are refinement chips left to offer — the success screen holds (doesn't
+    /// auto-dismiss) so the user has time to tap one.
+    var hasChips: Bool { !chips.isEmpty }
+
+    /// Apply a tapped chip to the just-saved tasks, then clear its whole question group (the four
+    /// due-date chips answer one question, so one tap resolves them all). No network round-trip.
+    func applyChip(_ chip: ClarifyChip) async {
+        guard !chipTargetIds.isEmpty else { return }
+        Haptics.light()
+        await service.applyChip(chip, toTaskIds: chipTargetIds)
+        resolvedChipGroups.insert(chip.group)
+        chips.removeAll { $0.group == chip.group }
     }
 
     /// Record the user's choice for one duplicate candidate.
@@ -161,8 +190,7 @@ final class CaptureViewModel {
             pending = nil
             resolutions = [:]
             Haptics.success()
-            phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
-                          project: outcome.projectTitle, similar: outcome.similarWarnings)
+            showDone(outcome)
         } catch {
             Haptics.warning()
             phase = .failed(error.localizedDescription)
@@ -175,5 +203,8 @@ final class CaptureViewModel {
         phase = .editing
         pending = nil
         resolutions = [:]
+        chips = []
+        chipTargetIds = []
+        resolvedChipGroups = []
     }
 }

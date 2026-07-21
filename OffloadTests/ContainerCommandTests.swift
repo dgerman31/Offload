@@ -88,13 +88,39 @@ struct ContainerCommandTests {
         #expect(result.tasks.map(\.title) == ["Create a project for the launch"])
     }
 
-    @Test("Ordinary over-eager project suggestions still need two tasks to become a project")
-    func nonCommandStillGated() {
-        // Model suggests a project for a single errand — without a command, the gate holds.
+    @Test("A suggested project is trusted for a single task (guard #6 loosened)")
+    func singleTaskProjectTrusted() {
+        // New philosophy: the model only names a project for a real endeavour, so we take it.
         let result = CaptureMapper.map(
-            extracted(["Buy milk"], project: "Groceries"),
-            sourceText: "buy milk"
+            extracted(["Draft pitch deck"], project: "Series A"),
+            sourceText: "draft the pitch deck"
+        )
+        #expect(result.project?.title == "Series A")
+    }
+
+    // MARK: Gemini's own command judgment (guard #8 — replaces the regex when present)
+
+    @Test("Gemini's isCommand flag drives container-vs-task, overriding the sentence shape")
+    func geminiFlagDecidesCommand() {
+        // Sentence starts with "I need to…", which the regex reads as a to-do — but Gemini judged
+        // it a command, and its judgment now leads. The project is created.
+        let result = CaptureMapper.map(
+            extracted([], project: "Launch"),
+            sourceText: "I need you to make a project called Launch",
+            isCommand: true
+        )
+        #expect(result.project?.title == "Launch")
+    }
+
+    @Test("Gemini judging 'not a command' keeps a leading-imperative capture as a task")
+    func geminiFlagKeepsTask() {
+        // Reads like a command by shape, but Gemini judged it a to-do — trust the model.
+        let result = CaptureMapper.map(
+            extracted(["Create a project plan"]),
+            sourceText: "create a project plan for the offsite",
+            isCommand: false
         )
         #expect(result.project == nil)
+        #expect(result.tasks.map(\.title) == ["Create a project plan"])
     }
 }

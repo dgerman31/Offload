@@ -94,20 +94,22 @@ final class ExtractionService: TaskExtracting {
     /// reason about the capture in plain text, then extract in a second turn of the same
     /// session so that reasoning informs the structured output. ~2x slower, better on the
     /// hard cases (compound thoughts, ambiguous timing, project-or-not).
-    func extract(from transcript: String) async throws -> ExtractedCapture {
+    func extract(from transcript: String) async throws -> ExtractionResult {
         guard case .available = SystemLanguageModel.default.availability else {
             throw ExtractionError.modelUnavailable
         }
 
+        // The on-device fallback offers no chips and no command judgment (the small model has no
+        // budget to spare) — those are Gemini-only. It just returns the structured capture.
         do {
-            return try await runExtraction(transcript: transcript, lean: false)
+            return ExtractionResult(capture: try await runExtraction(transcript: transcript, lean: false))
         } catch {
             // A long capture plus personalization can still overflow the small on-device
             // window. Rather than fail outright — the user's words are saved either way —
             // retry once with the barest possible prompt: no learned examples, no deliberate
             // pass. Better a plainer extraction than none.
             if Self.isContextOverflow(error) {
-                return try await runExtraction(transcript: transcript, lean: true)
+                return ExtractionResult(capture: try await runExtraction(transcript: transcript, lean: true))
             }
             throw error
         }

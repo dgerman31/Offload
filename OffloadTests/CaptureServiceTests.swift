@@ -6,11 +6,15 @@ import GRDB
 @MainActor
 struct CaptureServiceTests {
 
-    /// Stand-in for the on-device model so the pipeline is testable without inference.
+    /// Stand-in for the on-device model so the pipeline is testable without inference. Stores an
+    /// `ExtractedCapture` (what the tests build) and optional chips/command judgment, wrapping
+    /// them in the `ExtractionResult` the protocol now returns.
     struct FakeExtractor: TaskExtracting {
         var result: Result<ExtractedCapture, any Error>
-        func extract(from transcript: String) async throws -> ExtractedCapture {
-            try result.get()
+        var chips: [ClarifyChip] = []
+        var isCommand: Bool? = nil
+        func extract(from transcript: String) async throws -> ExtractionResult {
+            ExtractionResult(capture: try result.get(), chips: chips, isProjectCommand: isCommand)
         }
     }
     struct BoomError: Error {}

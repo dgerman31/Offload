@@ -10,14 +10,17 @@ enum CaptureMapper {
     ]
     static let priorities: Set<String> = ["high", "medium", "low"]
 
-    /// The fixed context-tag vocabulary — anything the model invents outside this is dropped.
-    static let allowedContextTags: Set<String> = [
+    /// A *suggested* context-tag vocabulary the prompt steers the model toward. No longer a
+    /// hard filter: Gemini can coin a more useful, specific tag ("kitchen", "school", "doctor")
+    /// than this closed list allows, and silently deleting anything novel made captures feel
+    /// dumber than the model actually is. Kept only as documentation of the house style.
+    static let suggestedContextTags: Set<String> = [
         "home", "work", "car", "outside", "store", "gym", "phone", "computer", "meeting", "errands"
     ]
 
-    /// Minimum tasks before a capture is allowed to become a project — keeps single
-    /// everyday tasks from being over-organized into projects (user feedback).
-    static let minTasksForProject = 2
+    /// A sane upper bound on a single effort estimate (24h). Not second-guessing the model's
+    /// judgment — just a data-integrity rail so a wild value can't poison the planner's math.
+    static let maxEffortMinutes = 24 * 60
 
     struct Result {
         var project: Project?
@@ -27,27 +30,26 @@ enum CaptureMapper {
         var appointmentTaskIds: Set<String> = []
     }
 
-    /// Build a `Project` (only for genuine multi-step clusters) and the `TaskItem`s, linked to it.
-    /// `now` grounds the due-date priority guardrail; `sourceText` (the raw capture) grounds the
-    /// invented-effort guard. Both defaulted so callers stay simple.
+    /// Build a `Project` and the `TaskItem`s, linked to it. `now` grounds the due-date priority
+    /// guardrail. `isCommand` is the extractor's own judgment on command-vs-to-do (Gemini) —
+    /// `nil` means "unjudged", so we fall back to a lightweight regex on `sourceText`.
+    ///
+    /// Philosophy: Gemini is a frontier model with real judgment, so this mapper trusts its
+    /// output and keeps only true safety/data-integrity backstops (calendar-write gating, enum
+    /// normalization, no-night-scheduling, effort clamp). It no longer fact-checks the model's
+    /// dates, effort, tags, or subtasks against static word lists — that steering lives in the
+    /// system prompt now, where a smart model can reason about it instead of a regex guessing.
     static func map(
         _ extracted: ExtractedCapture,
         now: Date = Date(),
         calendar: Calendar = .current,
-        sourceText: String? = nil
+        sourceText: String? = nil,
+        isCommand: Bool? = nil
     ) -> Result {
-        // The model invents effort estimates freely (a bare "Launch app" coming back as 180m).
-        // Only trust one when the capture itself carried a duration signal.
-        let trustEffort = sourceText.map(hasDurationSignal) ?? true
-        // Likewise for dates: with no temporal language in the capture there is nothing to
-        // resolve, so any date the model returns is invention — and at 12:48 AM that
-        // invention becomes a task due at 1 AM.
-        let trustDates = sourceText.map(hasTemporalSignal) ?? true
-
         // Is the user talking TO the app ("create a project called X" — a command) or ABOUT
-        // their work ("I need to create a project" — a to-do)? The former makes a container;
-        // the latter is a task.
-        let containerCommand = sourceText.map(isContainerCommand) ?? false
+        // their work ("I need to create a project" — a to-do)? Gemini decides this directly; the
+        // regex is only a fallback for the on-device path that can't.
+        let containerCommand = isCommand ?? (sourceText.map(isContainerCommand) ?? false)
 
         let projectName: String? = {
             if let name = extracted.suggestedProject?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -60,10 +62,11 @@ enum CaptureMapper {
 
         let project: Project? = {
             guard let name = projectName, !name.isEmpty else { return nil }
-            // An explicit "create a project" command makes the container even with no other
-            // tasks; otherwise require a genuine multi-task cluster so a single errand isn't
-            // over-organized into a project.
-            guard containerCommand || extracted.tasks.count >= minTasksForProject else { return nil }
+            // Trust a suggested project: the model only names one for a genuine endeavour (the
+            // prompt tells it not to over-organize a lone errand), and a confident single-task
+            // project is often correct. The one thing we won't do is spin up an *empty* project
+            // from noise — a name needs either a command behind it or at least one real task.
+            guard containerCommand || !extracted.tasks.isEmpty else { return nil }
             return Project(title: name)
         }()
 
@@ -73,7 +76,7 @@ enum CaptureMapper {
             // When the user commanded "create a project", the creation IS the action — drop any
             // redundant "Create project X" task the model tacked on.
             if containerCommand, isCreateContainerTask(t.title) { continue }
-            let resolved = resolveDue(t.dueDate, trustDates: trustDates, calendar: calendar)
+            let resolved = resolveDue(t.dueDate, calendar: calendar)
             let dueDate = resolved.value
             let isAllDay = resolved.isAllDay
             let cleanTitle = actionTitle(t.title)
@@ -91,9 +94,9 @@ enum CaptureMapper {
                 dueDateConfidence: dueDate == nil ? nil : 0.5,
                 recurrenceRule: nonEmpty(t.recurrenceRule),
                 contextTags: encodeTags(t.contextTags),
-                effortMinutes: trustEffort ? t.effortMinutes : nil,
+                effortMinutes: clampedEffort(t.effortMinutes),
                 people: People.encode(t.people),
-                deadline: trustDates ? DueDate.normalizeLocal(t.deadline, timeZone: calendar.timeZone) : nil,
+                deadline: DueDate.normalizeLocal(t.deadline, timeZone: calendar.timeZone),
                 dueIsAllDay: isAllDay,
                 pinned: appointment
             )
@@ -105,11 +108,11 @@ enum CaptureMapper {
                 appointmentTaskIds.insert(parent.id)
             }
 
-            // Hierarchical extraction (spec feature 1), but restrained (punch list #4): sub-steps
-            // become child tasks only when there are ≥2 genuinely distinct steps that don't just
-            // restate the errand. They inherit the parent's category/priority/context. Cleaning
-            // titles BEFORE the restraint pass lets fluff-only variants collapse as duplicates.
-            for title in restrainedSubtasks(parentTitle: parent.title, subtasks: t.subtasks.map(actionTitle)) {
+            // Hierarchical extraction (spec feature 1): the model decides *whether* to
+            // decompose; here we just clean what it returned (dedupe, drop restatements of the
+            // parent). Children inherit the parent's category/priority/context. Cleaning titles
+            // BEFORE the pass lets fluff-only variants collapse as duplicates.
+            for title in cleanSubtasks(parentTitle: parent.title, subtasks: t.subtasks.map(actionTitle)) {
                 tasks.append(TaskItem(
                     title: title,
                     category: parent.category,
@@ -123,11 +126,12 @@ enum CaptureMapper {
         return Result(project: project, tasks: tasks, appointmentTaskIds: appointmentTaskIds)
     }
 
-    /// Guard against over-decomposition (punch list #4). Keeps subtasks ONLY when there are at
-    /// least two genuinely distinct sub-steps, dropping any that merely restate the parent
-    /// errand (e.g. parent "Buy milk" with a subtask "Buy milk", or "Go to the store to buy
-    /// milk" with a subtask "Buy milk"). Fewer than two distinct steps → the task stands alone.
-    static func restrainedSubtasks(parentTitle: String, subtasks: [String]) -> [String] {
+    /// Minimal subtask cleanup. The restraint ("only decompose when there are genuinely distinct
+    /// steps") now lives in the system prompt, where a smart model decides it — so this no longer
+    /// nukes every subtask when there's only one. It just does the mechanical hygiene a model
+    /// can't guarantee: drop blanks, collapse duplicates, and drop any subtask that merely
+    /// restates the parent errand (parent "Go to the store to buy milk" / subtask "Buy milk").
+    static func cleanSubtasks(parentTitle: String, subtasks: [String]) -> [String] {
         let parent = normalizedForComparison(parentTitle)
         var seen = Set<String>()
         var kept: [String] = []
@@ -141,7 +145,7 @@ enum CaptureMapper {
             guard seen.insert(norm).inserted else { continue }   // collapse duplicates
             kept.append(title)
         }
-        return kept.count >= 2 ? kept : []
+        return kept
     }
 
     /// Lowercased, alphanumerics-and-spaces-only, whitespace-collapsed form for the restraint
@@ -169,17 +173,17 @@ enum CaptureMapper {
         priorities.contains(raw) ? raw : "medium"
     }
 
-    /// Deterministic backstop behind the intent-extraction prompt: a stored title never keeps
-    /// the user's meta-frame even when the model parrots it. Strips stacked fluff prefixes
-    /// ("remember to", "need to", "try to", …), then capitalizes the first letter so titles
-    /// read as clean action phrases. Falls back to the trimmed original rather than ever
-    /// producing an empty title.
+    /// A light last-resort cleanup, NOT the primary mechanism — the intent-extraction prompt is
+    /// what turns "keep forgetting to call mom" into "Call mom". This only sweeps up the most
+    /// common meta-prefixes a weaker fallback model might parrot ("remember to", "need to"), and
+    /// capitalizes the first letter. Idempotent on an already-clean title, so Gemini's output
+    /// passes through untouched; it can't generalize the way the model can, so it stays small.
+    /// Falls back to the trimmed original rather than ever producing an empty title.
     static func actionTitle(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let fluff = [
-            "remember to ", "don't forget to ", "dont forget to ", "make sure to ",
-            "i need to ", "i have to ", "i gotta ", "i should ", "i want to ",
-            "need to ", "have to ", "gotta ", "try to "
+            "remember to ", "don't forget to ", "dont forget to ",
+            "i need to ", "i have to ", "need to ", "have to ", "try to "
         ]
         var title = trimmed
         var stripped = true
@@ -199,18 +203,19 @@ enum CaptureMapper {
 
     /// Decide what a model-supplied due date actually means.
     ///
-    /// Three outcomes: dropped entirely (the capture never mentioned time), kept as a
-    /// whole-day intention (a date with no meaningful hour, or an hour nobody works), or kept
-    /// as a real moment. The middle case is the important one — "Friday" should stay Friday
-    /// rather than becoming Friday at midnight.
+    /// We trust the model on *whether* there's a date (the prompt says "null unless they said
+    /// when", and Gemini doesn't invent them); this only decides *how to store* one it gave us.
+    /// Three outcomes: none (the model returned nothing parseable), a whole-day intention (a date
+    /// with no meaningful hour, or an hour nobody works), or a real moment. The whole-day case is
+    /// the important one — "Friday" should stay Friday, not become Friday at midnight — and the
+    /// sleeping-hour demotion is a real safety rail: nothing is ever *scheduled* at 2 AM.
     static func resolveDue(
         _ raw: String?,
-        trustDates: Bool,
         calendar: Calendar = .current
     ) -> (value: String?, isAllDay: Bool) {
         // Local-first: the model means the user's wall clock, not UTC. Use the calendar's zone
         // so this is deterministic in tests and correct in the user's real timezone.
-        guard trustDates, let parsed = DueDate.parseLocal(raw, timeZone: calendar.timeZone)
+        guard let parsed = DueDate.parseLocal(raw, timeZone: calendar.timeZone)
         else { return (nil, false) }
 
         // Midnight almost always means "that day", not "at 00:00".
@@ -276,41 +281,9 @@ enum CaptureMapper {
         return nil
     }
 
-    /// Words that indicate the user actually said *when*. Deliberately broad on days and
-    /// deliberately narrow on anything that could be a coincidence.
-    /// Matched on word boundaries, never as substrings — a bare "am" happily appears inside
-    /// "tambe", "name" and "example", which is exactly how a research note became a 1 AM task.
-    /// Bare am/pm are therefore handled only by the digit pattern below ("3pm", "9 am").
-    private static let dateWords = [
-        "today", "tomorrow", "tonight", "yesterday", "morning", "afternoon", "evening", "night",
-        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-        "mon", "tue", "tues", "wed", "thu", "thurs", "fri", "sat", "sun",
-        "january", "february", "march", "april", "may", "june", "july", "august",
-        "september", "october", "november", "december",
-        "week", "weekend", "weekday", "month", "year", "deadline", "due", "by", "before",
-        "after", "asap", "urgent", "now", "later", "soon", "next", "every", "daily",
-        "weekly", "monthly", "annually", "noon", "midnight", "oclock",
-        "birthday", "anniversary", "appointment", "eod", "eow"
-    ]
-
-    /// Did the capture actually mention *when*? This is the guard that stops a thought typed
-    /// at 12:48 AM from becoming a task due at 1:00 AM: with no temporal language at all, the
-    /// model has nothing to resolve, so any date it produces is invention.
-    static func hasTemporalSignal(_ text: String) -> Bool {
-        let lower = text.lowercased().replacingOccurrences(of: "o'clock", with: "oclock")
-
-        // A number that reads as a time or a date: "3pm", "9 am", "14:30", "5/12", "the 14th".
-        if lower.range(of: #"\d{1,2}\s*(:\d|am\b|pm\b|st\b|nd\b|rd\b|th\b|/|-)"#,
-                       options: .regularExpression) != nil {
-            return true
-        }
-
-        // Whole words only.
-        let pattern = "\\b(" + dateWords.joined(separator: "|") + ")\\b"
-        return lower.range(of: pattern, options: .regularExpression) != nil
-    }
-
-    /// Hours nobody means to be working. A derived time landing here is a bug, not a plan.
+    /// Hours nobody means to be working. A derived time landing here is a bug, not a plan — so a
+    /// due time that resolves into the small hours is demoted to a whole-day intention. A genuine
+    /// data-quality rail (a task should never be *scheduled* at 2 AM), kept regardless of model.
     static let sleepingHours = 22..<7
 
     static func isSleepingHour(_ date: Date, calendar: Calendar = .current) -> Bool {
@@ -318,17 +291,12 @@ enum CaptureMapper {
         return hour >= 22 || hour < 7
     }
 
-    /// Did the capture actually say anything about how long something takes? Digits cover
-    /// "20 min"/"a 2 hour block"; the word list covers spoken durations. Deliberately narrow —
-    /// timing words like "tomorrow" say WHEN, not HOW LONG, so they don't count.
-    static func hasDurationSignal(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        if lower.rangeOfCharacter(from: .decimalDigits) != nil { return true }
-        let durationWords = [
-            "minute", "min ", "mins", "hour", "hr", "hrs", "quick", "quickly", "brief",
-            "a while", "long time", "all day", "half day", "takes"
-        ]
-        return durationWords.contains { lower.contains($0) }
+    /// Keep the model's effort estimate, clamped to a sane range. Trusting Gemini to infer that
+    /// "review the deck" is ~20 min (the prompt asks it to) is the point; this is only the
+    /// data-integrity floor/ceiling so a stray 0 or a wild 99999 can't corrupt the planner.
+    static func clampedEffort(_ minutes: Int?) -> Int? {
+        guard let m = minutes, m > 0 else { return nil }
+        return min(m, maxEffortMinutes)
     }
 
     /// Verbs that mean "arrange this" rather than "this is arranged". A task whose whole
@@ -359,18 +327,29 @@ enum CaptureMapper {
         return todayOrOverdue ? "medium" : "low"
     }
 
-    /// Encode context tags as a JSON array string: lowercased, restricted to the allowed
-    /// vocabulary, de-duplicated, order-preserving. Returns nil when nothing valid remains.
+    /// Encode context tags as a JSON array string: lowercased, de-duplicated, order-preserving.
+    /// No longer filtered against a closed vocabulary — Gemini can coin a more useful, specific
+    /// tag ("kitchen", "school", "doctor") than the old ten-word list allowed, and deleting
+    /// anything novel just made captures dumber. Only the mechanical hygiene remains: trim,
+    /// lowercase, dedupe, and a light sanity bound (a real word, not a sentence). Returns nil
+    /// when nothing valid remains.
     static func encodeTags(_ tags: [String]) -> String? {
         var seen = Set<String>()
         let cleaned = tags
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { allowedContextTags.contains($0) && seen.insert($0).inserted }
+            .filter { isReasonableTag($0) && seen.insert($0).inserted }
         guard !cleaned.isEmpty,
               let data = try? JSONEncoder().encode(cleaned),
               let json = String(data: data, encoding: .utf8)
         else { return nil }
         return json
+    }
+
+    /// A tag is a short label, not a phrase. Accept anything that's non-empty, not too long, and
+    /// a single token — the light sanity bound that replaced the closed vocabulary.
+    static func isReasonableTag(_ tag: String) -> Bool {
+        guard !tag.isEmpty, tag.count <= 24 else { return false }
+        return !tag.contains(" ")
     }
 
     private static func nonEmpty(_ s: String?) -> String? {

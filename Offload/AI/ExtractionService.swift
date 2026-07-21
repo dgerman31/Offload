@@ -48,8 +48,9 @@ final class ExtractionService: TaskExtracting {
         time — never shift a day or hour by a timezone.
 
         Core rules:
-        - Capture only what they said. Never invent tasks, steps, dates, or effort. 3 things \
-        mentioned = 3 tasks — never a generic research/design/build/launch plan.
+        - Capture only what they said. Never invent tasks, steps, or dates. Distinct actions = \
+        separate tasks, but items of ONE errand/list (a grocery/shopping/packing list) = a SINGLE \
+        task with the items as subtasks, never one task per item. No generic invented plan.
         - A command TO the app makes a container, not a task: "create a project called X" / \
         "make a list for Y" → set suggestedProject to that name and emit NO task about creating \
         it (plus any other tasks they named). But "I need to create a project" describes the \

@@ -10,6 +10,17 @@ protocol CalendarWriting: Sendable {
     /// Create an event and return its identifier, or nil if it couldn't be created (no
     /// permission, no default calendar, save failure). All on-device; nothing leaves the phone.
     func createEvent(title: String, start: Date, durationMinutes: Int?) async -> String?
+
+    /// Remove the event with this identifier. Returns whether it was actually deleted. Best-effort
+    /// and non-throwing, like the rest of this layer — a missing event or denied access is just
+    /// `false`, never a crash. Used to clean up the app's own event when its task is deleted.
+    func deleteEvent(id: String) async -> Bool
+}
+
+/// A default so existing conformers (the null writer, test stubs) don't have to implement delete
+/// unless they mean to — only the real EventKit writer overrides it.
+extension CalendarWriting {
+    func deleteEvent(id: String) async -> Bool { false }
 }
 
 /// Real EventKit-backed writer. Requests full access (already covered by the existing
@@ -32,6 +43,18 @@ struct EventKitCalendarWriter: CalendarWriting {
             return event.eventIdentifier
         } catch {
             return nil
+        }
+    }
+
+    func deleteEvent(id: String) async -> Bool {
+        let store = EKEventStore()
+        guard (try? await store.requestFullAccessToEvents()) ?? false,
+              let event = store.event(withIdentifier: id) else { return false }
+        do {
+            try store.remove(event, span: .thisEvent)
+            return true
+        } catch {
+            return false
         }
     }
 }

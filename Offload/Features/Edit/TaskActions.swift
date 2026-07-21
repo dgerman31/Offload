@@ -183,11 +183,21 @@ enum TaskActions {
         }
     }
 
-    static func delete(_ item: TaskItem, db: AppDatabase = .shared) async {
+    static func delete(
+        _ item: TaskItem,
+        db: AppDatabase = .shared,
+        calendar: any CalendarWriting = EventKitCalendarWriter()
+    ) async {
         var updated = item
         updated.deleted = true
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }
+        // If this task put a real event on the calendar, erasing the task erases the event too —
+        // otherwise it lingers on the system calendar with no way to reach it. Only the app's own
+        // event (the one we created and linked) is touched; events the user made elsewhere aren't.
+        if let eventId = item.calendarEventId {
+            _ = await calendar.deleteEvent(id: eventId)
+        }
     }
 
     /// Insert a task the user typed by hand (no AI involved).

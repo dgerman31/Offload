@@ -10,6 +10,7 @@ struct CalendarView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var store = CalendarStore()
     @State private var editing: TaskItem?
+    @State private var editingEvent: CalendarEvent?
     @State private var appeared = false
     @State private var addingTask = false
     @Namespace private var selectionNamespace
@@ -61,6 +62,15 @@ struct CalendarView: View {
             .task { withAnimation(Motion.settle) { appeared = true } }
             .sheet(item: $editing) { task in
                 NavigationStack { TaskDetailView(task: task) }
+            }
+            // Tapping a real calendar event opens Apple's native editor (move / rename / delete).
+            // On dismiss we reload so the timeline reflects whatever the user just changed.
+            .sheet(item: $editingEvent) { event in
+                EventEditView(eventId: event.id) {
+                    editingEvent = nil
+                    Task { await store.loadEvents() }
+                }
+                .ignoresSafeArea()
             }
             .sheet(isPresented: $addingTask) {
                 AddTaskSheet(initialDate: store.selectedDate)
@@ -297,7 +307,11 @@ struct CalendarView: View {
     private func timelineRow(_ item: DayItem) -> some View {
         switch item {
         case let .event(event):
-            eventRow(event)
+            // Real calendar events are now tappable — tapping opens the native editor so they can
+            // be moved, renamed, or deleted, just like tasks are editable via their detail sheet.
+            Button { editingEvent = event } label: { eventRow(event) }
+                .buttonStyle(.pressable(scale: 0.98))
+                .accessibilityHint("Opens the event to edit or delete")
         case let .task(task):
             Button { editing = task } label: { taskRow(task) }
                 .buttonStyle(.pressable(scale: 0.98))
@@ -326,6 +340,9 @@ struct CalendarView: View {
                 }
             }
             Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.Offload.muted.opacity(0.6))
         }
         .padding(.vertical, 13).padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)

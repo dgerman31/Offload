@@ -29,8 +29,14 @@ struct OffloadApp: App {
                 // Re-check the model (e.g. after enabling Apple Intelligence) and run a
                 // cheap opportunistic pattern pass so suggestions feel fresh.
                 availability.refresh()
-                Task { await PatternService.shared.refresh() }
-                Task { await NotificationSync.shared.refresh() }
+                // Learn when the day started, then lay down today's routine sessions before
+                // anything reads the schedule.
+                WakeTracker.recordOpen()
+                Task {
+                    await RoutineService.shared.materialize()
+                    await PatternService.shared.refresh()
+                    await NotificationSync.shared.refresh()
+                }
             case .background:
                 BackgroundSynthesis.schedule()
                 // Leaving the app is exactly when the schedule must be correct.

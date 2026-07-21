@@ -138,6 +138,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Categories", systemImage: "tag.fill")
                     }
+                    NavigationLink {
+                        RoutinesView()
+                    } label: {
+                        Label("Routines", systemImage: "repeat")
+                    }
                     Picker(selection: $energyRaw) {
                         ForEach(EnergyProfile.allCases) { profile in
                             Label(profile.label, systemImage: profile.icon).tag(profile.rawValue)

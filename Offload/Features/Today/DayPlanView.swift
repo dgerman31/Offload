@@ -77,9 +77,12 @@ struct DayPlanView: View {
     }
 
     private func recompute() {
+        // Start the day from when you actually woke, not a hardcoded hour — so an early or late
+        // morning shifts the whole plan.
+        let start = WakeTracker.dayStartHour(now: Date(), fallback: dayStartHour)
         plan = DayPlanner.plan(
             tasks: tasks, events: events, on: day, now: Date(),
-            dayStartHour: dayStartHour, dayEndHour: dayEndHour,
+            dayStartHour: start, dayEndHour: dayEndHour,
             energyProfile: EnergyProfile(rawValue: energyRaw)
         )
     }

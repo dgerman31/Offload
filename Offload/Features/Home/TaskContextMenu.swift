@@ -58,10 +58,20 @@ struct TaskContextMenu: View {
 
             Divider()
 
-            Button(role: .destructive) {
-                Task { await TaskActions.delete(task) }; Haptics.light()
-            } label: {
-                Label("Delete", systemImage: "trash")
+            // A routine session ("class is cancelled Friday") skips just this week's instance,
+            // recording an exception so it isn't recreated — next week is untouched.
+            if RoutineService.isRoutineTask(task) {
+                Button(role: .destructive) {
+                    Task { await RoutineService.shared.skipThisOccurrence(task) }
+                } label: {
+                    Label("Skip just this one", systemImage: "calendar.badge.minus")
+                }
+            } else {
+                Button(role: .destructive) {
+                    Task { await TaskActions.delete(task) }; Haptics.light()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         }
     }

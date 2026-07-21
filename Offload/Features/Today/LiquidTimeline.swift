@@ -88,7 +88,9 @@ enum LiquidTimeline {
         var cursor = now
         for task in softTasks.sortedForFlow(now: now) {
             let effort = task.effortMinutes ?? EnergyBatch.defaultEffort
-            let plannedStart = DueDate.parse(task.dueDate)
+            // Only a *timed* task has a planned start to drift from; an all-day one (e.g. a
+            // flexible "gym today") simply flows into the next free gap without drift.
+            let plannedStart = task.hasSpecificTime ? DueDate.parse(task.dueDate) : nil
             let floor = max(cursor, plannedStart ?? now, now)
 
             if let start = earliestFit(after: floor, minutes: effort, in: free, calendar: calendar),
@@ -164,15 +166,18 @@ enum LiquidTimeline {
 
 private extension Array where Element == TaskItem {
     /// Flow order: whatever you're mid-way through comes first (it shouldn't jump the queue it's
-    /// already in), then by planned time, then undated by title for stability.
+    /// already in), then timed tasks by their time, then all-day work by title. Only tasks with
+    /// a specific time have a position to sort by — all-day items flow after them.
     func sortedForFlow(now: Date) -> [TaskItem] {
         sorted { a, b in
             let aInProgress = a.status == "in_progress"
             let bInProgress = b.status == "in_progress"
             if aInProgress != bInProgress { return aInProgress }
-            switch (DueDate.parse(a.dueDate), DueDate.parse(b.dueDate)) {
+            let ta = a.hasSpecificTime ? DueDate.parse(a.dueDate) : nil
+            let tb = b.hasSpecificTime ? DueDate.parse(b.dueDate) : nil
+            switch (ta, tb) {
             case let (da?, db?) where da != db: return da < db
-            case (_?, nil): return true
+            case (_?, nil): return true       // a timed task flows before an all-day one
             case (nil, _?): return false
             default: break
             }

@@ -625,11 +625,13 @@ struct HomeView: View {
         return anchors
     }
 
-    /// Today's soft-scheduled tasks — the ones that reflow.
+    /// Today's flexible work — everything due today that isn't a fixed anchor, whether it has a
+    /// soft time or is all-day (a "gym today"). The healer flows all of it into free time.
     private var todaySoftTasks: [TaskItem] {
         let cal = Calendar.current
         return store.openTasks.filter { task in
-            task.isSoftScheduled && (DueDate.parse(task.dueDate).map { cal.isDate($0, inSameDayAs: now) } ?? false)
+            guard !task.isAnchored, let due = DueDate.parse(task.dueDate) else { return false }
+            return cal.isDate(due, inSameDayAs: now)
         }
     }
 

@@ -166,6 +166,35 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "ALTER TABLE tasks ADD COLUMN pinned INTEGER DEFAULT 0;")
         }
 
+        // Recurring routines — the fixed skeleton of a week (classes) and flexible habits
+        // (gym 4–5× a week, days chosen for you). Exceptions record one-off cancellations.
+        migrator.registerMigration("v6_routines") { db in
+            try db.execute(sql: """
+                CREATE TABLE routines (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    category TEXT,
+                    kind TEXT DEFAULT 'fixed',
+                    weekdays TEXT,
+                    start_minute INTEGER,
+                    duration_minutes INTEGER DEFAULT 60,
+                    times_per_week INTEGER DEFAULT 0,
+                    flex INTEGER DEFAULT 0,
+                    active INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
+                CREATE TABLE routine_exceptions (
+                    id TEXT PRIMARY KEY,
+                    routine_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX idx_exceptions_routine ON routine_exceptions(routine_id, date);
+                """)
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

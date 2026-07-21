@@ -110,7 +110,9 @@ struct DayView: View {
             "Jump to date",
             selection: Binding(
                 get: { selectedDay },
-                set: { withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: $0) } }
+                set: { newValue in
+                    withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: newValue) }
+                }
             ),
             displayedComponents: [.date]
         )

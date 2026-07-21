@@ -90,11 +90,16 @@ struct GeminiTests {
     @Test("The per-day ceiling is enforced across minutes")
     func perDayLimit() async {
         let budget = AIBudget(defaults: freshDefaults())
-        let base = Date()
+        // Pin to the START of a fixed UTC day and pass that calendar: the loop spans ~8.2h
+        // (485 × 61s), so a `Date()` base near day's end would roll over midnight mid-loop and
+        // reset the daily counter — which is exactly why this test was flaky by time-of-day.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let base = cal.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 0, minute: 0))!
         // Spread requests across many minutes so only the daily cap can stop them.
         var granted = 0
         for i in 0..<(AIBudget.maxPerDay + 5) {
-            if await budget.reserve(now: base.addingTimeInterval(Double(i) * 61)) { granted += 1 }
+            if await budget.reserve(now: base.addingTimeInterval(Double(i) * 61), calendar: cal) { granted += 1 }
         }
         #expect(granted == AIBudget.maxPerDay)
     }

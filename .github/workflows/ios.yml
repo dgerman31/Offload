@@ -32,9 +32,9 @@ env:
 jobs:
   build:
     runs-on: macos-15   # Apple Silicon runner. If a macos-26 image exists, this can be bumped.
-    # A simulator that fails to boot makes xcodebuild wait forever; fail fast instead of
-    # holding a runner for six hours.
-    timeout-minutes: 25
+    # A healthy run is ~4 min (test only) or ~8 min (with the .ipa). Anything past this is a
+    # stuck simulator, not slow work — kill it fast so a hang can't eat 20 minutes.
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 

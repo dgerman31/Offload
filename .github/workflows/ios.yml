@@ -30,10 +30,14 @@ env:
   HOMEBREW_NO_ANALYTICS: 1
 
 jobs:
-  build:
+  # Test and .ipa are SEPARATE, parallel jobs. They used to be one job doing two full compiles
+  # back to back (Debug for the tests, then Release for the .ipa), which landed right on the
+  # 12-minute timeout and got the .ipa guillotined mid-build. Splitting them gives each its own
+  # clock and its own runner, so a legit build finishes and neither starves the other.
+  test:
     runs-on: macos-15   # Apple Silicon runner. If a macos-26 image exists, this can be bumped.
-    # A healthy run is ~4 min (test only) or ~8 min (with the .ipa). Anything past this is a
-    # stuck simulator, not slow work — kill it fast so a hang can't eat 20 minutes.
+    # Test-only is ~4–6 min. Anything past this is a stuck simulator, not slow work — kill it
+    # fast so a hang can't eat 20 minutes.
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -57,10 +61,6 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      # Runner images rotate their simulator sets, so a hardcoded device name eventually
-      # disappears and fails the build. Resolve a real UDID instead.
-      # (No `pipefail` here on purpose: `head -1` closes the pipe early, which would otherwise
-      # kill the upstream command and silently yield an empty id.)
       # Runner images rotate their simulator sets, so a hardcoded device name eventually
       # vanishes. Pick a real one — but only from an iOS 26 runtime, since anything older
       # can't satisfy the deployment target and xcodebuild will reject it as a destination.
@@ -111,10 +111,39 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             | xcbeautify
 
+  # Opt-in: only when the commit message carries [ipa], or the workflow is run manually. Runs in
+  # parallel with `test` (no `needs:`), so the sideloadable build is ready in ~7–8 min on its own
+  # clock instead of racing the test compile for the last minute of a shared timeout.
+  ipa:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ipa]')
+    runs-on: macos-15
+    # The Release compile alone is ~7–8 min; give it real headroom so it's never cut off, while
+    # still bounding a genuine hang.
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .spm-cache
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       # Build an UNSIGNED .ipa for sideloading. Sideloadly/AltStore re-sign it with the
       # user's free Apple ID at install time, so no signing is needed here.
       - name: Build unsigned .ipa
-        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ipa]')
         run: |
           set -o pipefail
           xcodebuild \
@@ -136,7 +165,6 @@ jobs:
           ls -lh Offload.ipa
 
       - name: Upload .ipa artifact
-        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ipa]')
         uses: actions/upload-artifact@v4
         with:
           name: Offload-ipa

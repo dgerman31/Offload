@@ -12,10 +12,10 @@ struct GeminiTests {
     @Test("A schema encodes to Gemini's OpenAPI-subset shape")
     func schemaEncoding() {
         let schema: GSchema = .object(properties: [
-            ("title", .string()),
-            ("priority", .string(enumValues: ["high", "low"])),
-            ("count", .integer(nullable: true)),
-            ("tags", .array(.string()))
+            .init("title", .string()),
+            .init("priority", .string(enumValues: ["high", "low"])),
+            .init("count", .integer(nullable: true)),
+            .init("tags", .array(.string()))
         ], required: ["title"])
 
         let json = schema.json

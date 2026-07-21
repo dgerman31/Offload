@@ -36,24 +36,24 @@ struct GeminiExtractionService {
     /// The response schema, mirroring `ExtractedCapture`. Kept in lock-step with the DTOs above.
     private static func schema(categories: [String]) -> GSchema {
         let task: GSchema = .object(properties: [
-            ("title", .string()),
-            ("details", .string(nullable: true)),
-            ("category", .string(enumValues: categories)),
-            ("priority", .string(enumValues: ["high", "medium", "low"])),
-            ("contextTags", .array(.string())),
-            ("people", .array(.string())),
-            ("dueDate", .string(nullable: true)),
-            ("deadline", .string(nullable: true)),
-            ("recurrenceRule", .string(nullable: true)),
-            ("effortMinutes", .integer(nullable: true)),
-            ("isAppointment", .boolean),
-            ("subtasks", .array(.string()))
+            .init("title", .string()),
+            .init("details", .string(nullable: true)),
+            .init("category", .string(enumValues: categories)),
+            .init("priority", .string(enumValues: ["high", "medium", "low"])),
+            .init("contextTags", .array(.string())),
+            .init("people", .array(.string())),
+            .init("dueDate", .string(nullable: true)),
+            .init("deadline", .string(nullable: true)),
+            .init("recurrenceRule", .string(nullable: true)),
+            .init("effortMinutes", .integer(nullable: true)),
+            .init("isAppointment", .boolean),
+            .init("subtasks", .array(.string()))
         ], required: ["title", "category", "priority", "contextTags", "people", "isAppointment", "subtasks"])
 
         return .object(properties: [
-            ("summary", .string(nullable: true)),
-            ("suggestedProject", .string(nullable: true)),
-            ("tasks", .array(task))
+            .init("summary", .string(nullable: true)),
+            .init("suggestedProject", .string(nullable: true)),
+            .init("tasks", .array(task))
         ], required: ["tasks"])
     }
 

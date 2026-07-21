@@ -3,13 +3,20 @@ import Foundation
 /// A description of the JSON shape we ask Gemini to return. Gemini enforces this during
 /// generation (a constrained-decoding "responseSchema"), so — like Apple's `@Generable` — we
 /// get back valid, typed JSON rather than free text to wrangle.
-indirect enum GSchema {
+indirect enum GSchema: Sendable {
     case string(nullable: Bool = false, enumValues: [String]? = nil)
     case integer(nullable: Bool = false)
     case boolean
     case array(GSchema)
     /// Ordered properties (Gemini honours `propertyOrdering`) with the required subset.
-    case object(properties: [(String, GSchema)], required: [String])
+    case object(properties: [Property], required: [String])
+
+    /// A named sub-schema. A concrete struct rather than a tuple so `Sendable` is unambiguous.
+    struct Property: Sendable {
+        var name: String
+        var schema: GSchema
+        init(_ name: String, _ schema: GSchema) { self.name = name; self.schema = schema }
+    }
 
     /// Encode to Gemini's OpenAPI-subset schema format as a plain JSON object.
     var json: [String: Any] {
@@ -29,11 +36,11 @@ indirect enum GSchema {
             return ["type": "ARRAY", "items": items.json]
         case let .object(properties, required):
             var props: [String: Any] = [:]
-            for (name, schema) in properties { props[name] = schema.json }
+            for property in properties { props[property.name] = property.schema.json }
             var s: [String: Any] = [
                 "type": "OBJECT",
                 "properties": props,
-                "propertyOrdering": properties.map(\.0)
+                "propertyOrdering": properties.map(\.name)
             ]
             if !required.isEmpty { s["required"] = required }
             return s

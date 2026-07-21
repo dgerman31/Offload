@@ -73,8 +73,8 @@ enum SmartPlanner {
         await AIRouter.shared.run(label: "plan") { key in
             let client = GeminiClient(apiKey: key)
             let schema: GSchema = .object(properties: [
-                ("order", .array(.integer())),
-                ("rationale", .string(nullable: true))
+                .init("order", .array(.integer())),
+                .init("rationale", .string(nullable: true))
             ], required: ["order"])
             return try await client.generate(
                 system: systemPrompt(now: now, energyProfile: energyProfile),

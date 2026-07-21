@@ -51,8 +51,11 @@ final class ExtractionService: TaskExtracting {
 
         Core rules:
         - Capture only what they said. Never invent tasks, steps, dates, or effort. 3 things \
-        mentioned = 3 tasks. "Create a project for X" = an empty project named X plus only the \
-        tasks they named — never a generic research/design/build/launch plan.
+        mentioned = 3 tasks — never a generic research/design/build/launch plan.
+        - A command TO the app makes a container, not a task: "create a project called X" / \
+        "make a list for Y" → set suggestedProject to that name and emit NO task about creating \
+        it (plus any other tasks they named). But "I need to create a project" describes the \
+        user's own work → a task, not a container.
         - Extract the action, not the words: "left my jacket at school" → "Retrieve jacket from \
         school"; "keep forgetting to call mom" → "Call mom". Never a task about \
         remembering/forgetting/trying. Pure venting with no action → no task.

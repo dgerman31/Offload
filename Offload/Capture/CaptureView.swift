@@ -220,15 +220,23 @@ struct CaptureView: View {
 
     // MARK: Success
 
+    /// What the success screen leads with — "Created project X" when a command made only a
+    /// container, otherwise a task count.
+    private func headline(added: Int, project: String?) -> String {
+        if added == 0, let project { return "Created “\(project)”" }
+        return added == 1 ? "Added 1 task" : "Added \(added) tasks"
+    }
+
     private func successView(added: Int, titles: [String], project: String?, similar: [String]) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(Color.Offload.teal)
-            Text(added == 1 ? "Added 1 task" : "Added \(added) tasks")
+            // "Create a project" with nothing else made a container, not tasks — say so.
+            Text(headline(added: added, project: project))
                 .font(.Offload.section)
                 .foregroundStyle(Color.Offload.text)
-            if let project {
+            if let project, added > 0 {
                 Text("Project “\(project)”")
                     .font(.Offload.body)
                     .foregroundStyle(Color.Offload.muted)

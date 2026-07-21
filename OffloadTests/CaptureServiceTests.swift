@@ -196,6 +196,22 @@ struct CaptureServiceTests {
         #expect(saved?.calendarEventId == nil)
     }
 
+    @Test("A 'create a project' command persists an empty project container")
+    func containerCommandPersistsEmptyProject() async throws {
+        let db = try AppDatabase.makeInMemory()
+        // Model returns a project name and no tasks — the classic container command.
+        let extracted = ExtractedCapture(summary: nil, tasks: [], suggestedProject: "Jury 3")
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)),
+                                     embedder: NullEmbedder())
+
+        let outcome = try await service.process(rawInput: "create a project called Jury 3", inputType: "text")
+        #expect(outcome.addedTasks == 0)
+        #expect(outcome.projectTitle == "Jury 3")
+
+        let projectCount = try await db.dbQueue.read { try Project.fetchCount($0) }
+        #expect(projectCount == 1)   // the empty container was actually saved
+    }
+
     @Test("Success persists project + tasks and marks the capture done with instrumentation")
     func success() async throws {
         let db = try AppDatabase.makeInMemory()

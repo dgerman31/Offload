@@ -43,17 +43,36 @@ enum CaptureMapper {
         // resolve, so any date the model returns is invention — and at 12:48 AM that
         // invention becomes a task due at 1 AM.
         let trustDates = sourceText.map(hasTemporalSignal) ?? true
+
+        // Is the user talking TO the app ("create a project called X" — a command) or ABOUT
+        // their work ("I need to create a project" — a to-do)? The former makes a container;
+        // the latter is a task.
+        let containerCommand = sourceText.map(isContainerCommand) ?? false
+
+        let projectName: String? = {
+            if let name = extracted.suggestedProject?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !name.isEmpty { return name }
+            // An explicit command whose name the model failed to pull out — recover it from
+            // the words themselves ("...called X").
+            if containerCommand { return sourceText.flatMap { containerName(from: $0) } }
+            return nil
+        }()
+
         let project: Project? = {
-            guard extracted.tasks.count >= minTasksForProject,
-                  let name = extracted.suggestedProject?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !name.isEmpty
-            else { return nil }
+            guard let name = projectName, !name.isEmpty else { return nil }
+            // An explicit "create a project" command makes the container even with no other
+            // tasks; otherwise require a genuine multi-task cluster so a single errand isn't
+            // over-organized into a project.
+            guard containerCommand || extracted.tasks.count >= minTasksForProject else { return nil }
             return Project(title: name)
         }()
 
         var tasks: [TaskItem] = []
         var appointmentTaskIds: Set<String> = []
         for t in extracted.tasks {
+            // When the user commanded "create a project", the creation IS the action — drop any
+            // redundant "Create project X" task the model tacked on.
+            if containerCommand, isCreateContainerTask(t.title) { continue }
             let resolved = resolveDue(t.dueDate, trustDates: trustDates, calendar: calendar)
             let dueDate = resolved.value
             let isAllDay = resolved.isAllDay
@@ -195,6 +214,57 @@ enum CaptureMapper {
             return (DueDate.canonicalString(from: dayStart), true)
         }
         return (DueDate.canonicalString(from: parsed), false)
+    }
+
+    // MARK: Command vs. to-do
+
+    /// Nouns that name a container the app can make.
+    private static let containerNouns = ["project", "list", "folder", "category"]
+    /// Verbs that create one.
+    private static let makeVerbs = ["create", "make", "add", "start", "set up", "setup", "new"]
+
+    /// Is the capture a direct instruction TO the app to create a container, rather than the
+    /// user describing something they need to do?
+    ///
+    /// The distinction is grammatical: a command leads with the verb ("create a project called
+    /// X"), while a to-do names a subject first ("I need to create a project"). Because a to-do
+    /// starts with "I" / "we" / a modal, anchoring the match to the start of the sentence
+    /// cleanly separates the two — "I need to create a project" simply doesn't match.
+    static func isContainerCommand(_ text: String) -> Bool {
+        var lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip polite lead-ins that are still aimed at the app.
+        for lead in ["please ", "can you ", "could you ", "hey ", "ok ", "okay ", "just "] {
+            if lower.hasPrefix(lead) { lower = String(lower.dropFirst(lead.count)) }
+        }
+        let verbs = makeVerbs.joined(separator: "|")   // "set up" keeps its space — fine in a regex
+        let nouns = containerNouns.joined(separator: "|")
+        let pattern = "^(\(verbs))\\s+(a\\s+|an\\s+|the\\s+)?(new\\s+)?(\(nouns))\\b"
+        return lower.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// Does a task title just restate "create the container"? Such a task is redundant once the
+    /// container itself is being made.
+    static func isCreateContainerTask(_ title: String) -> Bool {
+        let lower = title.lowercased()
+        return makeVerbs.contains { lower.hasPrefix($0) } && containerNouns.contains { lower.contains($0) }
+    }
+
+    /// Pull a container's name out of the raw command ("...called X", "...named X"), stopping
+    /// at the first clause boundary so trailing tasks don't get swept into the title.
+    static func containerName(from text: String) -> String? {
+        let lower = text
+        for marker in [" called ", " named ", " titled ", " for "] {
+            guard let r = lower.range(of: marker, options: .caseInsensitive) else { continue }
+            var rest = String(lower[r.upperBound...])
+            if let cut = rest.range(of: #"[,.;:]|\band\b|\bthen\b|\bi need\b|\bi have\b|\bi want\b|\bi gotta\b|\bi should\b"#,
+                                    options: [.regularExpression, .caseInsensitive]) {
+                rest = String(rest[..<cut.lowerBound])
+            }
+            let name = rest.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name.count <= 60 else { continue }
+            return name.prefix(1).uppercased() + name.dropFirst()
+        }
+        return nil
     }
 
     /// Words that indicate the user actually said *when*. Deliberately broad on days and

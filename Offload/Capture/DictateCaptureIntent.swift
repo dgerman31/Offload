@@ -28,7 +28,10 @@ struct DictateCaptureIntent: AppIntent {
         do {
             let outcome = try await CaptureService().process(rawInput: trimmed, inputType: "voice")
             if let project = outcome.projectTitle {
-                return .result(dialog: "Added \(outcome.addedTasks) tasks to “\(project)”.")
+                if outcome.addedTasks == 0 {
+                    return .result(dialog: "Created the project “\(project)”.")
+                }
+                return .result(dialog: "Added \(outcome.addedTasks) task\(outcome.addedTasks == 1 ? "" : "s") to “\(project)”.")
             }
             return .result(dialog: outcome.addedTasks == 1
                 ? "Got it — added “\(outcome.taskTitles.first ?? "1 task")”."

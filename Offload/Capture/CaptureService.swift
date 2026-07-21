@@ -192,7 +192,10 @@ final class CaptureService {
 
         // 3. Persist surviving project + tasks and any merge backfills in one transaction.
         let project = prepared.project
-        let insertProject = project != nil && !finalTasks.isEmpty
+        // Insert the project when it still has tasks, OR when it was intentionally created
+        // empty ("create a project called X" — a container command, which maps to no tasks).
+        // The only case we skip is a project whose tasks all got dropped by dedup resolution.
+        let insertProject = project != nil && (!finalTasks.isEmpty || prepared.tasks.isEmpty)
         let backfillUpdates = Array(backfills.values)
         try await db.dbQueue.write { database in
             if insertProject, let project { try project.insert(database) }

@@ -129,6 +129,33 @@ enum TaskActions {
         try? await db.dbQueue.write { try toSave.update($0) }
     }
 
+    /// Change priority in one gesture — no edit sheet. Logs a correction so the app keeps
+    /// learning how this person weights things, exactly as the full editor does.
+    static func setPriority(_ item: TaskItem, _ priority: String, db: AppDatabase = .shared) async {
+        guard item.priority != priority else { return }
+        var updated = item
+        updated.priority = priority
+        let toSave = updated
+        let corrections = TaskEditService.corrections(from: item, to: toSave)
+        try? await db.dbQueue.write { database in
+            try toSave.update(database)
+            for correction in corrections { try correction.insert(database) }
+        }
+    }
+
+    /// Change category in one gesture — same one-tap path as priority.
+    static func setCategory(_ item: TaskItem, _ category: String, db: AppDatabase = .shared) async {
+        guard item.category != category else { return }
+        var updated = item
+        updated.category = category
+        let toSave = updated
+        let corrections = TaskEditService.corrections(from: item, to: toSave)
+        try? await db.dbQueue.write { database in
+            try toSave.update(database)
+            for correction in corrections { try correction.insert(database) }
+        }
+    }
+
     /// Copy a task as a fresh, open one — for the things you do again and again but that
     /// aren't worth a formal recurrence rule.
     static func duplicate(_ item: TaskItem, db: AppDatabase = .shared) async {

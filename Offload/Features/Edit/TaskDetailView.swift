@@ -211,9 +211,36 @@ struct TaskDetailView: View {
                 if let rule = Recurrence.parse(task.recurrenceRule) {
                     metaRow("Repeats", rule.describedPlainly, icon: "repeat", tint: Color.Offload.teal)
                 }
-                metaRow("Category", task.category ?? "Other", icon: "folder.fill", tint: tint)
-                metaRow("Priority", task.priority.capitalized, icon: "flag.fill",
-                        tint: task.priority == "high" ? Color.Offload.red : Color.Offload.muted)
+                // Category and priority change in place — tap the row, pick, done. The whole point
+                // is not having to open the editor just to bump something to high.
+                Menu {
+                    ForEach(CustomCategories.all(), id: \.self) { name in
+                        Button {
+                            Task { await TaskActions.setCategory(task, name) }; Haptics.light()
+                        } label: {
+                            Label(name, systemImage: task.category == name ? "checkmark" : "folder")
+                        }
+                    }
+                } label: {
+                    metaRow("Category", task.category ?? "Other", icon: "folder.fill", tint: tint,
+                            interactive: true)
+                }
+                .buttonStyle(.plain)
+
+                Menu {
+                    ForEach(["high", "medium", "low"], id: \.self) { level in
+                        Button {
+                            Task { await TaskActions.setPriority(task, level) }; Haptics.light()
+                        } label: {
+                            Label(level.capitalized, systemImage: task.priority == level ? "checkmark" : "flag")
+                        }
+                    }
+                } label: {
+                    metaRow("Priority", task.priority.capitalized, icon: "flag.fill",
+                            tint: task.priority == "high" ? Color.Offload.red : Color.Offload.muted,
+                            interactive: true)
+                }
+                .buttonStyle(.plain)
                 if let effort = task.effortMinutes {
                     metaRow("Effort", DayPlanner.formatted(effort), icon: "timer", tint: Color.Offload.amber)
                 }
@@ -229,7 +256,8 @@ struct TaskDetailView: View {
         }
     }
 
-    private func metaRow(_ label: String, _ value: String, icon: String, tint: Color) -> some View {
+    private func metaRow(_ label: String, _ value: String, icon: String, tint: Color,
+                         interactive: Bool = false) -> some View {
         HStack(spacing: 11) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
@@ -244,7 +272,14 @@ struct TaskDetailView: View {
                 .font(.Offload.body).fontWeight(.medium)
                 .foregroundStyle(Color.Offload.text)
                 .multilineTextAlignment(.trailing)
+            // A quiet affordance that this value is changeable right here, no Edit needed.
+            if interactive {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.Offload.muted.opacity(0.6))
+            }
         }
+        .contentShape(Rectangle())
     }
 
     // MARK: Actions

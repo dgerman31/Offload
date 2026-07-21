@@ -58,9 +58,6 @@ struct HomeView: View {
                 VStack(spacing: 18) {
                     heroCard.appearIn(0, when: appeared)
 
-                    WeekStrip(selected: $selectedDay, density: density, now: now)
-                        .appearIn(1, when: appeared)
-
                     if isToday, !summary.isClear || summary.nextTask != nil {
                         nowAndNext.appearIn(2, when: appeared).scrollAppear()
                     }
@@ -79,7 +76,8 @@ struct HomeView: View {
                     if isToday, !overdueTasks.isEmpty {
                         overdueCard.appearIn(4, when: appeared).scrollAppear()
                     }
-                    timelineCard.appearIn(5, when: appeared).scrollAppear()
+                    // The day's schedule now lives in the Day tab — Home stays a light
+                    // "what needs me" view rather than a full timeline rail.
                     if isToday {
                         gotTimeCard.appearIn(6, when: appeared).scrollAppear()
                         if !unscheduled.isEmpty {
@@ -152,7 +150,6 @@ struct HomeView: View {
             }
             .overlay(alignment: .bottom) { undoOverlay }
             .animation(Motion.standard, value: store.undo?.id)
-            .animation(Motion.standard, value: dayItems.count)
         }
     }
 

@@ -61,7 +61,7 @@ struct DateSemanticsTests {
         #expect(!result.tasks[0].hasSpecificTime)
     }
 
-    @Test("A stated time is kept exactly as a commitment")
+    @Test("A stated time is kept exactly as a commitment — and pinned so the planner never moves it")
     func statedTimeIsKept() {
         let result = CaptureMapper.map(
             extracted("Lunch with Sam", due: iso(20, 13)),
@@ -70,6 +70,21 @@ struct DateSemanticsTests {
         )
         #expect(result.tasks[0].hasSpecificTime)
         #expect(DueDate.parse(result.tasks[0].dueDate) == date(20, 13))
+        // The bug: "I have a meeting at 3" (isAppointment false) came back unpinned, so the
+        // self-healing timeline reflowed it to a later time. A user-stated clock time must anchor.
+        #expect(result.tasks[0].pinned)
+        #expect(result.tasks[0].isAnchored)
+    }
+
+    @Test("A whole-day intention stays soft (reflowable) — only stated clock times get pinned")
+    func allDayStaysSoft() {
+        let result = CaptureMapper.map(
+            extracted("Write report", due: iso(20, 0)),   // midnight → whole-day
+            now: date(20, 10), calendar: utcCalendar,
+            sourceText: "write the report today"
+        )
+        #expect(result.tasks[0].dueIsAllDay)
+        #expect(!result.tasks[0].pinned)
     }
 
     @Test("Times in the small hours are demoted to whole-day, never scheduled")

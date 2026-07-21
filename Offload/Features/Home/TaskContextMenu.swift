@@ -24,6 +24,20 @@ struct TaskContextMenu: View {
                 Label(statusActionLabel, systemImage: statusActionIcon)
             }
 
+            // Change priority right here — the most common tweak shouldn't need the edit sheet.
+            Menu {
+                ForEach(["high", "medium", "low"], id: \.self) { level in
+                    Button {
+                        Task { await TaskActions.setPriority(task, level) }; Haptics.light()
+                    } label: {
+                        Label(level.capitalized,
+                              systemImage: task.priority == level ? "checkmark" : priorityIcon(level))
+                    }
+                }
+            } label: {
+                Label("Priority", systemImage: "flag.fill")
+            }
+
             Menu {
                 ForEach(TaskActions.Snooze.allCases) { preset in
                     Button {
@@ -90,6 +104,14 @@ struct TaskContextMenu: View {
         case "open":        return "play.circle"
         case "completed":   return "arrow.uturn.backward"
         default:            return "checkmark.circle"
+        }
+    }
+
+    private func priorityIcon(_ level: String) -> String {
+        switch level {
+        case "high": return "exclamationmark.2"
+        case "low":  return "arrow.down"
+        default:     return "minus"
         }
     }
 }

@@ -80,10 +80,12 @@ enum CaptureMapper {
             let dueDate = resolved.value
             let isAllDay = resolved.isAllDay
             let cleanTitle = actionTitle(t.title)
-            // A real appointment is a genuine commitment — it anchors the day. A time the model
-            // merely guessed stays soft so the self-healing timeline can reflow it.
-            let appointment = isRealAppointment(title: cleanTitle, isAppointment: t.isAppointment,
-                                                dueDate: dueDate, isAllDay: isAllDay)
+            // A user-stated clock time is a commitment: "meeting at 3" must STAY at 3. Pin it so
+            // the planner and the self-healing timeline treat it as a fixed anchor and never
+            // reflow it — matching manual add/edit, which already pin any hand-picked time. (Only
+            // a whole-day intention stays soft and reflowable.) The stricter isRealAppointment
+            // gate below still governs the consequential part — writing to the real calendar.
+            let hasStatedTime = dueDate != nil && !isAllDay
             let parent = TaskItem(
                 title: cleanTitle,
                 descriptionText: nonEmpty(t.details),
@@ -98,7 +100,7 @@ enum CaptureMapper {
                 people: People.encode(t.people),
                 deadline: DueDate.normalizeLocal(t.deadline, timeZone: calendar.timeZone),
                 dueIsAllDay: isAllDay,
-                pinned: appointment
+                pinned: hasStatedTime
             )
             tasks.append(parent)
             // Writing to someone's real calendar needs more than the model's say-so: a genuine

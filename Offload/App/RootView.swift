@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The five tabs (spec §5.4). Home is the day dashboard — greeting, what needs you, today's
-/// merged timeline — so the old separate "Today" tab folded into it; its slot now holds the
-/// interactive Calendar. The capture screen presents as a sheet over the current tab whenever
-/// the Action Button intent (or the in-app button) fires.
+/// The five tabs (spec §5.4). Home is the light "what needs me" view; the day's actual schedule
+/// (events + timed tasks) lives in its own Day tab, which replaced the old month-grid Calendar so
+/// the timeline stops crowding Home. The capture screen presents as a sheet over the current tab
+/// whenever the Action Button intent (or the in-app button) fires.
 struct RootView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @AppStorage(OnboardingView.completedKey) private var onboarded = false
@@ -27,7 +27,7 @@ struct RootView: View {
     private var tabs: some View {
         TabView {
             Tab("Home", systemImage: "square.stack.3d.up") { HomeView() }
-            Tab("Calendar", systemImage: "calendar") { CalendarView() }
+            Tab("Day", systemImage: "calendar.day.timeline.left") { DayView() }
             Tab("Projects", systemImage: "folder") { ProjectsView() }
             Tab("Search", systemImage: "magnifyingglass") { SearchView() }
             Tab("Settings", systemImage: "gearshape") { SettingsView() }

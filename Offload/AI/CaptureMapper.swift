@@ -76,8 +76,13 @@ enum CaptureMapper {
             let resolved = resolveDue(t.dueDate, trustDates: trustDates, calendar: calendar)
             let dueDate = resolved.value
             let isAllDay = resolved.isAllDay
+            let cleanTitle = actionTitle(t.title)
+            // A real appointment is a genuine commitment — it anchors the day. A time the model
+            // merely guessed stays soft so the self-healing timeline can reflow it.
+            let appointment = isRealAppointment(title: cleanTitle, isAppointment: t.isAppointment,
+                                                dueDate: dueDate, isAllDay: isAllDay)
             let parent = TaskItem(
-                title: actionTitle(t.title),
+                title: cleanTitle,
                 descriptionText: nonEmpty(t.details),
                 category: normalizedCategory(t.category),
                 priority: resolvedPriority(normalizedPriority(t.priority), dueDate: dueDate, now: now, calendar: calendar),
@@ -89,7 +94,8 @@ enum CaptureMapper {
                 effortMinutes: trustEffort ? t.effortMinutes : nil,
                 people: People.encode(t.people),
                 deadline: trustDates ? DueDate.normalize(t.deadline) : nil,
-                dueIsAllDay: isAllDay
+                dueIsAllDay: isAllDay,
+                pinned: appointment
             )
             tasks.append(parent)
             // Writing to someone's real calendar needs more than the model's say-so: a genuine

@@ -32,6 +32,9 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
     /// True when `dueDate` means a *day* rather than a moment — so a task scheduled for
     /// "Friday" doesn't have to pretend it happens at midnight.
     var dueIsAllDay: Bool
+    /// True when a human or a real calendar event fixed this exact time. Pinned times anchor
+    /// the day; unpinned ones (the planner's guesses) reflow when the timeline self-heals.
+    var pinned: Bool
 
     static let databaseTableName = "tasks"
 
@@ -51,7 +54,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         case effortMinutes = "effort_minutes"
         case energyLevel = "energy_level"
         case calendarEventId = "calendar_event_id"
-        case metadata, deleted, people, deadline
+        case metadata, deleted, people, deadline, pinned
         case dueIsAllDay = "due_is_all_day"
     }
 
@@ -78,7 +81,8 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         deleted: Bool = false,
         people: String? = nil,
         deadline: String? = nil,
-        dueIsAllDay: Bool = false
+        dueIsAllDay: Bool = false,
+        pinned: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -103,11 +107,23 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         self.people = people
         self.deadline = deadline
         self.dueIsAllDay = dueIsAllDay
+        self.pinned = pinned
     }
 
-    /// A specific moment the user (or the planner) committed to — as opposed to a whole-day
-    /// intention. Only these are real time commitments; everything else is flexible.
+    /// A specific moment on the clock, as opposed to a whole-day intention.
     var hasSpecificTime: Bool {
         dueDate != nil && !dueIsAllDay
+    }
+
+    /// A fixed point the day is built around: a pinned time or a real calendar event. These
+    /// never move when the timeline self-heals.
+    var isAnchored: Bool {
+        hasSpecificTime && (pinned || calendarEventId != nil)
+    }
+
+    /// A time the planner guessed, which may reflow as the day slips — the "liquid" part of
+    /// the timeline.
+    var isSoftScheduled: Bool {
+        hasSpecificTime && !pinned && calendarEventId == nil
     }
 }

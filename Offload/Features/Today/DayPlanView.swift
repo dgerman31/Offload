@@ -230,9 +230,10 @@ struct DayPlanView: View {
             var updated = item.task
             updated.dueDate = DueDate.canonicalString(from: item.start)
             updated.dueDateConfidence = 1.0     // the user accepted this time
-            // Accepting a plan turns a loose intention into a real commitment, so a later
-            // re-plan schedules around it rather than shuffling it again.
             updated.dueIsAllDay = false
+            // The planner only *guessed* this time, so it stays soft — the timeline may reflow
+            // it if the day slips. It's a suggestion, not a commitment you made.
+            updated.pinned = false
             if updated.effortMinutes == nil { updated.effortMinutes = item.minutes }
             await TaskEditService.save(updated, original: item.task)
         }

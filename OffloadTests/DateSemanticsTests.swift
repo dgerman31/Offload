@@ -147,10 +147,12 @@ struct DateSemanticsTests {
 
     // MARK: The planner moving a committed lunch
 
-    @Test("A task with a committed time is never rescheduled")
+    @Test("A pinned time is never rescheduled by the planner")
     func committedTimeIsNotMoved() {
+        // Pinned = a commitment the user made. Without the pin it'd be soft and reflowable.
         var lunch = TaskItem(title: "Lunch", dueDate: iso(20, 13))
         lunch.dueIsAllDay = false
+        lunch.pinned = true
 
         let candidates = DayPlanner.candidates(
             from: [lunch, TaskItem(title: "Loose task")],
@@ -159,10 +161,11 @@ struct DateSemanticsTests {
         #expect(candidates.map(\.title) == ["Loose task"])   // lunch is a constraint, not a candidate
     }
 
-    @Test("Committed tasks block time so other work is planned around them")
+    @Test("Pinned tasks block time so other work is planned around them")
     func committedTasksBlockTime() {
         var lunch = TaskItem(title: "Lunch", dueDate: iso(20, 13), effortMinutes: 60)
         lunch.dueIsAllDay = false
+        lunch.pinned = true
 
         let blocks = DayPlanner.busyBlocks(from: [lunch], on: date(20), calendar: utcCalendar)
         #expect(blocks.count == 1)

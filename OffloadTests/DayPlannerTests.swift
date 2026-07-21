@@ -94,11 +94,12 @@ struct DayPlannerTests {
         #expect(picked.map(\.title) == ["Overdue", "High today", "Low undated"])   // tomorrow excluded
     }
 
-    @Test("A task committed to a time today is a constraint, not a candidate")
+    @Test("A pinned time today is a constraint, not a candidate")
     func committedTaskExcluded() {
-        // Same task as above but with a real time — the planner must leave it alone.
-        let committed = TaskItem(title: "Standup", priority: "high", dueDate: iso(15))
-        #expect(committed.hasSpecificTime)
+        // A pinned time is a commitment the planner must leave alone; a soft time would reflow.
+        var committed = TaskItem(title: "Standup", priority: "high", dueDate: iso(15))
+        committed.pinned = true
+        #expect(committed.isAnchored)
         let picked = DayPlanner.candidates(from: [committed], on: date(9), now: date(8), calendar: utcCalendar)
         #expect(picked.isEmpty)
     }

@@ -108,7 +108,9 @@ enum DayPlanner {
     /// blocked out first, and flexible work fills in around them.
     static func fixedCommitments(from tasks: [TaskItem], on day: Date, calendar: Calendar = .current) -> [TaskItem] {
         tasks.filter { task in
-            guard task.status != "completed", !task.deleted, task.hasSpecificTime,
+            // Only *anchored* times are constraints. A soft planner-placed time is re-placeable,
+            // so re-planning reflows it rather than building around a guess.
+            guard task.status != "completed", !task.deleted, task.isAnchored,
                   let due = DueDate.parse(task.dueDate) else { return false }
             return calendar.isDate(due, inSameDayAs: day)
         }
@@ -145,8 +147,9 @@ enum DayPlanner {
             .filter { task in
                 guard let due = DueDate.parse(task.dueDate) else { return true }   // undated
                 if due < startOfDay { return true }                                // overdue
-                // Due today: only movable if the user never committed to a specific time.
-                return calendar.isDate(due, inSameDayAs: day) && !task.hasSpecificTime
+                // Due today: movable unless it's an anchored commitment (pinned or a real
+                // event). Soft planner-placed times are candidates again, so a re-plan reflows.
+                return calendar.isDate(due, inSameDayAs: day) && !task.isAnchored
             }
             .sorted { a, b in
                 let aOverdue = (DueDate.parse(a.dueDate).map { $0 < startOfDay }) ?? false

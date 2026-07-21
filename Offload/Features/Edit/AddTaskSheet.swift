@@ -198,7 +198,9 @@ struct AddTaskSheet: View {
             dueDate: hasDueDate ? DueDate.canonicalString(from: storedDueDate) : nil,
             dueDateConfidence: hasDueDate ? 1.0 : nil,   // typed by hand = certain
             recurrenceRule: hasDueDate ? recurrence.rrule : nil,
-            dueIsAllDay: hasDueDate && !hasTime
+            dueIsAllDay: hasDueDate && !hasTime,
+            // A time you chose by hand is a commitment — it anchors the day, never reflows.
+            pinned: hasDueDate && hasTime
         )
         await TaskActions.create(task)
         Haptics.success()

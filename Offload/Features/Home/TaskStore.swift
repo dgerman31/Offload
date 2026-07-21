@@ -106,6 +106,23 @@ final class TaskStore {
         Haptics.light()
     }
 
+    /// Bank a healed timeline: write each reflowed task's projected time back so reminders and
+    /// the plan follow reality. Only the tasks that actually moved are touched. They stay soft,
+    /// so the timeline can keep healing from here.
+    func commitReflow(_ placed: [LiquidTimeline.Placed]) async {
+        for p in placed where p.hasMoved {
+            var updated = p.task
+            updated.dueDate = DueDate.canonicalString(from: p.start)
+            updated.dueIsAllDay = false
+            updated.pinned = false
+            let toSave = updated
+            try? await db.dbQueue.write { try toSave.update($0) }
+        }
+        Haptics.success()
+        undo = nil
+        await NotificationSync.shared.refresh()
+    }
+
     /// Reverse the last undoable action by writing its prior state back.
     func performUndo() async {
         guard let restore = undo?.restore else { return }

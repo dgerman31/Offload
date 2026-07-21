@@ -128,10 +128,12 @@ struct TaskEditView: View {
             edited.dueDate = DueDate.canonicalString(from: stored)
             edited.dueDateConfidence = 1.0   // user-specified = certain
             edited.dueIsAllDay = !hasTime
+            edited.pinned = hasTime          // a hand-picked time anchors the day
         } else {
             edited.dueDate = nil
             edited.dueDateConfidence = nil
             edited.dueIsAllDay = false
+            edited.pinned = false
         }
         edited.deadline = hasDeadline
             ? DueDate.canonicalString(from: Calendar.current.startOfDay(for: deadline))

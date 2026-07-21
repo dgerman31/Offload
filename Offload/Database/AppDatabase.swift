@@ -159,6 +159,13 @@ final class AppDatabase: Sendable {
                 """)
         }
 
+        // Self-healing timeline: distinguish a soft scheduled time (the planner's guess, which
+        // may reflow as the day slips) from a pinned commitment (a time a human or a real
+        // calendar event fixed, which must never move). Existing timed tasks default to soft.
+        migrator.registerMigration("v5_pinned_time") { db in
+            try db.execute(sql: "ALTER TABLE tasks ADD COLUMN pinned INTEGER DEFAULT 0;")
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

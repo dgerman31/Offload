@@ -12,8 +12,8 @@ packages:
 
 settings:
   base:
-    MARKETING_VERSION: "1.1.2"
-    CURRENT_PROJECT_VERSION: "26"
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "27"
     SWIFT_VERSION: "6.0"
     DEVELOPMENT_TEAM: ""           # left blank; Sideloadly / your free Apple ID signs at install time
     CODE_SIGN_STYLE: Automatic

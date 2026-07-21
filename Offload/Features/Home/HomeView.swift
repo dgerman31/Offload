@@ -483,34 +483,117 @@ struct HomeView: View {
 
     // MARK: Timeline
 
+    /// For today, the timeline is *liquid*: soft-scheduled work reflows around now and the
+    /// day's fixed points, so nothing rots into "overdue" the moment it runs long. Other days
+    /// render statically — there's no "now" to heal against.
+    private var displayedTimelineItems: [DayItem] { isToday ? todayTimelineItems : dayItems }
+
     private var timelineCard: some View {
-        card(timelineTitle, icon: "clock.fill", tint: Color.Offload.teal) {
-            if dayItems.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(isToday ? "Nothing scheduled today" : "Nothing scheduled")
-                        .font(.Offload.taskTitle)
-                        .foregroundStyle(Color.Offload.text)
-                    Text("This day is open.")
-                        .font(.Offload.body)
-                        .foregroundStyle(Color.Offload.muted)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(dayItems.enumerated()), id: \.element.id) { index, item in
-                        TimelineRow(
-                            accent: accent(for: item),
-                            isFirst: index == 0,
-                            isLast: index == dayItems.count - 1,
-                            isPast: (item.time ?? .distantFuture) < now
-                        ) {
-                            timelineCardBody(item)
+        let items = displayedTimelineItems
+        let healed = isToday ? healedToday : LiquidTimeline.Result()
+        return card(timelineTitle, icon: "clock.fill", tint: Color.Offload.teal) {
+            VStack(spacing: 12) {
+                if isToday && healed.isHealing { driftBanner(healed) }
+
+                if items.isEmpty && healed.spilled.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(isToday ? "Nothing scheduled today" : "Nothing scheduled")
+                            .font(.Offload.taskTitle)
+                            .foregroundStyle(Color.Offload.text)
+                        Text("This day is open.")
+                            .font(.Offload.body)
+                            .foregroundStyle(Color.Offload.muted)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            TimelineRow(
+                                accent: accent(for: item),
+                                isFirst: index == 0,
+                                isLast: index == items.count - 1 && healed.spilled.isEmpty,
+                                isPast: (item.time ?? .distantFuture) < now
+                            ) {
+                                timelineCardBody(item)
+                            }
                         }
                     }
                 }
+
+                if isToday && !healed.spilled.isEmpty { spilledSection(healed.spilled) }
             }
         }
+    }
+
+    /// Honest headline when the day has slipped, with one tap to bank the new times so
+    /// reminders follow.
+    private func driftBanner(_ healed: LiquidTimeline.Result) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                .foregroundStyle(Color.Offload.amber)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(healed.spilled.isEmpty
+                     ? "Running \(DayPlanner.formatted(healed.behindMinutes)) behind"
+                     : "The day's overfull")
+                    .font(.Offload.taskTitle)
+                    .foregroundStyle(Color.Offload.text)
+                Text(healed.spilled.isEmpty
+                     ? "Timeline adjusted to fit what's left."
+                     : "\(healed.spilled.count) won't fit — reflowed the rest.")
+                    .font(.Offload.data)
+                    .foregroundStyle(Color.Offload.muted)
+            }
+            Spacer(minLength: 0)
+            Button {
+                Task { await store.commitReflow(healed.placed) }
+            } label: {
+                Text("Save times")
+                    .font(.caption).fontWeight(.semibold)
+                    .lineLimit(1).fixedSize()
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Color.Offload.amber.opacity(0.16), in: .capsule)
+                    .foregroundStyle(Color.Offload.amber)
+            }
+            .buttonStyle(.pressable)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.Offload.amber.opacity(0.08), in: .rect(cornerRadius: 14, style: .continuous))
+    }
+
+    private func spilledSection(_ tasks: [TaskItem]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Won't fit today", systemImage: "tray.full.fill")
+                .font(.caption2).fontWeight(.bold).tracking(0.6)
+                .foregroundStyle(Color.Offload.muted)
+            ForEach(tasks) { task in
+                Button { editing = task } label: {
+                    HStack(spacing: 10) {
+                        Circle().fill(Color.Offload.accent(for: task.category)).frame(width: 6, height: 6)
+                        Text(task.title)
+                            .font(.Offload.body)
+                            .foregroundStyle(Color.Offload.text)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Button {
+                            Task { await store.snooze(task, .tomorrow) }
+                        } label: {
+                            Text("Tomorrow")
+                                .font(.caption2).fontWeight(.semibold)
+                                .lineLimit(1).fixedSize()
+                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
+                                .foregroundStyle(Color.Offload.indigo)
+                        }
+                        .buttonStyle(.pressable)
+                    }
+                }
+                .buttonStyle(.pressable(scale: 0.99))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
     }
 
     private var timelineTitle: String {
@@ -524,6 +607,62 @@ struct HomeView: View {
         case let .event(event): return event.colorHex.map { Color(hex: $0) } ?? Color.Offload.teal
         case let .task(task):   return Color.Offload.accent(for: task.category)
         }
+    }
+
+    // MARK: Self-healing timeline
+
+    /// Immovable points today: real events and anchored (pinned) tasks.
+    private var todayAnchors: [LiquidTimeline.Anchor] {
+        let cal = Calendar.current
+        var anchors = store.rangeEvents
+            .filter { !$0.isAllDay && cal.isDate($0.start, inSameDayAs: now) }
+            .map { LiquidTimeline.Anchor(start: $0.start, end: $0.end) }
+        for task in store.openTasks where task.isAnchored {
+            guard let start = DueDate.parse(task.dueDate), cal.isDate(start, inSameDayAs: now) else { continue }
+            let mins = task.effortMinutes ?? EnergyBatch.defaultEffort
+            anchors.append(.init(start: start, end: cal.date(byAdding: .minute, value: mins, to: start) ?? start))
+        }
+        return anchors
+    }
+
+    /// Today's soft-scheduled tasks — the ones that reflow.
+    private var todaySoftTasks: [TaskItem] {
+        let cal = Calendar.current
+        return store.openTasks.filter { task in
+            task.isSoftScheduled && (DueDate.parse(task.dueDate).map { cal.isDate($0, inSameDayAs: now) } ?? false)
+        }
+    }
+
+    private var healedToday: LiquidTimeline.Result {
+        LiquidTimeline.heal(softTasks: todaySoftTasks, anchors: todayAnchors, now: now)
+    }
+
+    /// Minutes-of-drift per task id, for the "moved" annotation on a reflowed row.
+    private var driftByTaskID: [String: Int] {
+        Dictionary(healedToday.placed.map { ($0.task.id, $0.driftMinutes) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Today's timeline items with soft tasks shown at their *projected* times: events and
+    /// anchored tasks at their fixed times, plus each reflowed soft task as a copy carrying the
+    /// projected time so the existing row rendering just works. Spilled tasks are handled apart.
+    private var todayTimelineItems: [DayItem] {
+        let cal = Calendar.current
+        let ownEventIDs = Set(store.allTasks.compactMap(\.calendarEventId))
+        var items: [DayItem] = store.rangeEvents
+            .filter { !$0.isAllDay && cal.isDate($0.start, inSameDayAs: now) && !ownEventIDs.contains($0.id) }
+            .map { .event($0) }
+        for task in store.openTasks where task.isAnchored {
+            if DueDate.parse(task.dueDate).map({ cal.isDate($0, inSameDayAs: now) }) ?? false {
+                items.append(.task(task))
+            }
+        }
+        for placed in healedToday.placed {
+            var copy = placed.task
+            copy.dueDate = DueDate.canonicalString(from: placed.start)
+            copy.dueIsAllDay = false
+            items.append(.task(copy))
+        }
+        return DayTimeline.ordered(items)
     }
 
     /// A soft tinted card per entry — the colour-blocked look from the reference.
@@ -599,6 +738,13 @@ struct HomeView: View {
                         Label("In progress", systemImage: "circle.lefthalf.filled")
                             .font(.caption2).fontWeight(.semibold)
                             .foregroundStyle(tint)
+                            .padding(.leading, 24)
+                    }
+                    // The liquid tell: this soft task slid later because the day ran long.
+                    if isToday, let drift = driftByTaskID[task.id], drift >= LiquidTimeline.driftThreshold {
+                        Label("moved \(DayPlanner.formatted(drift)) later", systemImage: "arrow.down")
+                            .font(.caption2).fontWeight(.medium)
+                            .foregroundStyle(Color.Offload.amber)
                             .padding(.leading, 24)
                     }
                 }

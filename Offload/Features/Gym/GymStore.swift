@@ -184,19 +184,21 @@ final class GymStore {
 
     // MARK: Dates
 
-    /// The Sunday on or before a date, so weeks always run Sun–Sat regardless of locale.
-    static func startOfWeek(_ date: Date, calendar: Calendar = .current) -> Date {
+    /// The Sunday on or before a date, so weeks always run Sun–Sat regardless of locale. `nonisolated`
+    /// — pure, touches no actor-isolated state, so it's callable synchronously (tests included)
+    /// without an actor hop, same as `ProjectDetailStore`'s pure static helpers.
+    nonisolated static func startOfWeek(_ date: Date, calendar: Calendar = .current) -> Date {
         let start = calendar.startOfDay(for: date)
         let weekday = calendar.component(.weekday, from: start)   // 1 = Sunday
         return calendar.date(byAdding: .day, value: -(weekday - 1), to: start) ?? start
     }
 
-    static func dateKey(_ date: Date) -> String {
+    nonisolated static func dateKey(_ date: Date) -> String {
         let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX"); df.dateFormat = "yyyy-MM-dd"
         return df.string(from: date)
     }
 
-    static func datesInScope(_ scope: GymPlanScope, now: Date, calendar: Calendar = .current) -> [Date] {
+    nonisolated static func datesInScope(_ scope: GymPlanScope, now: Date, calendar: Calendar = .current) -> [Date] {
         switch scope {
         case let .day(date):
             return [calendar.startOfDay(for: date)]

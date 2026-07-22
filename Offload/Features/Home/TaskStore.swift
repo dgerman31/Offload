@@ -184,11 +184,11 @@ final class TaskStore {
     /// Reads a fresh snapshot directly from the database rather than the cached `allTasks` (which
     /// now delegates to the single shared task stream) — a one-shot mutation like this wants the
     /// current state at the moment it runs, not whatever the last-observed value happened to be.
-    func applyReorder(_ orderedIds: [String], on day: Date, events: [CalendarEvent], calendar: Calendar = .current) async {
+    func applyReorder(_ orderedIds: [String], on day: Date, events: [CalendarEvent], now: Date = Date(), calendar: Calendar = .current) async {
         let current = (try? await db.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
         }) ?? []
-        let plan = DayPlanner.plan(tasks: current, events: events, on: day, now: Date(),
+        let plan = DayPlanner.plan(tasks: current, events: events, on: day, now: now,
                                    calendar: calendar, preferredOrder: orderedIds)
         let originalById = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
         for scheduled in plan.scheduled {

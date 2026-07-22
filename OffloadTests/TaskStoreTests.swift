@@ -64,8 +64,11 @@ struct TaskStoreTests {
         }
 
         let store = TaskStore(db: db)
-        // Drag "Gym" above "Email boss".
-        await store.applyReorder([gym.id, email.id], on: day, events: [], calendar: cal)
+        // Drag "Gym" above "Email boss". `now` pinned to the same fixed day as `day` — without
+        // this, `applyReorder`'s default `now: Date()` uses the real wall-clock time, and
+        // whatever's left of "today" shrinks as the real clock gets later, occasionally leaving
+        // no room for the second task (a flake, not a real bug in the reorder logic itself).
+        await store.applyReorder([gym.id, email.id], on: day, events: [], now: day, calendar: cal)
 
         let reloadedGym = try await db.dbQueue.read { try TaskItem.fetchOne($0, key: gym.id) }
         let reloadedEmail = try await db.dbQueue.read { try TaskItem.fetchOne($0, key: email.id) }
@@ -90,7 +93,7 @@ struct TaskStoreTests {
         let store = TaskStore(db: db)
         // A pinned task never appears in the reorder sheet's list, but confirm applyReorder is
         // a no-op for it even if somehow asked to reorder around it.
-        await store.applyReorder([meeting.id], on: day, events: [], calendar: cal)
+        await store.applyReorder([meeting.id], on: day, events: [], now: day, calendar: cal)
 
         let reloaded = try await db.dbQueue.read { try TaskItem.fetchOne($0, key: meeting.id) }
         #expect(reloaded?.dueDate == meeting.dueDate)   // untouched

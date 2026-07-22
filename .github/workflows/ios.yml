@@ -88,12 +88,13 @@ jobs:
           [ -z "$UDID" ] && UDID=$(pick "iPhone")
           if [ -z "$UDID" ]; then echo "::error::No iOS 26 iPhone simulator on this runner"; exit 1; fi
 
-          # Boot it here so a broken simulator surfaces in this cheap step. macOS runners don't
-          # ship GNU `timeout`, so a bare 180s wrapper around bootstatus was silently a no-op on
-          # every run (instant "command not found", never actually bounding anything) — the outer
-          # job timeout already bounds a genuine hang, so just wait for it directly.
+          # Best-effort head start on booting — but don't wait on `bootstatus -b` here. It
+          # turns out to hang outright on this runner (confirmed: the job ran to its full
+          # timeout sitting on that exact line, once a since-fixed no-op `timeout` wrapper
+          # stopped accidentally masking the hang). `xcodebuild test` boots and waits for the
+          # simulator itself as part of running the tests, which is its normal, reliable job —
+          # no separate pre-check needed.
           xcrun simctl boot "$UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$UDID" -b || echo "bootstatus failed — continuing"
 
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"

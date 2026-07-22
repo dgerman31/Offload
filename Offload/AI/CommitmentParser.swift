@@ -17,7 +17,7 @@ enum CommitmentParser {
 
     /// The result of splitting a capture: routines to create, and any remaining tasks that
     /// are normal work (not recurring commitments).
-    struct Result: Equatable {
+    struct Result {
         var routines: [Routine] = []
         var exceptions: [RoutineException] = []
         /// Tasks that were NOT converted to routines — passed through for normal processing.

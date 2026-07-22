@@ -231,7 +231,7 @@ struct DayView: View {
                                 .foregroundStyle(tint)
                                 .lineLimit(1).fixedSize()
                         } else if task.dueIsAllDay {
-                            Text("Anytime")
+                            Text("Planned")
                                 .font(.Offload.data)
                                 .foregroundStyle(Color.Offload.muted)
                                 .lineLimit(1).fixedSize()

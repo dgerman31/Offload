@@ -23,6 +23,12 @@ struct ChipTests {
         #expect(ChipAction.parse(key: "priority_high", value: nil) == .bumpPriorityHigh)
         #expect(ChipAction.parse(key: "set_category", value: "Health") == .setCategory("Health"))
         #expect(ChipAction.parse(key: "assign_project", value: "Website") == .assignProject("Website"))
+        // The current prompt/schema spell these "due_none" and "repeat_weekly"; the older
+        // "due_clear"/"recur_weekly" spellings still parse so nothing breaks in flight.
+        #expect(ChipAction.parse(key: "due_none", value: nil) == .clearDue)
+        #expect(ChipAction.parse(key: "due_clear", value: nil) == .clearDue)
+        #expect(ChipAction.parse(key: "repeat_weekly", value: nil) == .recurWeekly)
+        #expect(ChipAction.parse(key: "recur_weekly", value: nil) == .recurWeekly)
         // A value-requiring action with no value, and an unknown key, both fail closed.
         #expect(ChipAction.parse(key: "set_category", value: nil) == nil)
         #expect(ChipAction.parse(key: "make_coffee", value: nil) == nil)

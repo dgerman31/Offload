@@ -68,13 +68,17 @@ struct TaskRowView: View {
                         }
                         priorityBadge(task.priority)
                         statusBadge(task.status)
-                        if let due = task.dueDate, !due.isEmpty {
-                            metaLabel(Self.formatDue(due, allDay: task.dueIsAllDay), icon: "calendar")
+                        // "Scheduled · 3pm" for a fixed time, "Planned for Mon" for a soft day —
+                        // and a quiet "Was planned Fri" once a soft day slips, never a red alarm.
+                        if let timing = TaskTiming.describe(task) {
+                            timingLabel(timing)
                         }
-                        // A hard deadline is different from when you plan to do it, and worth
-                        // its own, more urgent-looking chip.
+                        // A hard deadline is the one place urgency is real — a "must be done by",
+                        // distinct from when you plan to do it. It earns its own emphasised chip.
                         if let deadline = task.deadline, !deadline.isEmpty {
-                            metaLabel("due \(Self.formatDue(deadline, allDay: true))", icon: "flag.fill")
+                            Label("by \(Self.formatDue(deadline, allDay: true))", systemImage: "flag.fill")
+                                .font(.Offload.data).lineLimit(1).fixedSize()
+                                .foregroundStyle(Color.Offload.amber)
                         }
                         if let effort = task.effortMinutes {
                             metaLabel("\(effort)m", icon: "timer")
@@ -164,6 +168,25 @@ struct TaskRowView: View {
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(Color.Offload.muted)
+    }
+
+    /// The timing chip: a real commitment reads in teal, a soft plan in muted grey, and a
+    /// slipped soft day in a calm amber — colour reinforcing "commitment vs whenever", never
+    /// a red overdue scold.
+    @ViewBuilder
+    private func timingLabel(_ timing: TaskTiming.Label) -> some View {
+        let (icon, color): (String, Color) = {
+            switch timing.kind {
+            case .scheduled: return ("clock.fill", Color.Offload.teal)
+            case .planned:   return ("calendar", Color.Offload.muted)
+            case .past:      return ("calendar", Color.Offload.amber)
+            }
+        }()
+        Label(timing.text, systemImage: icon)
+            .font(.Offload.data)
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(color)
     }
 
     /// Started / blocked states — "in progress" and "waiting on someone" both look identical

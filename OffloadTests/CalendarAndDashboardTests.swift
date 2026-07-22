@@ -133,16 +133,17 @@ struct CalendarAndDashboardTests {
         #expect(!s.isClear)
     }
 
-    @Test("Headline leads with overdue, then today's load, then an all-clear")
+    @Test("Headline leads with today's load, frames slippage as 'carried over', then an all-clear")
     func headlines() {
-        var overdue = DaySummary(greeting: "", headline: "", subhead: "")
-        overdue.overdueCount = 2
-        #expect(DayDashboard.headline(for: overdue).headline == "2 things are overdue")
+        // Nothing on today, but two things slipped: framed as carried over, never "overdue".
+        var carried = DaySummary(greeting: "", headline: "", subhead: "")
+        carried.overdueCount = 2
+        #expect(DayDashboard.headline(for: carried).headline == "2 things carried over")
 
         var busy = DaySummary(greeting: "", headline: "", subhead: "")
         busy.dueTodayCount = 2
         busy.eventCount = 1
-        #expect(DayDashboard.headline(for: busy).headline == "3 things need you today")
+        #expect(DayDashboard.headline(for: busy).headline == "3 things today")
 
         var cleared = DaySummary(greeting: "", headline: "", subhead: "")
         cleared.completedToday = 4

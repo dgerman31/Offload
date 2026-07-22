@@ -101,21 +101,23 @@ enum DayDashboard {
         return summary
     }
 
-    /// The hero line. Leads with whatever is most pressing: overdue, then today's load, then
-    /// a calm all-clear. Written as a sentence a person would say, never a stat dump.
+    /// The hero line. Leads with the calm shape of today — what's scheduled and planned — never
+    /// a deadline scold. Things that slipped are "carried over", not "overdue"; a person who sets
+    /// their own schedule moves them whenever, so the copy never nags. Written as a sentence a
+    /// person would say, never a stat dump.
     static func headline(for s: DaySummary) -> (headline: String, subhead: String) {
-        if s.overdueCount > 0 {
-            let noun = s.overdueCount == 1 ? "thing is" : "things are"
-            let rest = s.dueTodayCount > 0 ? "\(s.dueTodayCount) more due today." : "Everything else is handled."
-            return ("\(s.overdueCount) \(noun) overdue", rest)
-        }
         let load = s.dueTodayCount + s.eventCount
         if load > 0 {
-            let noun = load == 1 ? "thing needs" : "things need"
+            let noun = load == 1 ? "thing" : "things"
             var parts: [String] = []
-            if s.eventCount > 0 { parts.append("\(s.eventCount) on your calendar") }
-            if s.dueTodayCount > 0 { parts.append("\(s.dueTodayCount) to do") }
-            return ("\(load) \(noun) you today", parts.joined(separator: " · "))
+            if s.eventCount > 0 { parts.append("\(s.eventCount) scheduled") }
+            if s.dueTodayCount > 0 { parts.append("\(s.dueTodayCount) planned") }
+            if s.overdueCount > 0 { parts.append("\(s.overdueCount) carried over") }
+            return ("\(load) \(noun) today", parts.joined(separator: " · "))
+        }
+        if s.overdueCount > 0 {
+            let noun = s.overdueCount == 1 ? "thing" : "things"
+            return ("\(s.overdueCount) \(noun) carried over", "From earlier — pick them up whenever.")
         }
         if s.completedToday > 0 {
             let noun = s.completedToday == 1 ? "task" : "tasks"
@@ -123,7 +125,7 @@ enum DayDashboard {
         }
         if s.untimedCount > 0 {
             let noun = s.untimedCount == 1 ? "thing" : "things"
-            return ("Nothing due today", "\(s.untimedCount) \(noun) waiting whenever you want them.")
+            return ("Nothing scheduled", "\(s.untimedCount) \(noun) on your list whenever you want them.")
         }
         return ("Mind clear", "Nothing needs you right now.")
     }

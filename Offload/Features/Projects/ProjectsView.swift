@@ -40,9 +40,10 @@ struct ProjectsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if store.summaries.isEmpty {
+        // No NavigationStack of its own: Projects is now pushed from Home (it left the tab bar),
+        // so it lives inside Home's navigation stack and its rows push detail there.
+        Group {
+            if store.summaries.isEmpty {
                     ContentUnavailableView {
                         Label("No projects yet", systemImage: "folder")
                     } description: {
@@ -87,7 +88,6 @@ struct ProjectsView: View {
                     Task { await store.create(title: title, parentId: target.parent?.id) }
                 }
             }
-        }
     }
 
     /// A single row of the flattened tree: disclosure control, then the project itself.

@@ -246,6 +246,36 @@ struct DateSemanticsTests {
         #expect(!text.contains("AM"))
     }
 
+    // MARK: Timing labels — "Scheduled" (a real commitment) vs "Planned for" (a soft day) vs a
+    // quiet "Was planned" for slippage. The app never says "overdue"; a slipped day is a shrug.
+
+    @Test("A fixed clock time reads Scheduled; a whole-day plan reads Planned; a slipped day is soft")
+    func timingLabels() {
+        let cal = utcCalendar
+        let now = date(20, 9)
+
+        // A pinned clock time → a real commitment.
+        let scheduled = TaskItem(title: "Meet Dr. Lee", dueDate: iso(20, 15), dueIsAllDay: false, pinned: true)
+        let s = TaskTiming.describe(scheduled, now: now, calendar: cal)
+        #expect(s?.kind == .scheduled)
+        #expect(s?.text.hasPrefix("Scheduled") == true)
+
+        // A whole-day intention placed on today → planned, no pressure.
+        let planned = TaskItem(title: "Read cardio chapter", dueDate: iso(20, 0), dueIsAllDay: true)
+        let p = TaskTiming.describe(planned, now: now, calendar: cal)
+        #expect(p?.kind == .planned)
+        #expect(p?.text.hasPrefix("Planned for") == true)
+
+        // A whole-day plan whose day has passed → a soft "Was planned", never a red alarm.
+        let slipped = TaskItem(title: "Refill scrubs", dueDate: iso(18, 0), dueIsAllDay: true)
+        let past = TaskTiming.describe(slipped, now: now, calendar: cal)
+        #expect(past?.kind == .past)
+        #expect(past?.text.hasPrefix("Was planned") == true)
+
+        // No due date at all → no label; it belongs in the "whenever" pile.
+        #expect(TaskTiming.describe(TaskItem(title: "Someday"), now: now, calendar: cal) == nil)
+    }
+
     @Test("A task's own calendar event isn't shown twice on the timeline")
     func noDuplicateEvent() {
         var task = TaskItem(title: "Dentist", dueDate: iso(20, 15))

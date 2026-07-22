@@ -57,12 +57,12 @@ enum ChipAction: Sendable, Equatable {
     /// a task edit.
     static func parse(key: String, value: String?) -> ChipAction? {
         switch key {
-        case "due_today":     return .dueToday
-        case "due_tomorrow":  return .dueTomorrow
-        case "due_this_week": return .dueThisWeek
-        case "due_clear":     return .clearDue
-        case "priority_high": return .bumpPriorityHigh
-        case "recur_weekly":  return .recurWeekly
+        case "due_today":              return .dueToday
+        case "due_tomorrow":           return .dueTomorrow
+        case "due_this_week":          return .dueThisWeek
+        case "due_none", "due_clear":  return .clearDue      // accept both spellings
+        case "priority_high":          return .bumpPriorityHigh
+        case "repeat_weekly", "recur_weekly": return .recurWeekly
         case "set_category":
             guard let v = value?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else { return nil }
             return .setCategory(v)

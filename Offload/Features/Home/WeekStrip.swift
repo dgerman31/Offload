@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The Mon–Sun day selector from the design reference. Tapping a day retargets the whole
-/// screen, which turns Home from "today only" into somewhere you can glance a few days ahead
-/// without leaving for the Calendar tab.
+/// A paged, one-week-at-a-time day selector: a single Sunday-to-Saturday row you swipe left and
+/// right to move week by week, like flipping pages on a wall calendar. Today is always known —
+/// it's labelled "TODAY" and ringed on every page — so selecting another day never feels like
+/// redefining which day today is; it's just where you're looking.
 ///
 /// Each day carries a density dot so you can see where the week gets heavy before you tap.
 struct WeekStrip: View {
@@ -11,37 +12,58 @@ struct WeekStrip: View {
     var now: Date = Date()
     var calendar: Calendar = .current
 
-    /// A long horizontal runway — a week of history plus ~two months ahead — so the strip acts
-    /// like a scrollable calendar you can page weeks into, not just a fixed fortnight. Far dates
-    /// (a meeting three weeks out) are reachable by scrolling or by the Day tab's date picker,
-    /// which scrolls this strip to match.
-    private var days: [Date] {
-        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start,
-              let start = calendar.date(byAdding: .day, value: -7, to: thisWeek) else { return [] }
-        return (0..<70).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
+    /// The Sunday of the week currently on screen. Paging changes this; it stays in sync with
+    /// `selected` so a jump from elsewhere (the Today button, the date picker) flips to the right
+    /// week.
+    @State private var visibleWeek: Date = Date()
+
+    /// The Sunday on or before a date, so weeks always run Sun–Sat regardless of locale.
+    private func sunday(onOrBefore date: Date) -> Date {
+        let start = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: start)   // 1 = Sunday
+        return calendar.date(byAdding: .day, value: -(weekday - 1), to: start) ?? start
+    }
+
+    /// The pageable range of weeks, each identified by its Sunday: a couple months back through a
+    /// year ahead, so a meeting booked well in advance is always reachable by swiping.
+    private var weeks: [Date] {
+        let base = sunday(onOrBefore: now)
+        return (-8...52).compactMap { calendar.date(byAdding: .weekOfYear, value: $0, to: base) }
+    }
+
+    private func days(of weekStart: Date) -> [Date] {
+        (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart) }
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(days, id: \.timeIntervalSince1970) { day in
-                        dayCell(day)
-                            .id(day.timeIntervalSince1970)
+        VStack(spacing: 8) {
+            Text(Self.monthTitle(visibleWeek, calendar: calendar))
+                .font(.caption).fontWeight(.semibold)
+                .tracking(0.4)
+                .foregroundStyle(Color.Offload.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(Motion.standard, value: visibleWeek)
+
+            TabView(selection: $visibleWeek) {
+                ForEach(weeks, id: \.timeIntervalSince1970) { week in
+                    HStack(spacing: 6) {
+                        ForEach(days(of: week), id: \.timeIntervalSince1970) { day in
+                            dayCell(day)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .tag(week)
                 }
-                .padding(.horizontal, 2)
             }
-            .onAppear {
-                // Open on the selected day rather than the start of the runway.
-                proxy.scrollTo(calendar.startOfDay(for: selected).timeIntervalSince1970, anchor: .center)
-            }
-            // Keep the strip in sync when the day changes from elsewhere (the date picker jump,
-            // the Today button) — scroll so the newly-selected day is visible.
-            .onChange(of: selected) { _, day in
-                withAnimation(Motion.standard) {
-                    proxy.scrollTo(calendar.startOfDay(for: day).timeIntervalSince1970, anchor: .center)
-                }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 82)
+        }
+        .onAppear { visibleWeek = sunday(onOrBefore: selected) }
+        // A jump from elsewhere (Today button, date picker) flips to that day's week.
+        .onChange(of: selected) { _, day in
+            let target = sunday(onOrBefore: day)
+            if !calendar.isDate(target, inSameDayAs: visibleWeek) {
+                withAnimation(Motion.standard) { visibleWeek = target }
             }
         }
     }
@@ -50,22 +72,25 @@ struct WeekStrip: View {
         let isSelected = calendar.isDate(day, inSameDayAs: selected)
         let isToday = calendar.isDate(day, inSameDayAs: now)
         let dayDensity = density[calendar.startOfDay(for: day)] ?? DayDensity()
+        let topColor: Color = isSelected ? .white.opacity(0.95) : (isToday ? Color.Offload.indigo : Color.Offload.muted)
 
         return Button {
             withAnimation(Motion.standard) { selected = calendar.startOfDay(for: day) }
             Haptics.light()
         } label: {
             VStack(spacing: 6) {
-                Text(Self.weekdayLabel(day, calendar: calendar).uppercased())
-                    .font(.caption2).fontWeight(.semibold)
-                    .tracking(0.5)
-                    .foregroundStyle(isSelected ? .white.opacity(0.9) : Color.Offload.muted)
+                // Today announces itself on every page; other days show their weekday.
+                Text(isToday ? "TODAY" : Self.weekdayLabel(day, calendar: calendar).uppercased())
+                    .font(.caption2).fontWeight(.bold)
+                    .tracking(0.4)
+                    .foregroundStyle(topColor)
+                    .lineLimit(1).minimumScaleFactor(0.8)
 
                 Text("\(calendar.component(.day, from: day))")
                     .font(.system(.body, design: .rounded)).fontWeight(.bold)
                     .foregroundStyle(isSelected ? .white : Color.Offload.text)
 
-                // Dot: filled when there's work, hollow ring for today, nothing otherwise.
+                // Dot: filled when there's work, nothing otherwise.
                 Group {
                     if !dayDensity.isEmpty {
                         Circle()
@@ -76,19 +101,25 @@ struct WeekStrip: View {
                     }
                 }
             }
-            .frame(width: 48)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(
-                            LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x3B4CB8)],
-                                           startPoint: .top, endPoint: .bottom)
-                        )
-                        .elevated(.low)
-                } else if isToday {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.Offload.indigo.opacity(0.45), lineWidth: 1.5)
+                // Selection is a filled pill; today keeps its ring even when selected, so it's
+                // never invisible — you always know which day is actually today.
+                ZStack {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(
+                                LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x3B4CB8)],
+                                               startPoint: .top, endPoint: .bottom)
+                            )
+                            .elevated(.low)
+                    }
+                    if isToday {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(isSelected ? Color.white.opacity(0.7) : Color.Offload.indigo.opacity(0.5),
+                                          lineWidth: 1.5)
+                    }
                 }
             }
         }
@@ -101,6 +132,21 @@ struct WeekStrip: View {
         let index = calendar.component(.weekday, from: day) - 1
         guard index >= 0, index < symbols.count else { return "" }
         return String(symbols[index].prefix(3))
+    }
+
+    /// "July 2026", or "Jun – Jul 2026" when the visible week straddles two months.
+    static func monthTitle(_ weekStart: Date, calendar: Calendar) -> String {
+        let end = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX")
+        let year = DateFormatter(); year.locale = Locale(identifier: "en_US_POSIX"); year.dateFormat = "yyyy"
+        let startMonth = calendar.component(.month, from: weekStart)
+        let endMonth = calendar.component(.month, from: end)
+        if startMonth == endMonth {
+            df.dateFormat = "MMMM yyyy"
+            return df.string(from: weekStart)
+        }
+        df.dateFormat = "MMM"
+        return "\(df.string(from: weekStart)) – \(df.string(from: end)) \(year.string(from: end))"
     }
 
     static func accessibilityLabel(_ day: Date, isToday: Bool, density: DayDensity, calendar: Calendar) -> String {

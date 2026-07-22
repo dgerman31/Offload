@@ -50,6 +50,10 @@ struct PreparedCapture {
     /// Fast, tappable refinements the model offered for this capture's ambiguities (Gemini
     /// only). Surfaced on the success screen; applied to the just-saved tasks with no round-trip.
     var chips: [ClarifyChip] = []
+    /// Feature D: routines extracted from commitment-shaped tasks ("gym 5×/week", "class M–Th
+    /// 9–12"). Persisted in `finalize` alongside normal tasks. The tasks they came from are
+    /// removed from `tasks` so they don't also create one-off `TaskItem`s.
+    var routines: [Routine] = []
 }
 
 /// The end-to-end capture pipeline (spec §2.3). Persists the raw input FIRST so nothing
@@ -143,15 +147,27 @@ final class CaptureService {
                 threshold: stored > 0 ? stored : 0.85
             )
 
+            // Feature D: split commitment-shaped tasks (recurrence rules) into Routine models
+            // so they block out the week rather than creating one-off tasks. The remaining
+            // non-commitment tasks go through the normal pipeline.
+            let commitment = CommitmentParser.parse(extraction.capture)
+            let effectiveTasks = commitment.routines.isEmpty
+                ? mapped.tasks
+                : mapped.tasks.filter { task in
+                    // Keep tasks whose titles weren't converted to routines.
+                    !commitment.routines.contains { $0.title == task.title }
+                }
+
             return PreparedCapture(
                 initial: initial,
                 startedAt: started,
                 project: mapped.project,
-                tasks: mapped.tasks,
+                tasks: effectiveTasks,
                 candidates: candidates,
                 existingById: Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
                 appointmentTaskIds: mapped.appointmentTaskIds,
-                chips: extraction.chips
+                chips: extraction.chips,
+                routines: commitment.routines
             )
         } catch {
             // Keep the raw transcript; mark failed so it can be retried later.
@@ -203,6 +219,14 @@ final class CaptureService {
             appointmentTaskIds: prepared.appointmentTaskIds.subtracting(allDropped)
         )
 
+        // 2d. Auto-fit (feature C): silently give loose, undated captures a soft slot in today's
+        // open time so they land on the schedule instead of an undated pile. Stated-time and
+        // project/subtasks are untouched. Best-effort — a fit failure never blocks the capture.
+        let existingTasks = (try? await db.dbQueue.read { database in
+            try TaskItem.filter(Column("deleted") == false).fetchAll(database)
+        }) ?? []
+        let fittedTasks = AutoFit.fitIntoToday(new: finalTasks, existing: existingTasks)
+
         // 3. Persist surviving project + tasks and any merge backfills in one transaction.
         let project = prepared.project
         // Insert the project when it still has tasks, OR when it was intentionally created
@@ -210,10 +234,13 @@ final class CaptureService {
         // The only case we skip is a project whose tasks all got dropped by dedup resolution.
         let insertProject = project != nil && (!finalTasks.isEmpty || prepared.tasks.isEmpty)
         let backfillUpdates = Array(backfills.values)
+        // Feature D: routines from commitment-shaped captures.
+        let newRoutines = prepared.routines
         try await db.dbQueue.write { database in
             if insertProject, let project { try project.insert(database) }
-            for task in finalTasks { try task.insert(database) }
+            for task in fittedTasks { try task.insert(database) }
             for updated in backfillUpdates { try updated.update(database) }
+            for routine in newRoutines { try routine.insert(database) }
         }
 
         // 4. Finalize the capture with instrumentation (spec §9).

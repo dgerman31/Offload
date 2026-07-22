@@ -76,8 +76,11 @@ final class GymStore {
         for var session in newSessions {
             let task = Self.makeTask(for: session)
             session.taskId = task.id
+            // GRDB's async `write` closure is @Sendable, so a captured `var` doesn't type-check —
+            // hand it an immutable copy instead (same convention as TaskActions.delete).
+            let toInsert = session
             try await db.dbQueue.write { database in
-                try session.insert(database)
+                try toInsert.insert(database)
                 try task.insert(database)
             }
         }
@@ -116,12 +119,16 @@ final class GymStore {
         let completing = session.status != "completed"
         updated.status = completing ? "completed" : "planned"
         updated.completedAt = completing ? ISO8601DateFormatter().string(from: Date()) : nil
-        try? await db.dbQueue.write { try updated.update($0) }
+        // GRDB's async `write` closure is @Sendable, so a captured `var` doesn't type-check —
+        // hand it immutable copies instead (same convention as TaskActions.delete).
+        let toSave = updated
+        let completedAt = updated.completedAt
+        try? await db.dbQueue.write { try toSave.update($0) }
         if let taskId = session.taskId {
             try? await db.dbQueue.write { db in
                 guard var task = try TaskItem.fetchOne(db, key: taskId) else { return }
                 task.status = completing ? "completed" : "open"
-                task.completedAt = updated.completedAt
+                task.completedAt = completedAt
                 try task.update(db)
             }
         }
@@ -134,7 +141,8 @@ final class GymStore {
     private func deleteInternal(_ session: WorkoutSession) async throws {
         var updated = session
         updated.deleted = true
-        try await db.dbQueue.write { try updated.update($0) }
+        let toSave = updated
+        try await db.dbQueue.write { try toSave.update($0) }
         if let taskId = session.taskId {
             try await db.dbQueue.write { db in
                 guard var task = try TaskItem.fetchOne(db, key: taskId) else { return }

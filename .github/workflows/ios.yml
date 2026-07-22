@@ -36,9 +36,10 @@ jobs:
   # clock and its own runner, so a legit build finishes and neither starves the other.
   test:
     runs-on: macos-15   # Apple Silicon runner. If a macos-26 image exists, this can be bumped.
-    # Test-only is ~4–6 min. Anything past this is a stuck simulator, not slow work — kill it
-    # fast so a hang can't eat 20 minutes.
-    timeout-minutes: 12
+    # A normal run is ~8–11 min (simulator cold boot + package resolution + the test suite
+    # itself, which has grown over time) — 16 gives that real headroom without letting a
+    # genuine hang run away.
+    timeout-minutes: 16
     steps:
       - uses: actions/checkout@v4
 
@@ -87,11 +88,12 @@ jobs:
           [ -z "$UDID" ] && UDID=$(pick "iPhone")
           if [ -z "$UDID" ]; then echo "::error::No iOS 26 iPhone simulator on this runner"; exit 1; fi
 
-          # Boot it here so a broken simulator surfaces in this cheap step. `bootstatus -b`
-          # can itself hang on a bad runner sim, so bound it — if it isn't up in three minutes,
-          # move on and let the test step (and the job timeout) deal with it.
+          # Boot it here so a broken simulator surfaces in this cheap step. macOS runners don't
+          # ship GNU `timeout`, so a bare 180s wrapper around bootstatus was silently a no-op on
+          # every run (instant "command not found", never actually bounding anything) — the outer
+          # job timeout already bounds a genuine hang, so just wait for it directly.
           xcrun simctl boot "$UDID" 2>/dev/null || true
-          timeout 180 xcrun simctl bootstatus "$UDID" -b || echo "bootstatus timed out — continuing"
+          xcrun simctl bootstatus "$UDID" -b || echo "bootstatus failed — continuing"
 
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"

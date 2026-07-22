@@ -22,7 +22,7 @@ struct RitualView: View {
     let mode: Mode
     let tasks: [TaskItem]
     let events: [CalendarEvent]
-    var onPlanDay: (() -> Void)?
+    var onPlanDay: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var brainDump = ""
@@ -296,6 +296,15 @@ struct RitualView: View {
         .appearIn(index, when: appeared)
     }
 
+    /// "Day closed"/"Capture & close" read naturally for the evening; a morning brief shown
+    /// without a "Plan my day" CTA (e.g. right after a schedule's already been submitted) just
+    /// needs a plain acknowledgment instead.
+    private var finishLabel: String {
+        let hasDump = !brainDump.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if mode == .morning { return "Got it" }
+        return hasDump ? "Capture & close" : "Day closed"
+    }
+
     private var finishBar: some View {
         VStack(spacing: 10) {
             if mode == .morning, onPlanDay != nil {
@@ -317,8 +326,7 @@ struct RitualView: View {
                 } label: {
                     HStack {
                         if savingDump { ProgressView().tint(.white) }
-                        Text(brainDump.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                             ? "Day closed" : "Capture & close")
+                        Text(finishLabel)
                             .font(.Offload.taskTitle)
                     }
                     .frame(maxWidth: .infinity)

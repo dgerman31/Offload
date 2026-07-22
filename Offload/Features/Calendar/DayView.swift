@@ -17,7 +17,6 @@ struct DayView: View {
     @State private var now = Date()
     @State private var appeared = false
     @State private var addingTask = false
-    @State private var reordering = false
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
 
@@ -62,31 +61,18 @@ struct DayView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 12) {
-                        Button("Today") {
-                            withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: now) }
-                        }
-                        .font(.Offload.taskTitle)
-                        .buttonStyle(.pressable)
-                        jumpToDate
+                    Button("Today") {
+                        withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: now) }
                     }
+                    .font(.Offload.data)
+                    .buttonStyle(.pressable)
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    HStack(spacing: 14) {
-                        if flexibleTasksForSelectedDay.count >= 2 {
-                            Button { reordering = true } label: {
-                                Image(systemName: "arrow.up.arrow.down.circle")
-                                    .font(.title2)
-                            }
-                            .buttonStyle(.pressable(scale: 0.9))
-                            .accessibilityLabel("Reorder this day's flexible tasks")
-                        }
-                        Button { addingTask = true } label: {
-                            Image(systemName: "plus.circle.fill").font(.title2)
-                        }
-                        .buttonStyle(.pressable(scale: 0.9))
-                        .accessibilityLabel("Add task on this day")
+                    Button { addingTask = true } label: {
+                        Image(systemName: "plus.circle.fill").font(.title2)
                     }
+                    .buttonStyle(.pressable(scale: 0.9))
+                    .accessibilityLabel("Add task on this day")
                 }
             }
             .task { await store.observe() }
@@ -97,16 +83,6 @@ struct DayView: View {
             }
             .sheet(item: $editing) { task in
                 NavigationStack { TaskDetailView(task: task) }
-            }
-            .sheet(isPresented: $reordering) {
-                DayReorderSheet(
-                    day: selectedDay,
-                    flexibleTasks: flexibleTasksForSelectedDay,
-                    events: store.rangeEvents,
-                    store: store
-                ) {
-                    Task { await NotificationSync.shared.refresh() }
-                }
             }
             .sheet(item: $editingEvent) { event in
                 EventEditView(eventId: event.id) {
@@ -122,23 +98,6 @@ struct DayView: View {
                 FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
             }
         }
-    }
-
-    /// A compact calendar chip that jumps to any date — weeks or months out.
-    private var jumpToDate: some View {
-        DatePicker(
-            "Jump to date",
-            selection: Binding(
-                get: { selectedDay },
-                set: { newValue in
-                    withAnimation(Motion.page) { selectedDay = Calendar.current.startOfDay(for: newValue) }
-                }
-            ),
-            displayedComponents: [.date]
-        )
-        .labelsHidden()
-        .datePickerStyle(.compact)
-        .accessibilityLabel("Jump to a date")
     }
 
     // MARK: Day pager (swipe left/right = previous/next day)
@@ -272,6 +231,7 @@ struct DayView: View {
         .buttonStyle(.pressable(scale: 0.99))
         .contextMenu { blockMenu(entry.item) }
         .swipeToDelete(ifTask: entry.item) { task in Task { await store.delete(task) } }
+        .reorderable(entry.item, onDrop: handleDrop)
     }
 
     /// A whole-day event or undated task — no clock, so it reads as an intention, not a block.
@@ -305,6 +265,7 @@ struct DayView: View {
         .buttonStyle(.pressable(scale: 0.99))
         .contextMenu { blockMenu(item) }
         .swipeToDelete(ifTask: item) { task in Task { await store.delete(task) } }
+        .reorderable(item, onDrop: handleDrop)
     }
 
     private func breakBlock(from start: Date, to end: Date) -> some View {
@@ -352,6 +313,22 @@ struct DayView: View {
         case .event:
             Button { open(item) } label: { Label("Edit event", systemImage: "pencil") }
         }
+    }
+
+    // MARK: Drag-to-reorder
+
+    /// Drop `draggedID` right before `targetID` within the day's flexible tasks, then re-run the
+    /// planner with that order and persist whatever times actually changed. Native long-press-
+    /// and-drag (`.draggable`/`.dropDestination`) rather than a hand-built gesture — it already
+    /// knows how to not fight scrolling or tapping, which a raw `DragGesture` doesn't for free.
+    private func handleDrop(draggedID: String, ontoID targetID: String) {
+        var order = flexibleTasksForSelectedDay.map(\.id)
+        guard let fromIndex = order.firstIndex(of: draggedID) else { return }
+        order.remove(at: fromIndex)
+        guard let toIndex = order.firstIndex(of: targetID) else { return }
+        order.insert(draggedID, at: toIndex)
+        Haptics.light()
+        Task { await store.applyReorder(order, on: selectedDay, events: store.rangeEvents) }
     }
 
     // MARK: Open
@@ -444,6 +421,24 @@ private extension View {
     func swipeToDelete(ifTask item: DayItem, delete: @escaping (TaskItem) -> Void) -> some View {
         if case let .task(task) = item {
             self.swipeToDelete { delete(task) }
+        } else {
+            self
+        }
+    }
+
+    /// Long-press and drag to reorder — only for a day's flexible tasks (not anchored/pinned
+    /// ones, not real events, which aren't a sequence choice). Native `.draggable`/
+    /// `.dropDestination` rather than a hand-rolled position-tracking gesture: it already knows
+    /// how to coexist with scrolling and tapping without any extra work here.
+    @ViewBuilder
+    func reorderable(_ item: DayItem, onDrop: @escaping (_ draggedID: String, _ targetID: String) -> Void) -> some View {
+        if case let .task(task) = item, !task.isAnchored {
+            self
+                .draggable(task.id)
+                .dropDestination(for: String.self) { items, _ in
+                    guard let draggedID = items.first, draggedID != task.id else { return }
+                    onDrop(draggedID, task.id)
+                }
         } else {
             self
         }

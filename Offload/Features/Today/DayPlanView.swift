@@ -272,19 +272,9 @@ struct DayPlanView: View {
             await TaskEditService.save(updated, original: item.task)
         }
 
-        // Everything gets a real try at today; only what was ALREADY overdue and still didn't
-        // fit rolls forward (see DayPlanner.rolloverToTomorrow's doc for why the line is drawn
-        // there).
-        let startOfDay = Calendar.current.startOfDay(for: day)
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
-        for task in DayPlanner.rolloverToTomorrow(from: plan.unplaced, on: day) {
-            var updated = task
-            updated.dueDate = DueDate.canonicalString(from: tomorrow)
-            updated.dueIsAllDay = true
-            updated.pinned = false
-            await TaskEditService.save(updated, original: task)
-        }
-
+        // Anything that still doesn't fit stays "today" — OverdueSweeper is now the single place
+        // that decides when something has genuinely become yesterday's, the next time the app
+        // opens on a new day. This screen doesn't need its own separate rollover rule anymore.
         applying = false
         Haptics.success()
         onApplied?()

@@ -19,6 +19,9 @@ struct HomeView: View {
     @State private var addingTask = false
     @State private var editingPins = false
     @State private var planningDay = false
+    @State private var justPlannedDay = false
+    @State private var activeRitual: RitualView.Mode?
+    @State private var pendingReschedule: TaskItem?
     @State private var focusTask: TaskItem?
     @AppStorage(PinnedProjects.key) private var pinnedCSV = ""
     private var patterns: PatternService { PatternService.shared }
@@ -31,11 +34,16 @@ struct HomeView: View {
         DayDashboard.summary(tasks: store.allTasks, events: store.todayEvents, now: now)
     }
 
-    /// Anything a wake-up replan could actually place today — undated work, whole-day
-    /// intentions, and overdue items alike (the same candidates `DayPlanner` already knows how
-    /// to place). Only offer the button when there's something worth reorganizing.
-    private var plannableTasks: [TaskItem] {
-        DayPlanner.candidates(from: store.allTasks, on: now, now: now)
+    /// Hard-committed tasks (a real time and date) still sitting in a past day, unresolved.
+    /// `OverdueSweeper` never silently moves these — the app can't guess what new time you'd
+    /// want — so they surface as a reschedule-or-delete decision instead.
+    private var needsDecisionTasks: [TaskItem] {
+        OverdueSweeper.classify(store.allTasks, now: now).needsDecision
+    }
+
+    private func checkForPendingDecision() {
+        guard pendingReschedule == nil, let next = needsDecisionTasks.first else { return }
+        pendingReschedule = next
     }
 
     /// The single running list: things with no plan, plus anything whose soft day slipped —
@@ -58,9 +66,10 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     heroCard.appearIn(0, when: appeared)
-                    if !plannableTasks.isEmpty {
-                        wakeUpButton.appearIn(1, when: appeared)
-                    }
+                    // Always visible, never conditionally hidden — a feature you have to
+                    // discover by having exactly the right state isn't discoverable at all.
+                    // If there's genuinely nothing to plan, the sheet itself says so.
+                    wakeUpButton.appearIn(1, when: appeared)
                     captureBar.appearIn(1, when: appeared)
                     PinnedBento(summaries: pinnedSummaries) { editingPins = true }
                         .appearIn(2, when: appeared).scrollAppear()
@@ -118,9 +127,35 @@ struct HomeView: View {
                     now = Date()
                 }
             }
-            // Keep reminders matched to whatever just changed.
+            .task {
+                // The standing rule that nothing sits in a past day — runs once per calendar
+                // day. Flexible tasks move to today silently; anything with a real hard
+                // commitment surfaces below instead of being moved for you.
+                guard OverdueSweeper.shouldRun() else { return }
+                _ = await store.sweepOverdue()
+                checkForPendingDecision()
+            }
+            // Keep reminders matched to whatever just changed, and re-check for anything that
+            // now needs a reschedule-or-delete decision.
             .onChange(of: store.allTasks.count) { _, _ in
                 Task { await NotificationSync.shared.refresh() }
+                checkForPendingDecision()
+            }
+            .confirmationDialog(
+                "Passed",
+                isPresented: Binding(get: { pendingReschedule != nil }, set: { if !$0 { pendingReschedule = nil } }),
+                presenting: pendingReschedule
+            ) { task in
+                Button("Reschedule") {
+                    editing = task
+                    pendingReschedule = nil
+                }
+                Button("Delete", role: .destructive) {
+                    Task { await store.delete(task) }
+                    pendingReschedule = nil
+                }
+            } message: { task in
+                Text("“\(task.title)” was scheduled for a specific time that's already passed.")
             }
             .sheet(item: $editing) { task in
                 NavigationStack { TaskDetailView(task: task) }
@@ -131,10 +166,21 @@ struct HomeView: View {
             .sheet(isPresented: $editingPins) {
                 PinEditSheet(summaries: projectStore.summaries)
             }
-            .sheet(isPresented: $planningDay) {
+            .sheet(isPresented: $planningDay, onDismiss: {
+                // Sequenced, not simultaneous: present the morning brief only after the plan
+                // sheet has fully dismissed, so the two sheets never overlap.
+                if justPlannedDay {
+                    justPlannedDay = false
+                    activeRitual = .morning
+                }
+            }) {
                 DayPlanView(tasks: store.allTasks, events: store.rangeEvents, day: now) {
+                    justPlannedDay = true
                     Task { await NotificationSync.shared.refresh() }
                 }
+            }
+            .sheet(item: $activeRitual) { mode in
+                RitualView(mode: mode, tasks: store.allTasks, events: store.rangeEvents)
             }
             .fullScreenCover(item: $focusTask) { task in
                 FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
@@ -217,28 +263,45 @@ struct HomeView: View {
 
     // MARK: Wake-up replan
 
-    /// A compact, explicit trigger — never automatic — that reorganizes whatever's left of today
-    /// from right now: undated work, whole-day intentions, and anything overdue all get a real
-    /// try at fitting into what's actually left of the day. Tapping it records this exact moment
-    /// as "when the day started" (stronger evidence than a passive app-open), which shapes the
-    /// planner's window before the preview even appears.
+    /// An explicit trigger — never automatic — that reorganizes whatever's left of today from
+    /// right now: undated work and whole-day intentions get a real try at fitting into what's
+    /// actually left of the day. Tapping it records this exact moment as "when the day started"
+    /// (stronger evidence than a passive app-open), which shapes the planner's window, and once
+    /// the resulting schedule is submitted, hands straight into the morning brief.
     private var wakeUpButton: some View {
-        HStack {
-            Button {
-                WakeTracker.recordWake(now: Date())
-                Haptics.light()
-                planningDay = true
-            } label: {
-                Label("I'm up — reorganize today", systemImage: "clock.arrow.circlepath")
-                    .font(.Offload.manrope(13, .semibold))
-                    .foregroundStyle(Color.Offload.indigo)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(Color.Offload.indigo.opacity(0.10), in: .capsule)
+        Button {
+            WakeTracker.recordWake(now: Date())
+            Haptics.light()
+            planningDay = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "sunrise.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x8A6FE0)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: .rect(cornerRadius: 13, style: .continuous)
+                    )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("I'm up")
+                        .font(.Offload.manrope(16, .bold))
+                        .foregroundStyle(Color.Offload.text)
+                    Text("Reorganize today from right now")
+                        .font(.Offload.data)
+                        .foregroundStyle(Color.Offload.muted)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.Offload.muted)
             }
-            .buttonStyle(.pressable(scale: 0.97))
-            Spacer(minLength: 0)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .offloadCard()
         }
+        .buttonStyle(.pressable(scale: 0.99))
     }
 
     // MARK: Inline capture

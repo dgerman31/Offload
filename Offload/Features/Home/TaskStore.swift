@@ -98,6 +98,33 @@ final class TaskStore {
         rangeEvents = await calendarReader.events(from: start, to: end)
     }
 
+    /// Silently roll a flexible task that's still sitting in a past day forward to today — the
+    /// automatic half of `OverdueSweeper`'s rule that nothing stays overdue. Stays a soft,
+    /// whole-day intention, unpinned, exactly like any other undated capture.
+    func rollToToday(_ task: TaskItem, now: Date = Date(), calendar: Calendar = .current) async {
+        var updated = task
+        updated.dueDate = DueDate.canonicalString(from: calendar.startOfDay(for: now))
+        updated.dueIsAllDay = true
+        updated.pinned = false
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+    }
+
+    /// Run `OverdueSweeper` once: auto-move every flexible overdue task to today, and return the
+    /// hard-committed ones that still need a reschedule-or-delete decision. Reads directly from
+    /// the database rather than the cached `allTasks` — this can run at the very start of Home's
+    /// lifecycle, before the reactive stream has necessarily delivered its first value yet.
+    func sweepOverdue(now: Date = Date(), calendar: Calendar = .current) async -> [TaskItem] {
+        let current = (try? await db.dbQueue.read { database in
+            try TaskItem.filter(Column("deleted") == false).fetchAll(database)
+        }) ?? []
+        let (autoMove, needsDecision) = OverdueSweeper.classify(current, now: now, calendar: calendar)
+        for task in autoMove {
+            await rollToToday(task, now: now, calendar: calendar)
+        }
+        return needsDecision
+    }
+
     /// Toggle completion. Writes an immutable copy (the async @Sendable write can't capture a var).
     func toggleComplete(_ item: TaskItem) async {
         let nowCompleted = item.status != "completed"

@@ -250,18 +250,6 @@ enum DayPlanner {
         return result
     }
 
-    /// Which of a plan's unplaced tasks should roll forward to tomorrow, after a wake-up replan
-    /// tried and failed to fit them today: only tasks that were ALREADY overdue (due before
-    /// `day`) and still didn't fit. A task that was simply due today and didn't fit stays exactly
-    /// as it was — it was never promised a slot, so it just carries over the way it always has.
-    static func rolloverToTomorrow(from unplaced: [TaskItem], on day: Date, calendar: Calendar = .current) -> [TaskItem] {
-        let startOfDay = calendar.startOfDay(for: day)
-        return unplaced.filter { task in
-            guard let due = DueDate.parse(task.dueDate) else { return false }
-            return due < startOfDay
-        }
-    }
-
     /// A short, honest summary of the plan for the sheet header.
     static func summary(for plan: Plan) -> String {
         if plan.scheduled.isEmpty {

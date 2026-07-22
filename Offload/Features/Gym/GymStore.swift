@@ -138,6 +138,60 @@ final class GymStore {
         try? await deleteInternal(session)
     }
 
+    /// Skip a session: mark it skipped, remove its now-meaningless schedule block, and cascade
+    /// every later still-planned session forward a day — the missed day doesn't leave a gap in
+    /// the middle of the program, the whole rest of the week just shifts to absorb it.
+    func skip(_ session: WorkoutSession) async {
+        var updated = session
+        updated.status = "skipped"
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+        if let taskId = session.taskId {
+            try? await db.dbQueue.write { db in
+                guard var task = try TaskItem.fetchOne(db, key: taskId) else { return }
+                task.deleted = true
+                try task.update(db)
+            }
+        }
+
+        // A frozen snapshot: reading the live `sessions` mid-loop, right after writes that
+        // change it, would be racing the observation that refreshes it.
+        let before = sessions
+        for shift in Self.cascadeAfterSkip(session, in: before) {
+            guard var later = before.first(where: { $0.id == shift.id }) else { continue }
+            later.date = shift.newDate
+            let toSaveLater = later
+            try? await db.dbQueue.write { try toSaveLater.update($0) }
+            guard let laterTaskId = later.taskId else { continue }
+            try? await db.dbQueue.write { db in
+                guard var task = try TaskItem.fetchOne(db, key: laterTaskId) else { return }
+                if let oldDue = DueDate.parse(task.dueDate),
+                   let newDue = Calendar.current.date(byAdding: .day, value: 1, to: oldDue) {
+                    task.dueDate = DueDate.canonicalString(from: newDue)
+                }
+                try task.update(db)
+            }
+        }
+        Haptics.success()
+    }
+
+    /// Which sessions should shift, and their new dates, when `skipped` is skipped: every other
+    /// still-planned session dated after it moves a day later. Pure and testable; the caller
+    /// persists the result. Latest-first order is a defensive nicety only — each new date is
+    /// computed independently, not chained off a prior shift, so ordering can't affect correctness.
+    nonisolated static func cascadeAfterSkip(
+        _ skipped: WorkoutSession, in sessions: [WorkoutSession], calendar: Calendar = .current
+    ) -> [(id: String, newDate: String)] {
+        sessions
+            .filter { $0.id != skipped.id && $0.date > skipped.date && $0.status == "planned" }
+            .sorted { $0.date > $1.date }
+            .compactMap { session in
+                guard let due = DueDate.parse(session.date + "T00:00"),
+                      let shifted = calendar.date(byAdding: .day, value: 1, to: due) else { return nil }
+                return (id: session.id, newDate: Self.dateKey(shifted))
+            }
+    }
+
     private func deleteInternal(_ session: WorkoutSession) async throws {
         var updated = session
         updated.deleted = true

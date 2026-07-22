@@ -49,6 +49,13 @@ struct GymSessionDetailView: View {
                         Label(session.status == "completed" ? "Mark not done" : "Mark done",
                               systemImage: session.status == "completed" ? "arrow.uturn.backward" : "checkmark")
                     }
+                    if session.status == "planned" {
+                        Button {
+                            Task { await store.skip(session); dismiss() }
+                        } label: {
+                            Label("Skip — push the rest of the week forward", systemImage: "arrow.uturn.forward")
+                        }
+                    }
                     Button(role: .destructive) { confirmingDelete = true } label: {
                         Label("Delete session", systemImage: "trash")
                     }

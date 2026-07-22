@@ -137,4 +137,34 @@ struct GymTests {
         }
         #expect(reloaded?.deleted == false)
     }
+
+    // MARK: Skip cascades the rest of the week forward a day
+
+    @Test("Skipping a session shifts every later still-planned session forward a day")
+    func cascadeShiftsLaterPlannedSessions() {
+        let cal = utcCalendar
+        let mon = WorkoutSession(title: "Push", date: "2026-07-20")
+        let tue = WorkoutSession(title: "Legs", date: "2026-07-21")
+        let wed = WorkoutSession(title: "Pull", date: "2026-07-22")
+        let all = [mon, tue, wed]
+
+        let shifts = GymStore.cascadeAfterSkip(mon, in: all, calendar: cal)
+        let byId = Dictionary(uniqueKeysWithValues: shifts.map { ($0.id, $0.newDate) })
+
+        #expect(byId[tue.id] == "2026-07-22")   // Tue -> Wed
+        #expect(byId[wed.id] == "2026-07-23")   // Wed -> Thu
+        #expect(byId[mon.id] == nil)            // the skipped session itself never shifts
+    }
+
+    @Test("Skipping never shifts an earlier or already-completed/skipped session")
+    func cascadeLeavesEarlierAndSettledSessionsAlone() {
+        let cal = utcCalendar
+        let skipped = WorkoutSession(title: "Legs", date: "2026-07-21")
+        let earlier = WorkoutSession(title: "Push", date: "2026-07-20")
+        var alreadyDone = WorkoutSession(title: "Pull", date: "2026-07-22")
+        alreadyDone.status = "completed"
+
+        let shifts = GymStore.cascadeAfterSkip(skipped, in: [earlier, alreadyDone], calendar: cal)
+        #expect(shifts.isEmpty)
+    }
 }

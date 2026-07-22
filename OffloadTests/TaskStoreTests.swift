@@ -25,6 +25,24 @@ struct TaskStoreTests {
         #expect(reopened?.completedAt == nil)
     }
 
+    @Test("rollToToday moves a task to today, all-day, unpinned")
+    func rollToTodayMovesAndUnpins() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let cal = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }()
+        let old = cal.date(from: DateComponents(year: 2026, month: 7, day: 18))!
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 20))!
+        let task = TaskItem(title: "Old chapter", dueDate: ISO8601DateFormatter().string(from: old), pinned: true)
+        try await db.dbQueue.write { try task.insert($0) }
+
+        let store = TaskStore(db: db)
+        await store.rollToToday(task, now: now, calendar: cal)
+
+        let reloaded = try await db.dbQueue.read { try TaskItem.fetchOne($0, key: task.id) }
+        #expect(reloaded.map { cal.isDate(DueDate.parse($0.dueDate)!, inSameDayAs: now) } == true)
+        #expect(reloaded?.dueIsAllDay == true)
+        #expect(reloaded?.pinned == false)
+    }
+
     // MARK: Drag-to-reorder (Day tab)
 
     private var utcCalendar: Calendar {

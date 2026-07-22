@@ -4,11 +4,19 @@ import SwiftUI
 /// not just `List` rows. SwiftUI's native `.swipeActions` only works inside a `List`, so this is
 /// a self-contained drag: swipe right to reveal a red Delete rail, tap it to confirm, or keep
 /// dragging past the threshold to delete outright (the same two ways iOS's own swipe-to-delete
-/// works). `.highPriorityGesture` so the swipe still wins over row buttons/taps beneath it.
+/// works).
+///
+/// Two things that matter for this to sit inside a normal scrolling screen without getting in the
+/// way: it only ever reacts to a drag that's clearly more horizontal than vertical (a vertical
+/// scroll is ignored completely, at the gesture-recognition level — not just "decides not to act"
+/// on it, which would still have blocked the scroll), and it uses `.simultaneousGesture` rather
+/// than claiming exclusive priority, so the scroll view underneath keeps receiving and acting on
+/// the same touch the entire time regardless of what this view does with it.
 ///
 /// Tuned to match native iOS's feel, not just its two end-states: the red rail's width tracks the
-/// drag distance directly (no gap between it and the sliding content), a haptic ticks the instant
-/// you cross the delete threshold — not only once you've already committed — dragging past that
+/// drag distance directly (no gap between it and the sliding content), the icon fades in smoothly
+/// with the drag instead of popping in or sitting there at rest, a haptic ticks the instant you
+/// cross the delete threshold — not only once you've already committed — dragging past that
 /// threshold rubber-bands rather than hard-stopping, and the row animates fully off-screen before
 /// the underlying data is actually removed, so the visual and the mutation never race.
 struct SwipeToDeleteModifier: ViewModifier {
@@ -28,7 +36,7 @@ struct SwipeToDeleteModifier: ViewModifier {
             deleteRail
             content
                 .offset(x: offset)
-                .highPriorityGesture(drag)
+                .simultaneousGesture(drag)
         }
         .clipped()
         .background(
@@ -41,6 +49,7 @@ struct SwipeToDeleteModifier: ViewModifier {
     /// The red background grows with the drag (so it always fills exactly what's revealed, never
     /// leaving a gap), while the icon itself stays pinned near the leading edge at its natural
     /// width — the same way a native swipe action's rail can stretch further than its button.
+    /// Both fade in continuously with the drag so nothing is visible at all at rest.
     private var deleteRail: some View {
         ZStack(alignment: .leading) {
             Rectangle()
@@ -56,11 +65,22 @@ struct SwipeToDeleteModifier: ViewModifier {
                     .frame(maxHeight: .infinity)
             }
         }
+        // Fully transparent exactly at rest; fades in over the first ~24pt of drag, well before
+        // anything is actionable, so there's never a moment of an icon floating with no motion.
+        .opacity(min(1, offset / 24))
     }
 
     private var drag: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
+                // A vertical scroll must never be mistaken for a swipe attempt — bail out
+                // entirely (not just "don't act"; `offset` genuinely never moves) whenever the
+                // drag isn't clearly horizontal-dominant yet.
+                guard abs(value.translation.width) > abs(value.translation.height) else {
+                    offset = 0
+                    crossedThreshold = false
+                    return
+                }
                 let raw = value.translation.width
                 offset = raw <= autoDeleteThreshold
                     ? max(0, raw)
@@ -77,6 +97,10 @@ struct SwipeToDeleteModifier: ViewModifier {
             }
             .onEnded { value in
                 crossedThreshold = false
+                guard abs(value.translation.width) > abs(value.translation.height) else {
+                    withAnimation(Motion.swipeRelease) { offset = 0 }
+                    return
+                }
                 if offset > autoDeleteThreshold {
                     confirmDelete()
                 } else if value.translation.width > revealWidth / 2 {

@@ -20,6 +20,10 @@ xcuserdata/
 # macOS
 .DS_Store
 
+# Font source archive (the extracted .ttfs in Offload/Resources are what ship)
+Manrope.zip
+Home Tab Redesign Concepts.zip
+
 # Secrets — never commit signing material
 *.p12
 *.mobileprovision

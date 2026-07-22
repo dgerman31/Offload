@@ -15,34 +15,63 @@ extension Color {
         static let red      = Color(hex: 0xEF4444)   // overdue / blocked
 
         // Surfaces + text — adapt to light/dark.
-        // Light mode is a cool, airy off-white (cards float as pure white above it); dark mode
-        // is the deep indigo-black from the design language, never a flat neutral grey.
-        static let background = Color(light: 0xF5F6FB, dark: 0x0E1020)
+        // Light mode is a warm cream (Design Language 2.0 "elite pass") — pure-white cards float
+        // above a paper-like #FAF6EE ground; dark mode is the deep indigo-black from the design
+        // language, never a flat neutral grey.
+        static let background = Color(light: 0xFAF6EE, dark: 0x0E1020)
         static let surface    = Color(light: 0xFFFFFF, dark: 0x181B2E) // cards, inputs
         static let elevated   = Color(light: 0xFFFFFF, dark: 0x1F2340) // sheets, popovers
-        static let text       = Color(light: 0x141A2E, dark: 0xECECEC) // primary text
-        static let muted      = Color(light: 0x6B7280, dark: 0x9AA0AA) // secondary text
-        static let divider    = Color(light: 0xE7E9F2, dark: 0x2C3050)
+        static let text       = Color(light: 0x17171B, dark: 0xECECEC) // primary text
+        static let muted      = Color(light: 0x7A756B, dark: 0x9AA0AA) // secondary text (warm grey)
+        static let divider    = Color(light: 0xEBE5D9, dark: 0x2C3050)
 
         /// Barely-there edge that separates layered surfaces in dark mode, where shadow alone
-        /// can't. Near-invisible in light mode so cards read as pure depth, not outlines.
-        static let hairline = Color(light: 0x000000, dark: 0xFFFFFF).opacity(0.06)
+        /// can't. In light mode a warm near-black hairline (matching the cream ground) so cards
+        /// read as pure depth, not outlines.
+        static let hairline = Color(light: 0x17140A, dark: 0xFFFFFF).opacity(0.07)
     }
 }
 
 extension Font {
     enum Offload {
-        /// Display — SF Pro Rounded, heavy, section breaks only. Respects Dynamic Type.
-        static func display(_ style: Font.TextStyle = .largeTitle) -> Font {
-            .system(style, design: .rounded).weight(.heavy)
+        /// The bundled Manrope static cut for a given weight (400/500/600/700/800). Falls back to
+        /// the system font gracefully if a face fails to load, so nothing breaks either way.
+        static func face(_ weight: Font.Weight) -> String {
+            switch weight {
+            case .black, .heavy: return "Manrope-ExtraBold"
+            case .bold:          return "Manrope-Bold"
+            case .semibold:      return "Manrope-SemiBold"
+            case .medium:        return "Manrope-Medium"
+            default:             return "Manrope-Regular"
+            }
         }
-        /// Section header.
-        static let section = Font.system(.title3, design: .rounded).weight(.bold)
-        /// Task title — weight 600, scales with Dynamic Type.
-        static let taskTitle = Font.system(.body).weight(.semibold)
-        /// Body.
-        static let body = Font.system(.body)
-        /// Monospaced data (timestamps, effort) — used sparingly, spec 5.3.
+
+        /// Manrope at a fixed point size, scaling with Dynamic Type relative to `style`. The
+        /// primary way to type the redesign surfaces where an exact size matters.
+        static func manrope(_ size: CGFloat, _ weight: Font.Weight = .regular,
+                            relativeTo style: Font.TextStyle = .body) -> Font {
+            .custom(face(weight), size: size, relativeTo: style)
+        }
+
+        /// Display — Manrope ExtraBold (800), for hero numerals and big section breaks.
+        static func display(_ style: Font.TextStyle = .largeTitle) -> Font {
+            .custom("Manrope-ExtraBold", size: displaySize(style), relativeTo: style)
+        }
+        private static func displaySize(_ style: Font.TextStyle) -> CGFloat {
+            switch style {
+            case .largeTitle: return 32
+            case .title:      return 28
+            case .title2:     return 22
+            default:          return 20
+            }
+        }
+        /// Section header — Manrope Bold.
+        static let section = Font.custom("Manrope-Bold", size: 20, relativeTo: .title3)
+        /// Task title — Manrope SemiBold (600), scales with Dynamic Type.
+        static let taskTitle = Font.custom("Manrope-SemiBold", size: 16, relativeTo: .body)
+        /// Body — Manrope Regular.
+        static let body = Font.custom("Manrope-Regular", size: 16, relativeTo: .body)
+        /// Monospaced data (timestamps, effort) — SF Mono, per spec 5.3.
         static let data = Font.system(.caption, design: .monospaced)
     }
 }

@@ -46,5 +46,15 @@
 	<string>Offload checks your calendar on-device to schedule tasks around your existing events. Your calendar data stays on your phone.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Offload uses your location only when a captured thought references a place (e.g. “buy milk”) to add helpful context. Location stays on your phone.</string>
+
+	<!-- Bundled Manrope (Design Language 2.0). Static weights 400/500/600/700/800. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Manrope-Regular.ttf</string>
+		<string>Manrope-Medium.ttf</string>
+		<string>Manrope-SemiBold.ttf</string>
+		<string>Manrope-Bold.ttf</string>
+		<string>Manrope-ExtraBold.ttf</string>
+	</array>
 </dict>
 </plist>

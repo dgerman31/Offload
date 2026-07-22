@@ -101,3 +101,45 @@ The core premise is already a wellness claim: *the user forgets nothing; the min
 4. **Engineering backlog** (§5) interleaved as needed; distribution upgrade when friction demands.
 
 *Perfect what exists → make it beautiful → then expand.*
+
+---
+
+## §4. AI scheduling — "fit my day" (C) and recurring commitments (D)
+
+Status: **designed, not built.** Build on existing engines — do NOT reinvent:
+`Routine` model (fixed/flexible, `timesPerWeek`, `flex`, `RoutineException`),
+`RoutinePlanner` (picks lightest days), `DayPlanner.plan/candidates` (fits work into
+open time around events, honors energy/preferred-hours), `LiquidTimeline` (reflow soft
+tasks). Calendar writes go through `CalendarWriter` (already gated).
+
+### C — auto-fit a capture into the day
+After a capture with NO stated time, run a second Gemini pass that places the task into
+the best open slot for that day, given the day's existing events + tasks + the user's
+preferred hours. If the user DID state a time, keep it pinned there — never move it.
+Placements are **soft** (`isSoftScheduled`, unpinned) so `LiquidTimeline` can reflow them.
+Open product forks (ask the user):
+  - Intrusiveness: silent soft-place vs. propose-a-chip-to-confirm vs. only-on-a-button.
+  - Reach when today is full: spill to next open day vs. keep today (reflow) vs. leave undated.
+Wire point: `CaptureService` after extraction/insert; reuse `DayPlanner` for the slotting
+math, or let Gemini return a proposed `dueDate` (soft) it can't for stated-time captures.
+
+### D — natural-language recurring commitments
+Parse input like: "gym 5x/week ~45min afternoons unless I have class that day (campus gym);
+class M–Th 9–12, Tue/Thu 2–5" into commitments and block them out.
+Map to the existing model:
+  - Fixed commitments (class M–Th 9–12, Tue/Thu 2–5) → **fixed `Routine`s** (specific days+times).
+  - Flexible commitments (gym 5x/week, afternoons) → **flexible `Routine`** (`timesPerWeek`=5,
+    preferred hours = afternoon), auto-scheduled by `RoutinePlanner` into open days.
+  - Conditionals ("unless class that day", "campus gym if on campus") → `RoutineException`s /
+    per-day constraints the planner respects (skip/relocate on class days).
+Needs: a Gemini extraction schema for commitments (kind, days, time window, count, prefs,
+conditions), then create `Routine`(s). Flexible ones reuse the C engine to place sessions.
+Open product fork (ask the user):
+  - Storage: **internal Offload blocks/routines** (reversible, not in Apple Calendar) vs.
+    **real iOS Calendar events** via EventKit vs. ask per-commitment.
+Target: "flawlessly execute" the gym/class example above end-to-end.
+
+### Decisions (locked 2026-07-21)
+- C intrusiveness: **Silent & movable** — auto-place undated captures as soft blocks, no confirm; stated times stay pinned.
+- C reach when today is full: **Keep it today** — force into today; `LiquidTimeline` reflows/overflows the rest (no spill to other days).
+- D storage: **Internal Offload blocks** — commitments live as `Routine`s inside Offload; NOT written to Apple Calendar.

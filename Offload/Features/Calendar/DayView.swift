@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// The Day tab — your schedule for one day on a single rail: calendar events and timed tasks in
-/// the order they'll actually happen. This replaces the old month-grid Calendar and takes over
-/// the timeline that used to crowd Home, so Home can stay a light "what needs me" view.
+/// The Day tab — your schedule as time blocks, one day on screen at a time.
 ///
-/// Everything here is directly actionable: tap an event to edit or delete it in Apple's native
-/// editor, tap a task to open it, long-press either for quick actions. Undated "whenever" work
-/// lives on Home — this stays a real schedule.
+/// Two independent swipes, per the redesign: the week strip on top pages **week by week**
+/// (Sun–Sat), and the agenda body pages **day by day**. Selecting a day in the strip moves the
+/// body; swiping the body moves the strip. Real events and timed tasks render as colour-blocked
+/// time ranges with gaps shown as breaks; all-day and undated work sits in an "Anytime" group
+/// below. Everything is theme-aware — the layout is the mockup's, the palette adapts light/dark.
 struct DayView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var store = TaskStore()
@@ -20,29 +20,28 @@ struct DayView: View {
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
 
-    private var items: [DayItem] {
-        DayTimeline.items(tasks: store.allTasks, events: store.rangeEvents, on: selectedDay)
-    }
-
     private var density: [Date: DayDensity] {
         DayTimeline.density(tasks: store.allTasks, events: store.rangeEvents)
     }
 
+    /// The pageable day range — a couple months back through a year ahead, matching the week
+    /// strip's reach so any day the strip can show, the body can page to.
+    private var days: [Date] {
+        let base = Calendar.current.startOfDay(for: now)
+        return (-60...400).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: base) }
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    WeekStrip(selected: $selectedDay, density: density, now: now)
-                        .appearIn(0, when: appeared)
-                    timelineCard
-                        .appearIn(1, when: appeared)
-                        .scrollAppear()
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .padding(.bottom, 40)
+            VStack(spacing: 12) {
+                WeekStrip(selected: $selectedDay, density: density, now: now)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .appearIn(0, when: appeared)
+
+                dayPager
+                    .appearIn(1, when: appeared)
             }
-            .scrollIndicators(.hidden)
             .background(Color.Offload.background)
             .navigationTitle("Day")
             .navigationBarTitleDisplayMode(.inline)
@@ -54,27 +53,15 @@ struct DayView: View {
                         }
                         .font(.Offload.taskTitle)
                         .buttonStyle(.pressable)
-
-                        // Jump to ANY date — the week strip only reaches a couple of weeks, so a
-                        // meeting three weeks out needs a real calendar to land on. Tapping the
-                        // icon opens a month picker; picking a day retargets the whole tab there.
                         jumpToDate
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    HStack(spacing: 14) {
-                        Button { addingTask = true } label: {
-                            Image(systemName: "plus.circle.fill").font(.title2)
-                        }
-                        .buttonStyle(.pressable(scale: 0.9))
-                        .accessibilityLabel("Add task on this day")
-
-                        Button { capture.beginCapture() } label: {
-                            Image(systemName: "bolt.circle.fill").font(.title2)
-                        }
-                        .buttonStyle(.pressable(scale: 0.9))
-                        .accessibilityLabel("Quick Capture")
+                    Button { addingTask = true } label: {
+                        Image(systemName: "plus.circle.fill").font(.title2)
                     }
+                    .buttonStyle(.pressable(scale: 0.9))
+                    .accessibilityLabel("Add task on this day")
                 }
             }
             .task { await store.observe() }
@@ -102,9 +89,7 @@ struct DayView: View {
         }
     }
 
-    /// A compact calendar chip in the nav bar. Tapping it opens a month view to pick any date —
-    /// weeks or months out — and retargets the whole tab there. Normalizes to the start of the
-    /// chosen day so event loading and the timeline line up.
+    /// A compact calendar chip that jumps to any date — weeks or months out.
     private var jumpToDate: some View {
         DatePicker(
             "Jump to date",
@@ -121,140 +106,294 @@ struct DayView: View {
         .accessibilityLabel("Jump to a date")
     }
 
-    // MARK: Timeline
+    // MARK: Day pager (swipe left/right = previous/next day)
 
-    private var timelineCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label(dayTitle.uppercased(), systemImage: "clock.fill")
-                .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
+    private var dayPager: some View {
+        TabView(selection: $selectedDay) {
+            ForEach(days, id: \.timeIntervalSince1970) { day in
+                ScrollView {
+                    agenda(for: day)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 40)
+                }
+                .scrollIndicators(.hidden)
+                .tag(day)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+    }
+
+    // MARK: Agenda for one day
+
+    @ViewBuilder
+    private func agenda(for day: Date) -> some View {
+        let items = DayTimeline.items(tasks: store.allTasks, events: store.rangeEvents, on: day)
+        let timed = timedEntries(items)
+        let untimed = items.filter { span($0) == nil }
+
+        VStack(alignment: .leading, spacing: 16) {
+            Text(dayHeading(day).uppercased())
+                .font(.Offload.manrope(11, .heavy))
+                .tracking(1)
                 .foregroundStyle(Color.Offload.teal)
 
             if items.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(isToday ? "Nothing scheduled today" : "Nothing scheduled")
-                        .font(.Offload.taskTitle)
-                        .foregroundStyle(Color.Offload.text)
-                    Text("This day is open.")
-                        .font(.Offload.body)
-                        .foregroundStyle(Color.Offload.muted)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
+                emptyDay
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        TimelineRow(
-                            accent: accent(for: item),
-                            isFirst: index == 0,
-                            isLast: index == items.count - 1,
-                            isPast: (item.time ?? .distantFuture) < now
-                        ) {
-                            row(item)
+                if !timed.isEmpty {
+                    if let range = span(of: timed) {
+                        Text("\(CalendarView.time(range.start)) – \(CalendarView.time(range.end))")
+                            .font(.Offload.data)
+                            .foregroundStyle(Color.Offload.muted)
+                    }
+                    VStack(spacing: 10) {
+                        ForEach(Array(timed.enumerated()), id: \.element.item.id) { index, entry in
+                            if index > 0, let gap = gap(timed[index - 1], entry) {
+                                breakBlock(from: gap.start, to: gap.end)
+                            }
+                            timeBlock(entry)
+                        }
+                    }
+                }
+
+                if !untimed.isEmpty {
+                    Text("ANYTIME")
+                        .font(.Offload.manrope(11, .heavy))
+                        .tracking(1)
+                        .foregroundStyle(Color.Offload.muted)
+                        .padding(.top, 4)
+                    VStack(spacing: 10) {
+                        ForEach(untimed) { item in
+                            untimedBlock(item)
                         }
                     }
                 }
             }
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .offloadCard()
     }
 
-    private var dayTitle: String {
-        if isToday { return "Today" }
-        let df = DateFormatter(); df.dateFormat = "EEEE, MMM d"
-        return df.string(from: selectedDay)
+    private var emptyDay: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(isToday ? "Nothing scheduled today" : "Nothing scheduled")
+                .font(.Offload.taskTitle)
+                .foregroundStyle(Color.Offload.text)
+            Text("This day is open.")
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
     }
 
-    private func accent(for item: DayItem) -> Color {
+    // MARK: Blocks
+
+    /// A colour-blocked time range — the mockup's event/task card, adapted to the app's surface
+    /// tokens so it reads in light or dark. Left border carries the category accent.
+    private func timeBlock(_ entry: TimedEntry) -> some View {
+        let accent = self.accent(entry.item)
+        return Button { open(entry.item) } label: {
+            HStack(spacing: 0) {
+                Rectangle().fill(accent).frame(width: 3)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("\(CalendarView.time(entry.start)) – \(CalendarView.time(entry.end))")
+                            .font(.Offload.data)
+                            .foregroundStyle(Color.Offload.muted)
+                        Spacer(minLength: 0)
+                        if case let .task(task) = entry.item {
+                            Button { Task { await store.toggleComplete(task) } } label: {
+                                Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
+                                    .symbolEffect(.bounce, value: task.status)
+                            }
+                            .buttonStyle(.pressable(scale: 0.85))
+                        }
+                    }
+                    Text(entry.item.title)
+                        .font(.Offload.manrope(15, .bold))
+                        .foregroundStyle(Color.Offload.text)
+                        .multilineTextAlignment(.leading)
+                    if let location = location(entry.item) {
+                        Label(location, systemImage: "mappin.and.ellipse")
+                            .font(.caption)
+                            .foregroundStyle(Color.Offload.muted)
+                            .lineLimit(1)
+                    }
+                    if let people = people(entry.item), !people.isEmpty {
+                        avatars(people)
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(Color.Offload.surface, in: .rect(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.Offload.hairline, lineWidth: 0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.pressable(scale: 0.99))
+        .contextMenu { blockMenu(entry.item) }
+    }
+
+    /// A whole-day event or undated task — no clock, so it reads as an intention, not a block.
+    private func untimedBlock(_ item: DayItem) -> some View {
+        let accent = self.accent(item)
+        return Button { open(item) } label: {
+            HStack(spacing: 10) {
+                if case let .task(task) = item {
+                    Button { Task { await store.toggleComplete(task) } } label: {
+                        Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
+                            .symbolEffect(.bounce, value: task.status)
+                    }
+                    .buttonStyle(.pressable(scale: 0.85))
+                } else {
+                    Circle().fill(accent).frame(width: 8, height: 8)
+                }
+                Text(item.title)
+                    .font(.Offload.taskTitle)
+                    .foregroundStyle(Color.Offload.text)
+                Spacer(minLength: 8)
+                Text(item.isEvent ? "All day" : "Planned")
+                    .font(.Offload.data)
+                    .foregroundStyle(Color.Offload.muted)
+            }
+            .padding(13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(accent.opacity(0.10), in: .rect(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.pressable(scale: 0.99))
+        .contextMenu { blockMenu(item) }
+    }
+
+    private func breakBlock(from start: Date, to end: Date) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "cup.and.saucer")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.Offload.muted)
+            Text("Free")
+                .font(.Offload.manrope(11, .semibold))
+                .foregroundStyle(Color.Offload.muted)
+            Text("\(CalendarView.time(start)) – \(CalendarView.time(end))")
+                .font(.Offload.data)
+                .foregroundStyle(Color.Offload.muted.opacity(0.8))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                .foregroundStyle(Color.Offload.divider)
+        )
+    }
+
+    private func avatars(_ names: [String]) -> some View {
+        HStack(spacing: -6) {
+            ForEach(Array(names.prefix(4).enumerated()), id: \.offset) { index, name in
+                let color = Self.avatarColors[index % Self.avatarColors.count]
+                Text(initial(name))
+                    .font(.Offload.manrope(10, .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(color, in: Circle())
+                    .overlay(Circle().strokeBorder(Color.Offload.surface, lineWidth: 1.5))
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    @ViewBuilder
+    private func blockMenu(_ item: DayItem) -> some View {
+        switch item {
+        case let .task(task):
+            TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: { editing = $0 })
+        case .event:
+            Button { open(item) } label: { Label("Edit event", systemImage: "pencil") }
+        }
+    }
+
+    // MARK: Open
+
+    private func open(_ item: DayItem) {
+        switch item {
+        case let .task(task):   editing = task
+        case let .event(event): editingEvent = event
+        }
+    }
+
+    // MARK: Timing helpers
+
+    /// A timed entry with a resolved start/end, ready to render as a block.
+    private struct TimedEntry { let item: DayItem; let start: Date; let end: Date }
+
+    /// The clock span of an item, or nil if it's all-day / undated.
+    private func span(_ item: DayItem) -> (start: Date, end: Date)? {
+        switch item {
+        case let .event(event):
+            return event.isAllDay ? nil : (event.start, event.end)
+        case let .task(task):
+            guard let due = DueDate.parse(task.dueDate), !task.dueIsAllDay else { return nil }
+            let minutes = task.effortMinutes ?? 30
+            let end = Calendar.current.date(byAdding: .minute, value: minutes, to: due) ?? due
+            return (due, end)
+        }
+    }
+
+    private func timedEntries(_ items: [DayItem]) -> [TimedEntry] {
+        items.compactMap { item in span(item).map { TimedEntry(item: item, start: $0.start, end: $0.end) } }
+            .sorted { $0.start < $1.start }
+    }
+
+    /// The overall span across all timed entries, for the day's time-range caption.
+    private func span(of timed: [TimedEntry]) -> (start: Date, end: Date)? {
+        guard let first = timed.first else { return nil }
+        let start = timed.map(\.start).min() ?? first.start
+        let end = timed.map(\.end).max() ?? first.end
+        return (start, end)
+    }
+
+    /// A free gap between two consecutive blocks, if it's at least 20 minutes and non-overlapping.
+    private func gap(_ a: TimedEntry, _ b: TimedEntry) -> (start: Date, end: Date)? {
+        guard b.start.timeIntervalSince(a.end) >= 20 * 60 else { return nil }
+        return (a.end, b.start)
+    }
+
+    private func accent(_ item: DayItem) -> Color {
         switch item {
         case let .event(event): return event.colorHex.map { Color(hex: $0) } ?? Color.Offload.teal
         case let .task(task):   return Color.Offload.accent(for: task.category)
         }
     }
 
-    @ViewBuilder
-    private func row(_ item: DayItem) -> some View {
-        switch item {
-        case let .event(event):
-            let tint = event.colorHex.map { Color(hex: $0) } ?? Color.Offload.teal
-            // Tapping a real event opens Apple's native editor — move, rename, or delete in place.
-            Button { editingEvent = event } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(event.title)
-                            .font(.Offload.taskTitle)
-                            .foregroundStyle(Color.Offload.text)
-                        Spacer(minLength: 8)
-                        Text(event.isAllDay ? "All day" : CalendarView.time(event.start))
-                            .font(.Offload.data)
-                            .foregroundStyle(tint)
-                            .lineLimit(1).fixedSize()
-                    }
-                    if let location = event.location {
-                        Label(location, systemImage: "mappin.and.ellipse")
-                            .font(.caption)
-                            .foregroundStyle(Color.Offload.muted)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(13)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(tint.opacity(0.13), in: .rect(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.pressable(scale: 0.99))
-
-        case let .task(task):
-            let tint = Color.Offload.accent(for: task.category)
-            Button { editing = task } label: {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Button {
-                            Task { await store.toggleComplete(task) }
-                        } label: {
-                            Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(task.status == "completed" ? Color.Offload.green : tint)
-                                .symbolEffect(.bounce, value: task.status)
-                        }
-                        .buttonStyle(.pressable(scale: 0.85))
-
-                        Text(task.title)
-                            .font(.Offload.taskTitle)
-                            .foregroundStyle(Color.Offload.text)
-                            .strikethrough(task.status == "completed", color: Color.Offload.muted)
-                        Spacer(minLength: 8)
-                        if let due = DueDate.parse(task.dueDate), !task.dueIsAllDay {
-                            Text(CalendarView.time(due))
-                                .font(.Offload.data)
-                                .foregroundStyle(tint)
-                                .lineLimit(1).fixedSize()
-                        } else if task.dueIsAllDay {
-                            Text("Planned")
-                                .font(.Offload.data)
-                                .foregroundStyle(Color.Offload.muted)
-                                .lineLimit(1).fixedSize()
-                        }
-                    }
-                    if let details = task.descriptionText, !details.isEmpty {
-                        Text(details)
-                            .font(.Offload.body)
-                            .foregroundStyle(Color.Offload.muted)
-                            .lineLimit(2)
-                            .padding(.leading, 24)
-                    }
-                }
-                .padding(13)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(tint.opacity(0.11), in: .rect(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.pressable(scale: 0.99))
-            .contextMenu {
-                TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: { editing = $0 })
-            }
-        }
+    private func location(_ item: DayItem) -> String? {
+        if case let .event(event) = item { return event.location }
+        return nil
     }
+
+    private func people(_ item: DayItem) -> [String]? {
+        if case let .task(task) = item { return People.decode(task.people) }
+        return nil
+    }
+
+    private func initial(_ name: String) -> String {
+        String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
+    }
+
+    private func dayHeading(_ day: Date) -> String {
+        if Calendar.current.isDate(day, inSameDayAs: now) { return "Today" }
+        let df = DateFormatter(); df.dateFormat = "EEEE, MMM d"
+        return df.string(from: day)
+    }
+
+    private static let avatarColors: [Color] = [
+        Color(hex: 0x7A5AE0), Color(hex: 0xE8547C), Color(hex: 0xD79A2B),
+        Color(hex: 0x2E8BC9), Color(hex: 0x18A97F), Color(hex: 0x4C6FE7)
+    ]
 }
 
 #Preview {

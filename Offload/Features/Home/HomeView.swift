@@ -12,12 +12,19 @@ import SwiftUI
 struct HomeView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var store = TaskStore()
+    @State private var projectStore = ProjectStore()
     @State private var editing: TaskItem?
     @State private var now = Date()
     @State private var appeared = false
     @State private var addingTask = false
+    @State private var editingPins = false
     @State private var focusTask: TaskItem?
+    @AppStorage(PinnedProjects.key) private var pinnedCSV = ""
     private var patterns: PatternService { PatternService.shared }
+
+    private var pinnedSummaries: [ProjectStore.Summary] {
+        PinnedProjects.resolve(PinnedProjects.parse(pinnedCSV), from: projectStore.summaries)
+    }
 
     private var summary: DaySummary {
         DayDashboard.summary(tasks: store.allTasks, events: store.todayEvents, now: now)
@@ -41,27 +48,30 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 18) {
+                VStack(spacing: 14) {
                     heroCard.appearIn(0, when: appeared)
+                    captureBar.appearIn(1, when: appeared)
+                    PinnedBento(summaries: pinnedSummaries) { editingPins = true }
+                        .appearIn(2, when: appeared).scrollAppear()
 
                     if !summary.isClear || summary.nextTask != nil {
-                        nowAndNext.appearIn(1, when: appeared).scrollAppear()
+                        nowAndNext.appearIn(3, when: appeared).scrollAppear()
                     }
                     if !patterns.suggestions.isEmpty {
-                        suggestionsCard.appearIn(2, when: appeared).scrollAppear()
+                        suggestionsCard.appearIn(4, when: appeared).scrollAppear()
                     }
                     if !loose.isEmpty {
-                        looseCard.appearIn(3, when: appeared).scrollAppear()
+                        looseCard.appearIn(5, when: appeared).scrollAppear()
                     }
-                    projectsLink.appearIn(4, when: appeared).scrollAppear()
+                    projectsLink.appearIn(6, when: appeared).scrollAppear()
 
                     if store.openTasks.isEmpty && summary.completedToday == 0 {
                         EmptyCaptureInvitation { capture.beginCapture() }
                             .padding(.top, 20)
-                            .appearIn(2, when: appeared)
+                            .appearIn(3, when: appeared)
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 16)
                 .padding(.bottom, 40)
             }
             .scrollIndicators(.hidden)
@@ -85,6 +95,7 @@ struct HomeView: View {
                 }
             }
             .task { await store.observe() }
+            .task { await projectStore.observe() }
             .task { await store.loadEvents(around: now) }
             .task { withAnimation(Motion.settle) { appeared = true } }
             .task {
@@ -102,6 +113,9 @@ struct HomeView: View {
             }
             .sheet(isPresented: $addingTask) {
                 AddTaskSheet(initialDate: nil)
+            }
+            .sheet(isPresented: $editingPins) {
+                PinEditSheet(summaries: projectStore.summaries)
             }
             .fullScreenCover(item: $focusTask) { task in
                 FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
@@ -134,15 +148,15 @@ struct HomeView: View {
         let percent = Int(s.progress * 100)
         return VStack(alignment: .leading, spacing: 16) {
             Text(s.greeting.uppercased())
-                .font(.caption).fontWeight(.semibold)
-                .tracking(1.4)
-                .foregroundStyle(.white.opacity(0.7))
+                .font(.Offload.manrope(11, .semibold))
+                .tracking(1.1)
+                .foregroundStyle(.white.opacity(0.75))
 
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(s.headline)
-                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                        .tracking(-0.8)
+                        .font(.Offload.display())
+                        .tracking(-1.2)
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(s.subhead)
@@ -180,6 +194,39 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         .elevated(.high)
         .animation(Motion.settle, value: s.headline)
+    }
+
+    // MARK: Inline capture
+
+    /// A quick-capture pill under the hero — the fastest path from "thought" to "offloaded".
+    /// Tapping anywhere on it opens the capture flow (voice or text), same as the raised action.
+    private var captureBar: some View {
+        Button { capture.beginCapture() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.Offload.indigo)
+                Text("Say what's on your mind…")
+                    .font(.Offload.body)
+                    .foregroundStyle(Color.Offload.muted)
+                Spacer(minLength: 0)
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(Color.Offload.indigo, in: Circle())
+            }
+            .padding(.vertical, 8)
+            .padding(.leading, 16)
+            .padding(.trailing, 8)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.Offload.surface)
+                    .shadow(color: Color.black.opacity(0.06), radius: 10, y: 8)
+            )
+            .overlay(Capsule(style: .continuous).strokeBorder(Color.Offload.hairline, lineWidth: 0.5))
+        }
+        .buttonStyle(.pressable(scale: 0.99))
     }
 
     private struct HeroChip { let text: String; let icon: String }

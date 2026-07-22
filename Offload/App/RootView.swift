@@ -26,12 +26,7 @@ struct RootView: View {
     }
 
     private var tabs: some View {
-        TabView {
-            Tab("Home", systemImage: "square.stack.3d.up") { HomeView() }
-            Tab("Day", systemImage: "calendar.day.timeline.left") { DayView() }
-            Tab("Search", systemImage: "magnifyingglass") { SearchView() }
-            Tab("Settings", systemImage: "gearshape") { SettingsView() }
-        }
+        RootTabView()
     }
 }
 

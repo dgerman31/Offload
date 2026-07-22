@@ -44,7 +44,7 @@ struct WeekStrip: View {
                 .tracking(0.4)
                 .foregroundStyle(Color.Offload.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(Motion.standard, value: visibleWeek)
+                .animation(Motion.smooth, value: visibleWeek)
 
             TabView(selection: $visibleWeek) {
                 ForEach(weeks, id: \.timeIntervalSince1970) { week in
@@ -65,9 +65,12 @@ struct WeekStrip: View {
         .onChange(of: selected) { _, day in
             let target = sunday(onOrBefore: day)
             if !calendar.isDate(target, inSameDayAs: visibleWeek) {
-                withAnimation(Motion.standard) { visibleWeek = target }
+                withAnimation(Motion.smooth) { visibleWeek = target }
             }
         }
+        // A native selection tick — the same feedback iOS's own pickers give — the instant the
+        // selected day actually changes.
+        .sensoryFeedback(.selection, trigger: selected)
     }
 
     private func dayCell(_ day: Date) -> some View {
@@ -78,7 +81,6 @@ struct WeekStrip: View {
 
         return Button {
             withAnimation(Motion.standard) { selected = calendar.startOfDay(for: day) }
-            Haptics.light()
         } label: {
             VStack(spacing: 6) {
                 // Today announces itself on every page; other days show their weekday.

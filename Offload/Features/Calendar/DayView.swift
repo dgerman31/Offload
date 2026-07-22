@@ -17,6 +17,10 @@ struct DayView: View {
     @State private var now = Date()
     @State private var appeared = false
     @State private var addingTask = false
+    /// Flips (not just sets) on every successful reorder drop — `.sensoryFeedback` only fires on
+    /// an actual value *change*, so a toggle guarantees each drop re-triggers it regardless of
+    /// what the previous value happened to be.
+    @State private var didReorder = false
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
 
@@ -78,6 +82,7 @@ struct DayView: View {
             .task { await store.observe() }
             .task { await store.loadEvents(around: selectedDay) }
             .task { withAnimation(Motion.settle) { appeared = true } }
+            .sensoryFeedback(.impact(weight: .light), trigger: didReorder)
             .onChange(of: selectedDay) { _, day in
                 Task { await store.loadEvents(around: day) }
             }
@@ -327,7 +332,7 @@ struct DayView: View {
         order.remove(at: fromIndex)
         guard let toIndex = order.firstIndex(of: targetID) else { return }
         order.insert(draggedID, at: toIndex)
-        Haptics.light()
+        didReorder.toggle()
         Task { await store.applyReorder(order, on: selectedDay, events: store.rangeEvents) }
     }
 

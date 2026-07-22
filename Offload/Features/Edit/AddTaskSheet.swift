@@ -1,4 +1,5 @@
 import SwiftUI
+import GRDB
 
 /// Type a task directly, no AI involved. Capture-by-voice is the app's headline act, but
 /// sometimes you already know exactly what you want and typing it is simply faster — and an
@@ -202,7 +203,18 @@ struct AddTaskSheet: View {
             // A time you chose by hand is a commitment — it anchors the day, never reflows.
             pinned: hasDueDate && hasTime
         )
-        await TaskActions.create(task)
+
+        // The same auto-fit a captured task already gets: undated work, or work you scheduled
+        // for today without picking a specific time, gets a real slot in today's open time right
+        // away — instead of sitting unplaced until something else happens to plan the day. A
+        // future day or a specific chosen time is left exactly as you set it (AutoFit only ever
+        // touches today's flexible work).
+        let existing = (try? await AppDatabase.shared.dbQueue.read { database in
+            try TaskItem.filter(Column("deleted") == false).fetchAll(database)
+        }) ?? []
+        let fitted = AutoFit.fitIntoToday(new: [task], existing: existing).first ?? task
+
+        await TaskActions.create(fitted)
         Haptics.success()
         dismiss()
     }

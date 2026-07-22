@@ -14,8 +14,16 @@ enum Motion {
     static let page = Animation.spring(response: 0.45, dampingFraction: 0.88)
     /// A swipe's release: snapping open/closed, or the final commit-and-clear. Livelier and
     /// faster than the generic tap-feedback `quick` — a released swipe should feel like it has
-    /// its own momentum, not the same settle as a button press.
+    /// its own momentum, not the same settle as a button press. Prefer `SwipeToDeleteModifier`'s
+    /// own velocity-aware spring where a real release velocity is available; this is the
+    /// no-velocity fallback (e.g. a gesture that turned out not to be a swipe after all).
     static let swipeRelease = Animation.spring(response: 0.3, dampingFraction: 0.72)
+    /// Apple's modern "snappy" preset — quick with a touch of bounce. For a small, discrete,
+    /// tap-triggered interaction that isn't already covered by `quick`/`standard`.
+    static let snappy = Animation.snappy(duration: 0.35, extraBounce: 0.05)
+    /// Apple's modern "smooth" preset — no overshoot, settles cleanly. For a larger state
+    /// transition (paging a week, swapping a visible range) where a bounce would look busy.
+    static let smooth = Animation.smooth
 }
 
 /// Depth tokens. Premium interfaces read as *layers* — soft, wide shadows doing the work that

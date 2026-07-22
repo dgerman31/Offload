@@ -15,15 +15,17 @@ import SwiftUI
 ///
 /// Tuned to match native iOS's feel, not just its two end-states: the red rail's width tracks the
 /// drag distance directly (no gap between it and the sliding content), the icon fades in smoothly
-/// with the drag instead of popping in or sitting there at rest, a haptic ticks the instant you
-/// cross the delete threshold — not only once you've already committed — dragging past that
+/// with the drag instead of popping in or sitting there at rest, dragging past the delete
 /// threshold rubber-bands rather than hard-stopping, and the row animates fully off-screen before
-/// the underlying data is actually removed, so the visual and the mutation never race.
+/// the underlying data is actually removed, so the visual and the mutation never race. The release
+/// itself inherits the drag's actual velocity — a fast flick snaps or deletes with real authority,
+/// a slow drag settles gently, instead of every release using the identical canned motion.
 struct SwipeToDeleteModifier: ViewModifier {
     var onDelete: () -> Void
 
     @State private var offset: CGFloat = 0
     @State private var crossedThreshold = false
+    @State private var isDeleting = false
     @State private var rowWidth: CGFloat = 400
     private let revealWidth: CGFloat = 84
     private let autoDeleteThreshold: CGFloat = 200
@@ -44,6 +46,10 @@ struct SwipeToDeleteModifier: ViewModifier {
                 Color.clear.onAppear { rowWidth = proxy.size.width }
             }
         )
+        // Declarative haptics tied to the exact moments they mean something: a light tap right
+        // as the drag crosses into "let go and this deletes," and a firmer one when it commits.
+        .sensoryFeedback(.impact(weight: .light), trigger: crossedThreshold) { _, new in new }
+        .sensoryFeedback(.warning, trigger: isDeleting) { _, new in new }
     }
 
     /// The red background grows with the drag (so it always fills exactly what's revealed, never
@@ -56,7 +62,7 @@ struct SwipeToDeleteModifier: ViewModifier {
                 .fill(Color.Offload.red)
                 .frame(width: max(0, offset))
                 .frame(maxHeight: .infinity)
-            Button(action: confirmDelete) {
+            Button(action: { confirmDelete() }) {
                 Label("Delete", systemImage: "trash.fill")
                     .labelStyle(.iconOnly)
                     .font(.system(size: 16, weight: .semibold))
@@ -86,11 +92,11 @@ struct SwipeToDeleteModifier: ViewModifier {
                     ? max(0, raw)
                     : autoDeleteThreshold + (raw - autoDeleteThreshold) * rubberBandFactor
 
-                // A tick right as you cross into "let go and this deletes" — not only once
-                // you've already committed. Re-arms if you drag back below the line.
+                // Flips right as you cross into "let go and this deletes" — not only once
+                // you've already committed. Re-arms if you drag back below the line. The actual
+                // haptic fires declaratively from `.sensoryFeedback`, keyed to this value.
                 if offset > autoDeleteThreshold, !crossedThreshold {
                     crossedThreshold = true
-                    Haptics.light()
                 } else if offset <= autoDeleteThreshold {
                     crossedThreshold = false
                 }
@@ -98,25 +104,44 @@ struct SwipeToDeleteModifier: ViewModifier {
             .onEnded { value in
                 crossedThreshold = false
                 guard abs(value.translation.width) > abs(value.translation.height) else {
-                    withAnimation(Motion.swipeRelease) { offset = 0 }
+                    withAnimation(Motion.snappy) { offset = 0 }
                     return
                 }
+                // Points/second the finger was actually moving at release — carried into the
+                // snap so a fast flick reads as faster than a slow drag ending at the same spot.
+                let velocity = value.velocity.width
                 if offset > autoDeleteThreshold {
-                    confirmDelete()
+                    confirmDelete(releaseVelocity: velocity)
                 } else if value.translation.width > revealWidth / 2 {
-                    withAnimation(Motion.swipeRelease) { offset = revealWidth }
+                    snap(to: revealWidth, releaseVelocity: velocity)
                 } else {
-                    withAnimation(Motion.swipeRelease) { offset = 0 }
+                    snap(to: 0, releaseVelocity: velocity)
                 }
             }
     }
 
-    /// Slide the row fully clear of the screen, and only remove the underlying data once that
-    /// animation has actually finished — the mutation no longer races the visual.
-    private func confirmDelete() {
-        Haptics.warning()
-        withAnimation(Motion.swipeRelease) {
-            offset = rowWidth + 80
+    /// Spring to `target`, inheriting the drag's release velocity. SwiftUI's spring velocity is
+    /// expressed as a fraction of the distance still to travel per second, so the raw points/sec
+    /// value is normalized against how far `offset` still has to move.
+    private func snap(to target: CGFloat, releaseVelocity: CGFloat) {
+        let distance = target - offset
+        let normalized = distance == 0 ? 0 : releaseVelocity / distance
+        withAnimation(.interpolatingSpring(duration: 0.3, bounce: 0.15, initialVelocity: normalized)) {
+            offset = target
+        }
+    }
+
+    /// Slide the row fully clear of the screen — inheriting release velocity when there is one
+    /// (a drag-triggered delete), or a plain spring when there isn't (tapping the Delete button
+    /// directly) — and only remove the underlying data once that animation has actually
+    /// finished, so the mutation never races the visual.
+    private func confirmDelete(releaseVelocity: CGFloat = 0) {
+        isDeleting = true
+        let target = rowWidth + 80
+        let distance = target - offset
+        let normalized = distance == 0 ? 0 : releaseVelocity / distance
+        withAnimation(.interpolatingSpring(duration: 0.3, bounce: 0.1, initialVelocity: normalized)) {
+            offset = target
         } completion: {
             onDelete()
         }

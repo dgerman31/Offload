@@ -225,6 +225,16 @@ enum TaskActions {
         if let eventId = item.calendarEventId {
             _ = await calendar.deleteEvent(id: eventId)
         }
+        // This task is just the schedule block for a Gym-tab session — deleting it from Home/Day
+        // should remove the underlying plan too, so the Gym tab doesn't keep showing a "planned"
+        // workout whose time was just erased from the schedule.
+        if let gymSessionId = item.gymSessionId {
+            try? await db.dbQueue.write { database in
+                guard var session = try WorkoutSession.fetchOne(database, key: gymSessionId) else { return }
+                session.deleted = true
+                try session.update(database)
+            }
+        }
     }
 
     /// Insert a task the user typed by hand (no AI involved).

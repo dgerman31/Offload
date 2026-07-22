@@ -38,6 +38,11 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
     /// User-set manual position for drag-to-reorder. Nil = never reordered (falls back to
     /// capture order); lower sorts first within a list.
     var sortOrder: Double?
+    /// Set when this task is the schedule block for a planned workout (the Gym tab). Home/Day
+    /// show only the title and the time it occupies; tapping the row opens the Gym tab to that
+    /// session instead of the normal task detail — the workout's real detail (exercises, sets,
+    /// muscle groups) lives only there, never duplicated into the task itself.
+    var gymSessionId: String?
 
     static let databaseTableName = "tasks"
 
@@ -60,6 +65,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         case metadata, deleted, people, deadline, pinned
         case dueIsAllDay = "due_is_all_day"
         case sortOrder = "sort_order"
+        case gymSessionId = "gym_session_id"
     }
 
     init(
@@ -87,7 +93,8 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         deadline: String? = nil,
         dueIsAllDay: Bool = false,
         pinned: Bool = false,
-        sortOrder: Double? = nil
+        sortOrder: Double? = nil,
+        gymSessionId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -114,6 +121,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         self.dueIsAllDay = dueIsAllDay
         self.pinned = pinned
         self.sortOrder = sortOrder
+        self.gymSessionId = gymSessionId
     }
 
     /// A specific moment on the clock, as opposed to a whole-day intention.

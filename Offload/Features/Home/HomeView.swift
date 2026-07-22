@@ -393,18 +393,28 @@ struct HomeView: View {
     }
 
     private func taskRow(_ task: TaskItem) -> some View {
-        TaskRowView(task: task, onEdit: { editing = task }) {
+        TaskRowView(task: task, onEdit: { openTask(task) }) {
             Task { await store.toggleComplete(task) }
         }
         .contextMenu { taskMenu(task) }
         .swipeToDelete { Task { await store.delete(task) } }
     }
 
+    /// A task that's really the schedule block for a Gym-tab session opens the Gym tab to that
+    /// session instead of the normal task detail — its real content lives only there.
+    private func openTask(_ task: TaskItem) {
+        if let gymSessionId = task.gymSessionId {
+            AppNavigation.shared.openGymSession(gymSessionId)
+        } else {
+            editing = task
+        }
+    }
+
     /// Long-press actions come from the single shared definition, so what you can do to a task
     /// never depends on which screen you found it on.
     @ViewBuilder
     private func taskMenu(_ task: TaskItem) -> some View {
-        TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: { editing = $0 })
+        TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: openTask)
     }
 
     private func card<Content: View>(

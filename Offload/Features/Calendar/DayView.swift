@@ -313,7 +313,7 @@ struct DayView: View {
     private func blockMenu(_ item: DayItem) -> some View {
         switch item {
         case let .task(task):
-            TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: { editing = $0 })
+            TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: { open(.task($0)) })
         case .event:
             Button { open(item) } label: { Label("Edit event", systemImage: "pencil") }
         }
@@ -323,6 +323,10 @@ struct DayView: View {
 
     private func open(_ item: DayItem) {
         switch item {
+        // A gym-linked task is just this session's schedule block — its real content (exercises,
+        // sets, muscle groups) lives only in the Gym tab, so open that instead of task detail.
+        case let .task(task) where task.gymSessionId != nil:
+            AppNavigation.shared.openGymSession(task.gymSessionId!)
         case let .task(task):   editing = task
         case let .event(event): editingEvent = event
         }

@@ -427,7 +427,13 @@ struct SearchView: View {
                                     Task { await store.toggleComplete(task) }
                                 }
                             } else {
-                                TaskRowView(task: task, onEdit: { editing = task }) {
+                                TaskRowView(task: task, onEdit: {
+                                    if let gymSessionId = task.gymSessionId {
+                                        AppNavigation.shared.openGymSession(gymSessionId)
+                                    } else {
+                                        editing = task
+                                    }
+                                }) {
                                     Task { await store.toggleComplete(task) }
                                 }
                                 .swipeToDelete { Task { await TaskActions.delete(task) } }

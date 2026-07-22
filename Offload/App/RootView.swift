@@ -1,20 +1,32 @@
 import SwiftUI
 
-/// The four tabs. Home is the light "what needs me" view; the day's actual schedule (events +
-/// timed tasks) lives in its own Day tab, which replaced the old month-grid Calendar. Projects
-/// left the tab bar to declutter — it's now reached from a card on Home. The capture screen
-/// presents as a sheet over the current tab whenever the Action Button intent (or the in-app
-/// button) fires.
+/// The five tabs, on the real native `TabView`/`Tab` bar — not a hand-rolled one. Native gets us
+/// two things a custom bar can't cheaply match: each tab's content and observations stay alive
+/// when you switch away (so switching back is instant, not a fresh reload), and on iOS 26 it's
+/// automatically rendered in the new glass style with the scroll-adaptive minimizing behavior,
+/// for free. Selection is driven by `AppNavigation` so a deep link (a gym session tapped on Home
+/// or Day) can switch tabs from outside the bar itself. The capture screen presents as a sheet
+/// over whatever tab is showing, from the Action Button or Home's own capture bar — no raised
+/// button on the bar itself.
 struct RootView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @AppStorage(OnboardingView.completedKey) private var onboarded = false
+    private var nav: AppNavigation { AppNavigation.shared }
 
     var body: some View {
         @Bindable var capture = capture
+        @Bindable var nav = nav
 
         Group {
             if onboarded {
-                tabs
+                TabView(selection: $nav.selectedTab) {
+                    Tab("Home", systemImage: "square.stack.3d.up", value: RootTab.home) { HomeView() }
+                    Tab("Day", systemImage: "calendar.day.timeline.left", value: RootTab.calendar) { DayView() }
+                    Tab("Gym", systemImage: "figure.strengthtraining.traditional", value: RootTab.gym) { GymView() }
+                    Tab("Search", systemImage: "magnifyingglass", value: RootTab.search) { SearchView() }
+                    Tab("Settings", systemImage: "slider.horizontal.3", value: RootTab.settings) { SettingsView() }
+                }
+                .tint(Color.Offload.indigo)
             } else {
                 OnboardingView()
                     .transition(.opacity)
@@ -24,10 +36,11 @@ struct RootView: View {
             CaptureView()
         }
     }
+}
 
-    private var tabs: some View {
-        RootTabView()
-    }
+/// The five Home-level destinations.
+enum RootTab: Hashable {
+    case home, calendar, gym, search, settings
 }
 
 #Preview {

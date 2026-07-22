@@ -43,7 +43,7 @@ final class AppDatabase: Sendable {
     /// schema itself is left intact, so the app keeps working on a clean slate.
     func eraseAllData() async throws {
         try await dbQueue.write { db in
-            for table in ["tasks", "projects", "captures", "patterns", "corrections"] {
+            for table in ["tasks", "projects", "captures", "patterns", "corrections", "workout_sessions"] {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
         }
@@ -200,6 +200,35 @@ final class AppDatabase: Sendable {
         // renumbering everything.
         migrator.registerMigration("v7_task_sort_order") { db in
             try db.execute(sql: "ALTER TABLE tasks ADD COLUMN sort_order REAL;")
+        }
+
+        // The Gym tab: a full weekly workout organizer, planned by Gemini. Each session gets a
+        // lightweight linked task (`gym_session_id`) that blocks its time on Home/Day — tapping
+        // that task opens the Gym tab to the session rather than a normal task detail, so the
+        // real workout content (exercises, sets, muscle groups) lives in exactly one place.
+        migrator.registerMigration("v8_gym") { db in
+            try db.execute(sql: """
+                CREATE TABLE workout_sessions (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    start_minute INTEGER,
+                    duration_minutes INTEGER DEFAULT 45,
+                    workout_type TEXT DEFAULT 'strength',
+                    muscle_groups TEXT,
+                    exercises TEXT,
+                    notes TEXT,
+                    status TEXT DEFAULT 'planned',
+                    completed_at TEXT,
+                    task_id TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    deleted INTEGER DEFAULT 0
+                );
+
+                CREATE INDEX idx_gym_date ON workout_sessions(date) WHERE deleted = 0;
+
+                ALTER TABLE tasks ADD COLUMN gym_session_id TEXT;
+                """)
         }
 
         // Later increments register additional migrations here, e.g. the

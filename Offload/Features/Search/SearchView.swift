@@ -421,8 +421,17 @@ struct SearchView: View {
                             .buttonStyle(.pressable(scale: 0.85))
                             .padding(.leading, 12)
                         }
-                        TaskRowView(task: task, onEdit: { selecting ? toggleSelection(task.id) : (editing = task) }) {
-                            Task { await store.toggleComplete(task) }
+                        Group {
+                            if selecting {
+                                TaskRowView(task: task, onEdit: { toggleSelection(task.id) }) {
+                                    Task { await store.toggleComplete(task) }
+                                }
+                            } else {
+                                TaskRowView(task: task, onEdit: { editing = task }) {
+                                    Task { await store.toggleComplete(task) }
+                                }
+                                .swipeToDelete { Task { await TaskActions.delete(task) } }
+                            }
                         }
                         .padding(.horizontal, selecting ? 0 : 12)
                         .padding(.trailing, selecting ? 12 : 0)

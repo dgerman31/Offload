@@ -236,6 +236,7 @@ struct DayView: View {
         }
         .buttonStyle(.pressable(scale: 0.99))
         .contextMenu { blockMenu(entry.item) }
+        .swipeToDelete(ifTask: entry.item) { task in Task { await store.delete(task) } }
     }
 
     /// A whole-day event or undated task — no clock, so it reads as an intention, not a block.
@@ -268,6 +269,7 @@ struct DayView: View {
         }
         .buttonStyle(.pressable(scale: 0.99))
         .contextMenu { blockMenu(item) }
+        .swipeToDelete(ifTask: item) { task in Task { await store.delete(task) } }
     }
 
     private func breakBlock(from start: Date, to end: Date) -> some View {
@@ -394,6 +396,19 @@ struct DayView: View {
         Color(hex: 0x7A5AE0), Color(hex: 0xE8547C), Color(hex: 0xD79A2B),
         Color(hex: 0x2E8BC9), Color(hex: 0x18A97F), Color(hex: 0x4C6FE7)
     ]
+}
+
+private extension View {
+    /// Swipe-to-delete for a `DayItem` block — only tasks are deletable this way; a real
+    /// calendar event is edited/deleted through its own native editor instead.
+    @ViewBuilder
+    func swipeToDelete(ifTask item: DayItem, delete: @escaping (TaskItem) -> Void) -> some View {
+        if case let .task(task) = item {
+            self.swipeToDelete { delete(task) }
+        } else {
+            self
+        }
+    }
 }
 
 #Preview {

@@ -356,40 +356,30 @@ struct HomeView: View {
 
     // MARK: Projects entry point
 
-    /// Projects left the tab bar to declutter; this is the one tap into them.
+    /// Projects left the tab bar, and Pinned already gives one-tap access to the ones that
+    /// matter most — so this is just a small, out-of-the-way link to the full list, not a card
+    /// competing with Pinned for attention.
     private var projectsLink: some View {
-        NavigationLink {
-            ProjectsView()
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x8A6FE0)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing),
-                        in: .rect(cornerRadius: 12, style: .continuous)
-                    )
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Projects")
-                        .font(.Offload.taskTitle)
-                        .foregroundStyle(Color.Offload.text)
-                    Text("Grouped work, lists & subfolders")
-                        .font(.Offload.data)
-                        .foregroundStyle(Color.Offload.muted)
-                        .lineLimit(1)
+        HStack {
+            NavigationLink {
+                ProjectsView()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("All projects")
+                        .font(.Offload.manrope(13, .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.Offload.muted)
+                .foregroundStyle(Color.Offload.indigo)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Color.Offload.indigo.opacity(0.10), in: .capsule)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .offloadCard()
+            .buttonStyle(.pressable(scale: 0.96))
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.pressable(scale: 0.99))
     }
 
     // MARK: Building blocks
@@ -407,6 +397,7 @@ struct HomeView: View {
             Task { await store.toggleComplete(task) }
         }
         .contextMenu { taskMenu(task) }
+        .swipeToDelete { Task { await store.delete(task) } }
     }
 
     /// Long-press actions come from the single shared definition, so what you can do to a task

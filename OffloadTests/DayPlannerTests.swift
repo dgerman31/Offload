@@ -204,4 +204,34 @@ struct DayPlannerTests {
         #expect(learned.count == 1)
         #expect(learned[0].to == "Health")
     }
+
+    // MARK: Wake-up rollover — only genuinely-overdue unplaced tasks escalate to tomorrow
+
+    @Test("An already-overdue task that still doesn't fit today rolls to tomorrow")
+    func overdueUnplacedRollsOver() {
+        let overdue = TaskItem(title: "Late bill", dueDate: iso(9, day: 16))   // two days ago
+        let rollover = DayPlanner.rolloverToTomorrow(from: [overdue], on: date(9), calendar: utcCalendar)
+        #expect(rollover.map(\.id) == [overdue.id])
+    }
+
+    @Test("A task only due today that simply didn't fit is left alone")
+    func todayUnplacedStaysPut() {
+        let dueToday = TaskItem(title: "Read chapter", dueDate: iso(9, day: 18))
+        #expect(DayPlanner.rolloverToTomorrow(from: [dueToday], on: date(9), calendar: utcCalendar).isEmpty)
+    }
+
+    @Test("An undated unplaced task is left alone — nothing to escalate")
+    func undatedUnplacedStaysPut() {
+        let undated = TaskItem(title: "Someday idea")
+        #expect(DayPlanner.rolloverToTomorrow(from: [undated], on: date(9), calendar: utcCalendar).isEmpty)
+    }
+
+    @Test("Mixed unplaced list only rolls the overdue ones")
+    func mixedUnplacedFiltersCorrectly() {
+        let overdue = TaskItem(title: "Late bill", dueDate: iso(9, day: 16))
+        let dueToday = TaskItem(title: "Read chapter", dueDate: iso(9, day: 18))
+        let undated = TaskItem(title: "Someday idea")
+        let result = DayPlanner.rolloverToTomorrow(from: [overdue, dueToday, undated], on: date(9), calendar: utcCalendar)
+        #expect(result.map(\.id) == [overdue.id])
+    }
 }

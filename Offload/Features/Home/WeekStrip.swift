@@ -24,11 +24,13 @@ struct WeekStrip: View {
         return calendar.date(byAdding: .day, value: -(weekday - 1), to: start) ?? start
     }
 
-    /// The pageable range of weeks, each identified by its Sunday: a couple months back through a
-    /// year ahead, so a meeting booked well in advance is always reachable by swiping.
+    /// The pageable range of weeks, each identified by its Sunday: a few months either side. A
+    /// meeting booked well beyond this is still reachable instantly via the Day tab's "jump to
+    /// date" picker, so swiping doesn't need to cover a year — the previous ±52-week range built
+    /// 61 full weeks (427 day cells) on every render.
     private var weeks: [Date] {
         let base = sunday(onOrBefore: now)
-        return (-8...52).compactMap { calendar.date(byAdding: .weekOfYear, value: $0, to: base) }
+        return (-12...12).compactMap { calendar.date(byAdding: .weekOfYear, value: $0, to: base) }
     }
 
     private func days(of weekStart: Date) -> [Date] {

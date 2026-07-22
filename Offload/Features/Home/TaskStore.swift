@@ -1,9 +1,47 @@
 import Foundation
 import GRDB
 
-/// Observes tasks reactively (GRDB `ValueObservation` as an async sequence) and publishes
-/// them for SwiftUI. Because organization happens at capture time, the Home tab just
-/// reflects the already-sorted world (spec §5.1).
+/// A single, app-wide live stream of the `tasks` table. Before the app switched to a real native
+/// tab bar (which keeps every tab's view — and its `@State private var store = TaskStore()` —
+/// alive simultaneously), each screen's own `ValueObservation` was mostly harmless since only one
+/// was ever actually running. Now Home, Day, and anything else that observes tasks all stay
+/// mounted at once, so without this every task edit was triggering a full-table refetch on each
+/// of them in parallel. `TaskStore.allTasks` delegates here so no call site has to change.
+@MainActor
+@Observable
+final class SharedTasks {
+    static let shared = SharedTasks()
+    private(set) var allTasks: [TaskItem] = []
+    private var started = false
+
+    private init() {}
+
+    /// Idempotent: the first caller starts the one real observation; anyone else calling this
+    /// (another screen's `.task { await store.observe() }`) just returns immediately, since
+    /// they're all reading the same `allTasks`.
+    func start(db: AppDatabase = .shared) async {
+        guard !started else { return }
+        started = true
+        let observation = ValueObservation.tracking { db in
+            try TaskItem
+                .filter(Column("deleted") == false)
+                .order(Column("created_at").desc)
+                .fetchAll(db)
+        }
+        do {
+            for try await tasks in observation.values(in: db.dbQueue) {
+                allTasks = tasks
+            }
+        } catch {
+            // Observation ended.
+        }
+        started = false
+    }
+}
+
+/// Per-screen task actions (complete/delete/snooze/undo) plus a screen-scoped calendar-event
+/// window — `rangeEvents` genuinely differs per screen (Day pages through arbitrary weeks; Home
+/// only ever wants today), so unlike `allTasks` it stays per-instance rather than shared.
 @MainActor
 @Observable
 final class TaskStore {
@@ -16,8 +54,8 @@ final class TaskStore {
     }
 
     /// Every non-deleted task, newest first — completed ones included, since the Home
-    /// dashboard needs them to count today's progress.
-    private(set) var allTasks: [TaskItem] = []
+    /// dashboard needs them to count today's progress. Delegates to the single shared stream.
+    var allTasks: [TaskItem] { SharedTasks.shared.allTasks }
 
     /// Calendar events across the visible window (the week strip's fortnight plus whichever
     /// day is selected), so switching days doesn't trigger a fetch every tap.
@@ -41,22 +79,10 @@ final class TaskStore {
         self.calendarReader = calendarReader
     }
 
-    /// Stream non-deleted tasks, newest first. Drive from a SwiftUI `.task {}` so it's
-    /// cancelled with the view.
+    /// Join the single shared task stream. Safe to call from every screen that observes tasks —
+    /// only the first caller actually starts anything.
     func observe() async {
-        let observation = ValueObservation.tracking { db in
-            try TaskItem
-                .filter(Column("deleted") == false)
-                .order(Column("created_at").desc)
-                .fetchAll(db)
-        }
-        do {
-            for try await tasks in observation.values(in: db.dbQueue) {
-                allTasks = tasks
-            }
-        } catch {
-            // Observation ended (e.g. cancelled). Nothing to surface.
-        }
+        await SharedTasks.shared.start(db: db)
     }
 
     /// Load events covering the week strip *and* the selected day in one fetch, so tapping
@@ -120,6 +146,36 @@ final class TaskStore {
         }
         Haptics.success()
         undo = nil
+        await NotificationSync.shared.refresh()
+    }
+
+    /// Persist a manual reorder of a day's flexible (non-anchored) tasks: re-run the deterministic
+    /// planner for that day with the dragged order as `preferredOrder`, then write back only the
+    /// tasks whose time actually changed — same "touch only what moved" discipline as
+    /// `commitReflow`. Times stay soft/unpinned; this is a re-sequencing, not a new commitment.
+    ///
+    /// Reads a fresh snapshot directly from the database rather than the cached `allTasks` (which
+    /// now delegates to the single shared task stream) — a one-shot mutation like this wants the
+    /// current state at the moment it runs, not whatever the last-observed value happened to be.
+    func applyReorder(_ orderedIds: [String], on day: Date, events: [CalendarEvent], calendar: Calendar = .current) async {
+        let current = (try? await db.dbQueue.read { database in
+            try TaskItem.filter(Column("deleted") == false).fetchAll(database)
+        }) ?? []
+        let plan = DayPlanner.plan(tasks: current, events: events, on: day, now: Date(),
+                                   calendar: calendar, preferredOrder: orderedIds)
+        let originalById = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+        for scheduled in plan.scheduled {
+            guard let original = originalById[scheduled.task.id] else { continue }
+            let originalStart = DueDate.parse(original.dueDate)
+            guard originalStart != scheduled.start else { continue }   // only touch what moved
+            var updated = original
+            updated.dueDate = DueDate.canonicalString(from: scheduled.start)
+            updated.dueIsAllDay = false
+            updated.pinned = false
+            let toSave = updated
+            try? await db.dbQueue.write { try toSave.update($0) }
+        }
+        Haptics.success()
         await NotificationSync.shared.refresh()
     }
 

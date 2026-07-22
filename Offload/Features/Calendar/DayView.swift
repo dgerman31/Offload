@@ -17,6 +17,7 @@ struct DayView: View {
     @State private var now = Date()
     @State private var appeared = false
     @State private var addingTask = false
+    @State private var reordering = false
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
 
@@ -24,11 +25,25 @@ struct DayView: View {
         DayTimeline.density(tasks: store.allTasks, events: store.rangeEvents)
     }
 
-    /// The pageable day range — a couple months back through a year ahead, matching the week
-    /// strip's reach so any day the strip can show, the body can page to.
+    /// Selected day's reorderable work — tasks with no fixed commitment (undated, whole-day, or
+    /// a soft planner-guessed time). Pinned times and real events aren't here; they're
+    /// commitments, not a sequence choice.
+    private var flexibleTasksForSelectedDay: [TaskItem] {
+        DayTimeline.items(tasks: store.allTasks, events: store.rangeEvents, on: selectedDay)
+            .compactMap { item -> TaskItem? in
+                guard case let .task(task) = item, !task.isAnchored else { return nil }
+                return task
+            }
+    }
+
+    /// The pageable day range for swiping — a month back, a month ahead. A far date (a meeting
+    /// weeks out) is still reachable instantly via the "jump to date" picker in the toolbar, so
+    /// the swipeable range doesn't need to cover a year: the previous range (461 days) meant a
+    /// `.page`-style `TabView` was building an agenda's full filter/sort/gap-detection pipeline
+    /// for hundreds of pages nobody would ever swipe to.
     private var days: [Date] {
         let base = Calendar.current.startOfDay(for: now)
-        return (-60...400).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: base) }
+        return (-30...30).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: base) }
     }
 
     var body: some View {
@@ -57,11 +72,21 @@ struct DayView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { addingTask = true } label: {
-                        Image(systemName: "plus.circle.fill").font(.title2)
+                    HStack(spacing: 14) {
+                        if flexibleTasksForSelectedDay.count >= 2 {
+                            Button { reordering = true } label: {
+                                Image(systemName: "arrow.up.arrow.down.circle")
+                                    .font(.title2)
+                            }
+                            .buttonStyle(.pressable(scale: 0.9))
+                            .accessibilityLabel("Reorder this day's flexible tasks")
+                        }
+                        Button { addingTask = true } label: {
+                            Image(systemName: "plus.circle.fill").font(.title2)
+                        }
+                        .buttonStyle(.pressable(scale: 0.9))
+                        .accessibilityLabel("Add task on this day")
                     }
-                    .buttonStyle(.pressable(scale: 0.9))
-                    .accessibilityLabel("Add task on this day")
                 }
             }
             .task { await store.observe() }
@@ -72,6 +97,16 @@ struct DayView: View {
             }
             .sheet(item: $editing) { task in
                 NavigationStack { TaskDetailView(task: task) }
+            }
+            .sheet(isPresented: $reordering) {
+                DayReorderSheet(
+                    day: selectedDay,
+                    flexibleTasks: flexibleTasksForSelectedDay,
+                    events: store.rangeEvents,
+                    store: store
+                ) {
+                    Task { await NotificationSync.shared.refresh() }
+                }
             }
             .sheet(item: $editingEvent) { event in
                 EventEditView(eventId: event.id) {

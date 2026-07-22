@@ -8,9 +8,6 @@ import Foundation
 /// device's current time zone.
 enum DueDate {
     /// Local-time fallback formats, tried in order, for strings missing a timezone offset.
-    /// (`[String]` is `Sendable`, so this static is fine under strict concurrency — the
-    /// formatters themselves are built fresh per call below, since `ISO8601DateFormatter` /
-    /// `DateFormatter` are reference types and not `Sendable`.)
     private static let localFormats = [
         "yyyy-MM-dd'T'HH:mm:ss",
         "yyyy-MM-dd'T'HH:mm",
@@ -19,19 +16,39 @@ enum DueDate {
         "yyyy-MM-dd"
     ]
 
-    /// ISO8601 with timezone, tolerant of fractional seconds (built per call — not cached as
-    /// static state, which wouldn't be concurrency-safe for a non-`Sendable` formatter).
+    /// `DueDate.parse` is called from ~60 sites across the app, including inside sort
+    /// comparators — so it runs constantly. `DateFormatter`/`ISO8601DateFormatter` construction
+    /// is one of the more expensive routine Foundation allocations (locale/calendar table setup),
+    /// and rebuilding one on every call was a real, systemic source of sluggishness.
+    ///
+    /// `NSCache` is Apple's own thread-safe cache (internally locked; safe for concurrent
+    /// get/set from any thread) — it just isn't retroactively marked `Sendable` in the type
+    /// system, hence `nonisolated(unsafe)`. Formatters are configured once at creation and never
+    /// mutated afterward, so sharing a cached instance across calls/threads is safe. Keyed by
+    /// timezone identifier (not just format string) so this stays correct across timezones —
+    /// tests deliberately exercise this with explicit UTC calendars, and callers may pass an
+    /// arbitrary zone (e.g. `CaptureMapper.resolveDue`).
+    private nonisolated(unsafe) static let localFormatterCache = NSCache<NSString, DateFormatter>()
+    private nonisolated(unsafe) static let isoFormatterCache = NSCache<NSString, ISO8601DateFormatter>()
+
+    /// ISO8601 with timezone, tolerant of fractional seconds. Cached per options-variant.
     private static func withTimeZoneFormatter(fractionalSeconds: Bool) -> ISO8601DateFormatter {
+        let key = (fractionalSeconds ? "iso-fractional" : "iso-standard") as NSString
+        if let cached = isoFormatterCache.object(forKey: key) { return cached }
         let f = ISO8601DateFormatter()
         f.formatOptions = fractionalSeconds ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
+        isoFormatterCache.setObject(f, forKey: key)
         return f
     }
 
     private static func localFormatter(_ format: String, timeZone: TimeZone = .current) -> DateFormatter {
+        let key = "\(format)|\(timeZone.identifier)" as NSString
+        if let cached = localFormatterCache.object(forKey: key) { return cached }
         let df = DateFormatter()
         df.dateFormat = format
         df.timeZone = timeZone
         df.locale = Locale(identifier: "en_US_POSIX")
+        localFormatterCache.setObject(df, forKey: key)
         return df
     }
 
@@ -65,9 +82,11 @@ enum DueDate {
         parseLocal(s, timeZone: timeZone).map(canonicalString(from:))
     }
 
-    /// Re-encode to the canonical, always-parseable form (with timezone) for storage.
+    /// Re-encode to the canonical, always-parseable form (with timezone) for storage. A default
+    /// `ISO8601DateFormatter()`'s options are exactly `.withInternetDateTime` — the same
+    /// configuration `withTimeZoneFormatter(fractionalSeconds: false)` caches, so this reuses it.
     static func canonicalString(from date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+        withTimeZoneFormatter(fractionalSeconds: false).string(from: date)
     }
 
     /// Parse then re-encode so every stored due date is canonical regardless of what

@@ -156,6 +156,9 @@ final class GymStore {
 
     /// A plain-text summary of what's already on the schedule for the given days — classes,
     /// other tasks — so the planner can route around real commitments instead of guessing.
+    /// A direct one-shot read rather than `SharedTasks`: this only runs on an explicit "plan my
+    /// day/week" tap (not a live-updating stream), and `SharedTasks.start()` blocks its caller
+    /// for as long as it's the first-ever observer — wrong contract for a one-off read.
     private func busyContext(for dates: [Date]) async -> String {
         let tasks = (try? await db.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false)
@@ -198,12 +201,20 @@ final class GymStore {
         return df.string(from: date)
     }
 
+    /// Every date "plan this" should touch. For a week, this never reaches backward past today —
+    /// re-planning Sunday through Wednesday because today happens to be Wednesday would wipe out
+    /// days that already happened. `now` genuinely matters here (it didn't before this fix).
     nonisolated static func datesInScope(_ scope: GymPlanScope, now: Date, calendar: Calendar = .current) -> [Date] {
+        let today = calendar.startOfDay(for: now)
         switch scope {
         case let .day(date):
             return [calendar.startOfDay(for: date)]
         case let .week(weekStart):
-            return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: calendar.startOfDay(for: weekStart)) }
+            let start = max(calendar.startOfDay(for: weekStart), today)
+            guard let weekEnd = calendar.date(byAdding: .day, value: 6, to: calendar.startOfDay(for: weekStart)),
+                  start <= weekEnd else { return [] }
+            let days = calendar.dateComponents([.day], from: start, to: weekEnd).day ?? 0
+            return (0...days).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
         }
     }
 }

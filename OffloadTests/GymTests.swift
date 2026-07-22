@@ -49,17 +49,46 @@ struct GymTests {
         }
     }
 
-    @Test("datesInScope returns exactly one day for .day and seven for .week")
-    func scopeDateCounts() {
+    @Test("datesInScope returns exactly one day for .day")
+    func dayScopeCount() {
         let cal = utcCalendar
         let day = cal.date(from: DateComponents(year: 2026, month: 7, day: 22))!
         #expect(GymStore.datesInScope(.day(day), now: day, calendar: cal).count == 1)
+    }
 
-        let weekStart = GymStore.startOfWeek(day, calendar: cal)
-        let week = GymStore.datesInScope(.week(weekStart), now: day, calendar: cal)
+    @Test("A week planned from its own Sunday returns all seven days")
+    func fullWeekWhenNowIsTheWeekStart() {
+        let cal = utcCalendar
+        // 2026-07-22 is a Wednesday; startOfWeek gives its Sunday (2026-07-19).
+        let wednesday = cal.date(from: DateComponents(year: 2026, month: 7, day: 22))!
+        let weekStart = GymStore.startOfWeek(wednesday, calendar: cal)
+        let week = GymStore.datesInScope(.week(weekStart), now: weekStart, calendar: cal)
         #expect(week.count == 7)
         #expect(cal.component(.weekday, from: week[0]) == 1)   // Sunday
         #expect(cal.component(.weekday, from: week[6]) == 7)   // Saturday
+    }
+
+    @Test("A week planned mid-week never reaches backward into days that already happened")
+    func weekScopeClipsToToday() {
+        let cal = utcCalendar
+        // 2026-07-22 is a Wednesday: the week's Sunday (07-19) through Tuesday (07-21) are past.
+        let wednesday = cal.date(from: DateComponents(year: 2026, month: 7, day: 22))!
+        let weekStart = GymStore.startOfWeek(wednesday, calendar: cal)   // 2026-07-19 (Sun)
+        let week = GymStore.datesInScope(.week(weekStart), now: wednesday, calendar: cal)
+
+        // Only Wed–Sat (4 days) — never Sun/Mon/Tue, which are before "now".
+        #expect(week.count == 4)
+        #expect(GymStore.dateKey(week.first!) == "2026-07-22")
+        #expect(GymStore.dateKey(week.last!) == "2026-07-25")
+        #expect(!week.contains { $0 < cal.startOfDay(for: wednesday) })
+    }
+
+    @Test("Planning a week that's already entirely in the past returns nothing")
+    func fullyPastWeekReturnsEmpty() {
+        let cal = utcCalendar
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 22))!
+        let lastWeekStart = cal.date(byAdding: .day, value: -7, to: GymStore.startOfWeek(now, calendar: cal))!
+        #expect(GymStore.datesInScope(.week(lastWeekStart), now: now, calendar: cal).isEmpty)
     }
 
     @Test("dateKey formats as yyyy-MM-dd regardless of time-of-day")

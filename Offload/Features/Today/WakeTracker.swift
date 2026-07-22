@@ -22,6 +22,14 @@ enum WakeTracker {
     static func recordOpen(now: Date = Date(), defaults: UserDefaults = .standard, calendar: Calendar = .current) {
         let todayKey = dayKey(now, calendar: calendar)
         guard defaults.string(forKey: wakeDayKey) != todayKey else { return }
+        recordWake(now: now, defaults: defaults, calendar: calendar)
+    }
+
+    /// Record a deliberate "I'm up" moment — always overwrites, even if today's wake was already
+    /// recorded passively (or earlier this same day). An explicit tap is stronger evidence of
+    /// when the day actually starts than "you happened to open the app."
+    static func recordWake(now: Date = Date(), defaults: UserDefaults = .standard, calendar: Calendar = .current) {
+        let todayKey = dayKey(now, calendar: calendar)
         let minute = calendar.component(.hour, from: now) * 60 + calendar.component(.minute, from: now)
         defaults.set(todayKey, forKey: wakeDayKey)
         defaults.set(minute, forKey: wakeMinuteKey)

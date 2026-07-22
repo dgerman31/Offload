@@ -147,9 +147,15 @@ struct GymPlannerService {
             scopeLine = "Plan exactly ONE session, for \(df.string(from: date)) only."
         case let .week(weekStart):
             let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
-            let end = Calendar.current.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
-            scopeLine = "Plan the full week, \(df.string(from: weekStart)) through \(df.string(from: end)) " +
-                "(Sun–Sat) — one session per training day, rest days simply get no session."
+            let cal = Calendar.current
+            let today = cal.startOfDay(for: now)
+            // Never plan backward: if today falls mid-week, the range starts at today, not
+            // Sunday — re-planning days that already happened would wipe out real history.
+            let start = max(cal.startOfDay(for: weekStart), today)
+            let end = cal.date(byAdding: .day, value: 6, to: cal.startOfDay(for: weekStart)) ?? weekStart
+            scopeLine = "Plan from \(df.string(from: start)) through \(df.string(from: end)) " +
+                "— one session per training day, rest days simply get no session. " +
+                "Do not plan anything before \(df.string(from: start))."
         }
 
         let existingSummary = existing.isEmpty ? "None yet." : existing.map {

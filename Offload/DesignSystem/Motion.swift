@@ -12,6 +12,10 @@ enum Motion {
     static let settle = Animation.spring(response: 0.55, dampingFraction: 0.86)
     /// Page-scale changes, e.g. swapping months.
     static let page = Animation.spring(response: 0.45, dampingFraction: 0.88)
+    /// A swipe's release: snapping open/closed, or the final commit-and-clear. Livelier and
+    /// faster than the generic tap-feedback `quick` — a released swipe should feel like it has
+    /// its own momentum, not the same settle as a button press.
+    static let swipeRelease = Animation.spring(response: 0.3, dampingFraction: 0.72)
 }
 
 /// Depth tokens. Premium interfaces read as *layers* — soft, wide shadows doing the work that

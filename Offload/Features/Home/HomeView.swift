@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var appeared = false
     @State private var addingTask = false
     @State private var editingPins = false
+    @State private var planningDay = false
     @State private var focusTask: TaskItem?
     @AppStorage(PinnedProjects.key) private var pinnedCSV = ""
     private var patterns: PatternService { PatternService.shared }
@@ -28,6 +29,13 @@ struct HomeView: View {
 
     private var summary: DaySummary {
         DayDashboard.summary(tasks: store.allTasks, events: store.todayEvents, now: now)
+    }
+
+    /// Anything a wake-up replan could actually place today — undated work, whole-day
+    /// intentions, and overdue items alike (the same candidates `DayPlanner` already knows how
+    /// to place). Only offer the button when there's something worth reorganizing.
+    private var plannableTasks: [TaskItem] {
+        DayPlanner.candidates(from: store.allTasks, on: now, now: now)
     }
 
     /// The single running list: things with no plan, plus anything whose soft day slipped —
@@ -50,6 +58,9 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     heroCard.appearIn(0, when: appeared)
+                    if !plannableTasks.isEmpty {
+                        wakeUpButton.appearIn(1, when: appeared)
+                    }
                     captureBar.appearIn(1, when: appeared)
                     PinnedBento(summaries: pinnedSummaries) { editingPins = true }
                         .appearIn(2, when: appeared).scrollAppear()
@@ -99,9 +110,12 @@ struct HomeView: View {
             .task { await store.loadEvents(around: now) }
             .task { withAnimation(Motion.settle) { appeared = true } }
             .task {
+                // A background clock tick to keep "is this overdue now" correct — not a user
+                // action, so it shouldn't animate the whole dependent view tree every minute.
+                // Anything that wants its own transition (the progress ring) already has one.
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(60))
-                    withAnimation(Motion.standard) { now = Date() }
+                    now = Date()
                 }
             }
             // Keep reminders matched to whatever just changed.
@@ -116,6 +130,11 @@ struct HomeView: View {
             }
             .sheet(isPresented: $editingPins) {
                 PinEditSheet(summaries: projectStore.summaries)
+            }
+            .sheet(isPresented: $planningDay) {
+                DayPlanView(tasks: store.allTasks, events: store.rangeEvents, day: now) {
+                    Task { await NotificationSync.shared.refresh() }
+                }
             }
             .fullScreenCover(item: $focusTask) { task in
                 FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
@@ -194,6 +213,32 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         .elevated(.high)
         .animation(Motion.settle, value: s.headline)
+    }
+
+    // MARK: Wake-up replan
+
+    /// A compact, explicit trigger — never automatic — that reorganizes whatever's left of today
+    /// from right now: undated work, whole-day intentions, and anything overdue all get a real
+    /// try at fitting into what's actually left of the day. Tapping it records this exact moment
+    /// as "when the day started" (stronger evidence than a passive app-open), which shapes the
+    /// planner's window before the preview even appears.
+    private var wakeUpButton: some View {
+        HStack {
+            Button {
+                WakeTracker.recordWake(now: Date())
+                Haptics.light()
+                planningDay = true
+            } label: {
+                Label("I'm up — reorganize today", systemImage: "clock.arrow.circlepath")
+                    .font(.Offload.manrope(13, .semibold))
+                    .foregroundStyle(Color.Offload.indigo)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Color.Offload.indigo.opacity(0.10), in: .capsule)
+            }
+            .buttonStyle(.pressable(scale: 0.97))
+            Spacer(minLength: 0)
+        }
     }
 
     // MARK: Inline capture

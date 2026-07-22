@@ -271,6 +271,20 @@ struct DayPlanView: View {
             if updated.effortMinutes == nil { updated.effortMinutes = item.minutes }
             await TaskEditService.save(updated, original: item.task)
         }
+
+        // Everything gets a real try at today; only what was ALREADY overdue and still didn't
+        // fit rolls forward (see DayPlanner.rolloverToTomorrow's doc for why the line is drawn
+        // there).
+        let startOfDay = Calendar.current.startOfDay(for: day)
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
+        for task in DayPlanner.rolloverToTomorrow(from: plan.unplaced, on: day) {
+            var updated = task
+            updated.dueDate = DueDate.canonicalString(from: tomorrow)
+            updated.dueIsAllDay = true
+            updated.pinned = false
+            await TaskEditService.save(updated, original: task)
+        }
+
         applying = false
         Haptics.success()
         onApplied?()

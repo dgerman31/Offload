@@ -225,7 +225,8 @@ final class CaptureService {
         let existingTasks = (try? await db.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
         }) ?? []
-        let fittedTasks = AutoFit.fitIntoToday(new: finalTasks, existing: existingTasks)
+        let fittedTasks = AutoFit.fitIntoToday(new: finalTasks, existing: existingTasks,
+                                                cutoffHour: DayPlanner.storedDayEndHour())
 
         // 3. Persist surviving project + tasks and any merge backfills in one transaction.
         let project = prepared.project

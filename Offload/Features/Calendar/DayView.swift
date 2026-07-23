@@ -438,15 +438,56 @@ private extension View {
     @ViewBuilder
     func reorderable(_ item: DayItem, onDrop: @escaping (_ draggedID: String, _ targetID: String) -> Void) -> some View {
         if case let .task(task) = item, !task.isAnchored {
-            self
-                .draggable(task.id)
-                .dropDestination(for: String.self) { items, _ in
-                    guard let draggedID = items.first, draggedID != task.id else { return }
-                    onDrop(draggedID, task.id)
-                }
+            self.modifier(ReorderableRow(task: task, onDrop: onDrop))
         } else {
             self
         }
+    }
+}
+
+/// Backs `.reorderable`. A plain `View` extension function can't hold `@State`, and two things
+/// here need it: the row's own on-screen width, so the drag preview can be pinned to it instead
+/// of SwiftUI's default auto-generated preview (which otherwise hugs a `maxWidth: .infinity`
+/// row down to its intrinsic content size — visibly smaller than the row actually is); and
+/// whether this row is the current drop target, so a dotted placeholder can mark exactly where
+/// letting go would insert the dragged task, before you commit to it.
+private struct ReorderableRow: ViewModifier {
+    let task: TaskItem
+    let onDrop: (_ draggedID: String, _ targetID: String) -> Void
+
+    @State private var width: CGFloat = 0
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { width = proxy.size.width }
+                        .onChange(of: proxy.size.width) { _, new in width = new }
+                }
+            )
+            .overlay(alignment: .top) {
+                if isTargeted {
+                    Capsule()
+                        .stroke(style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
+                        .foregroundStyle(Color.Offload.indigo)
+                        .frame(height: 2)
+                        .offset(y: -8)
+                        .transition(.opacity)
+                }
+            }
+            .draggable(task.id) {
+                // The same row content, pinned to its captured width — what you see mid-drag
+                // is exactly what was sitting on the day, not a shrunk-down stand-in.
+                content.frame(width: width > 0 ? width : nil)
+            }
+            .dropDestination(for: String.self, action: { items, _ in
+                guard let draggedID = items.first, draggedID != task.id else { return }
+                onDrop(draggedID, task.id)
+            }, isTargeted: { targeted in
+                withAnimation(.easeOut(duration: 0.15)) { isTargeted = targeted }
+            })
     }
 }
 

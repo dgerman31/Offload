@@ -14,6 +14,8 @@ struct SettingsView: View {
     @AppStorage(NotificationService.reviewEnabledKey) private var reviewEnabled = false
     @AppStorage(NotificationService.reviewHourKey) private var reviewHour = NotificationService.defaultReviewHour
     @AppStorage(EnergyProfile.storageKey) private var energyRaw = EnergyProfile.morning.rawValue
+    @AppStorage(DayPlanner.dayStartHourKey) private var dayStartHour = DayPlanner.defaultDayStartHour
+    @AppStorage(DayPlanner.dayEndHourKey) private var dayEndHour = DayPlanner.defaultDayEndHour
     @State private var notificationsDenied = false
 
     /// "8 AM" / "9 PM" for the reminder-time pickers.
@@ -106,6 +108,19 @@ struct SettingsView: View {
                     Text("Reminders")
                 } footer: {
                     Text("All scheduled on-device — nothing is sent to a server. The morning brief tells you what the day holds before it starts.")
+                }
+
+                Section {
+                    Picker("Day starts", selection: $dayStartHour) {
+                        ForEach(5...12, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
+                    }
+                    Picker("Day ends", selection: $dayEndHour) {
+                        ForEach(15...23, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
+                    }
+                } header: {
+                    Text("Scheduling")
+                } footer: {
+                    Text("A capture or task with no specific time gets slotted into whatever's open before \(Self.hourLabel(dayEndHour)). Past that, it schedules into tomorrow instead of sitting unscheduled today.")
                 }
 
                 Section {

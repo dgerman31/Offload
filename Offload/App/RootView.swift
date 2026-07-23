@@ -23,7 +23,7 @@ struct RootView: View {
                     Tab("Home", systemImage: "square.stack.3d.up", value: RootTab.home) { HomeView() }
                     Tab("Day", systemImage: "calendar.day.timeline.left", value: RootTab.calendar) { DayView() }
                     Tab("Gym", systemImage: "figure.strengthtraining.traditional", value: RootTab.gym) { GymView() }
-                    Tab("Search", systemImage: "magnifyingglass", value: RootTab.search) { SearchView() }
+                    Tab("Study", systemImage: "graduationcap.fill", value: RootTab.study) { StudyView() }
                     Tab("Settings", systemImage: "slider.horizontal.3", value: RootTab.settings) { SettingsView() }
                 }
                 .tint(Color.Offload.indigo)
@@ -40,7 +40,7 @@ struct RootView: View {
 
 /// The five Home-level destinations.
 enum RootTab: Hashable {
-    case home, calendar, gym, search, settings
+    case home, calendar, gym, study, settings
 }
 
 #Preview {

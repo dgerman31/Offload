@@ -192,6 +192,33 @@ final class GymStore {
             }
     }
 
+    // MARK: Logging (active workout)
+
+    /// Apply a mutation to one exercise inside a session and persist the whole session — the
+    /// exercise list is one JSON blob, so "check off a set" means rewriting the session, not a
+    /// single-row DB update.
+    func logExercise(_ exerciseId: String, in session: WorkoutSession, mutate: (inout GymExercise) -> Void) async {
+        var exercises = session.exerciseList
+        guard let index = exercises.firstIndex(where: { $0.id == exerciseId }) else { return }
+        mutate(&exercises[index])
+        var updated = session
+        updated.setExerciseList(exercises)
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+    }
+
+    // MARK: Consistency
+
+    /// Completed vs. planned-or-completed sessions for a week — skipped ones don't count against
+    /// you, since a skip already rescheduled the rest of the program forward to absorb it.
+    nonisolated static func weekProgress(
+        _ sessions: [WorkoutSession], weekStart: Date, calendar: Calendar = .current
+    ) -> (completed: Int, total: Int) {
+        let days = Set((0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart).map(dateKey) })
+        let inWeek = sessions.filter { days.contains($0.date) && $0.status != "skipped" }
+        return (inWeek.filter { $0.status == "completed" }.count, inWeek.count)
+    }
+
     private func deleteInternal(_ session: WorkoutSession) async throws {
         var updated = session
         updated.deleted = true

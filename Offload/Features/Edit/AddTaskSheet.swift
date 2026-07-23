@@ -212,7 +212,8 @@ struct AddTaskSheet: View {
         let existing = (try? await AppDatabase.shared.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
         }) ?? []
-        let fitted = AutoFit.fitIntoToday(new: [task], existing: existing).first ?? task
+        let fitted = AutoFit.fitIntoToday(new: [task], existing: existing,
+                                          cutoffHour: DayPlanner.storedDayEndHour()).first ?? task
 
         await TaskActions.create(fitted)
         Haptics.success()

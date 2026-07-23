@@ -122,10 +122,17 @@ struct SwipeToDeleteModifier: ViewModifier {
 
     /// Spring to `target`, inheriting the drag's release velocity. SwiftUI's spring velocity is
     /// expressed as a fraction of the distance still to travel per second, so the raw points/sec
-    /// value is normalized against how far `offset` still has to move.
+    /// value is normalized against how far `offset` still has to move — but when a fast flick
+    /// ends very close to `target`, that distance shrinks toward zero and the same velocity
+    /// normalizes to a wildly oversized fraction, making the spring overshoot hard and ring for
+    /// seconds instead of settling. Clamping keeps a fast flick feeling fast without that blowup.
+    private func normalizedVelocity(_ releaseVelocity: CGFloat, distance: CGFloat) -> CGFloat {
+        guard distance != 0 else { return 0 }
+        return max(-3, min(3, releaseVelocity / distance))
+    }
+
     private func snap(to target: CGFloat, releaseVelocity: CGFloat) {
-        let distance = target - offset
-        let normalized = distance == 0 ? 0 : releaseVelocity / distance
+        let normalized = normalizedVelocity(releaseVelocity, distance: target - offset)
         withAnimation(.interpolatingSpring(duration: 0.3, bounce: 0.15, initialVelocity: normalized)) {
             offset = target
         }
@@ -133,16 +140,21 @@ struct SwipeToDeleteModifier: ViewModifier {
 
     /// Slide the row fully clear of the screen — inheriting release velocity when there is one
     /// (a drag-triggered delete), or a plain spring when there isn't (tapping the Delete button
-    /// directly) — and only remove the underlying data once that animation has actually
-    /// finished, so the mutation never races the visual.
+    /// directly). The actual deletion fires on a fixed short delay rather than the animation's
+    /// own completion callback: an oversized (pre-clamp) velocity could make the spring's
+    /// "logically complete" moment arrive seconds late, leaving the row stuck fully red on
+    /// screen — visibly wrong, and the exact "trash can never goes away" symptom this exists to
+    /// avoid. A fixed delay times the removal to roughly when the slide is visually done, every
+    /// time, regardless of how the spring itself behaves.
     private func confirmDelete(releaseVelocity: CGFloat = 0) {
         isDeleting = true
         let target = rowWidth + 80
-        let distance = target - offset
-        let normalized = distance == 0 ? 0 : releaseVelocity / distance
+        let normalized = normalizedVelocity(releaseVelocity, distance: target - offset)
         withAnimation(.interpolatingSpring(duration: 0.3, bounce: 0.1, initialVelocity: normalized)) {
             offset = target
-        } completion: {
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(280))
             onDelete()
         }
     }

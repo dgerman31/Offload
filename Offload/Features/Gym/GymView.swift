@@ -66,34 +66,67 @@ struct GymView: View {
     // MARK: Week navigation
 
     private var weekHeader: some View {
-        HStack {
-            Button {
-                withAnimation(Motion.page) { weekStart = Calendar.current.date(byAdding: .day, value: -7, to: weekStart) ?? weekStart }
-            } label: {
-                Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold))
-            }
-            .buttonStyle(.pressable(scale: 0.85))
+        VStack(spacing: 6) {
+            HStack {
+                Button {
+                    withAnimation(Motion.page) { weekStart = Calendar.current.date(byAdding: .day, value: -7, to: weekStart) ?? weekStart }
+                } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold))
+                }
+                .buttonStyle(.pressable(scale: 0.85))
 
-            Spacer(minLength: 0)
-            VStack(spacing: 1) {
-                Text(weekTitle).font(.Offload.manrope(15, .bold)).foregroundStyle(Color.Offload.text)
-                if !Calendar.current.isDate(weekStart, inSameDayAs: GymStore.startOfWeek(Date())) {
-                    Button("This week") {
-                        withAnimation(Motion.page) { weekStart = GymStore.startOfWeek(Date()) }
+                Spacer(minLength: 0)
+                VStack(spacing: 1) {
+                    Text(weekTitle).font(.Offload.manrope(15, .bold)).foregroundStyle(Color.Offload.text)
+                    if !Calendar.current.isDate(weekStart, inSameDayAs: GymStore.startOfWeek(Date())) {
+                        Button("This week") {
+                            withAnimation(Motion.page) { weekStart = GymStore.startOfWeek(Date()) }
+                        }
+                        .font(.caption).foregroundStyle(Color.Offload.indigo)
                     }
-                    .font(.caption).foregroundStyle(Color.Offload.indigo)
+                }
+                Spacer(minLength: 0)
+
+                Button {
+                    withAnimation(Motion.page) { weekStart = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart }
+                } label: {
+                    Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
+                }
+                .buttonStyle(.pressable(scale: 0.85))
+            }
+            .foregroundStyle(Color.Offload.muted)
+
+            if weekProgress.total > 0 {
+                weekProgressBar
+            }
+        }
+    }
+
+    /// "3 of 4 done this week" — the plan already exists to look at; this is the one place that
+    /// says out loud whether it's actually being followed, so consistency is visible without
+    /// having to open every day's card and count checkmarks yourself.
+    private var weekProgress: (completed: Int, total: Int) {
+        GymStore.weekProgress(store.sessions, weekStart: weekStart)
+    }
+
+    private var weekProgressBar: some View {
+        let progress = weekProgress
+        let fraction = progress.total == 0 ? 0 : Double(progress.completed) / Double(progress.total)
+        return HStack(spacing: 8) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.Offload.divider)
+                    Capsule().fill(Color.Offload.indigo)
+                        .frame(width: proxy.size.width * fraction)
                 }
             }
-            Spacer(minLength: 0)
-
-            Button {
-                withAnimation(Motion.page) { weekStart = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart }
-            } label: {
-                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
-            }
-            .buttonStyle(.pressable(scale: 0.85))
+            .frame(height: 5)
+            Text("\(progress.completed) of \(progress.total) done")
+                .font(.caption).fontWeight(.medium)
+                .foregroundStyle(Color.Offload.muted)
+                .lineLimit(1).fixedSize()
         }
-        .foregroundStyle(Color.Offload.muted)
+        .animation(Motion.smooth, value: progress.completed)
     }
 
     private var weekTitle: String {

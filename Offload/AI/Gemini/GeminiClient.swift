@@ -74,7 +74,7 @@ struct GeminiClient: Sendable {
     var model: String = GeminiClient.defaultModel
     var timeout: TimeInterval = 20
 
-    static let defaultModel = "gemini-3.1-flash-lite"
+    static let defaultModel = "gemini-3.5-flash-lite"
 
     private var endpoint: URL? {
         URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent")

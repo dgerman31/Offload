@@ -8,35 +8,50 @@ import Foundation
 /// moved.
 enum AutoFit {
 
-    /// Return `new` with each plannable task given a soft time in today's open slots, scheduling
-    /// around today's already-committed work. "Plannable" is broader than "undated": a task the
-    /// model stamped for *today* without a real clock time (all-day, or an unpinned guess) also
-    /// gets a proper slot — that's the common case, since the model sets a due date for most
-    /// captures. Pure, so it's unit-tested; the caller persists the result.
+    /// Return `new` with each plannable task given a soft time in the open slots of whichever day
+    /// it should land on, scheduling around that day's already-committed work. "Plannable" is
+    /// broader than "undated": a task the model stamped for *today* without a real clock time
+    /// (all-day, or an unpinned guess) also gets a proper slot — that's the common case, since
+    /// the model sets a due date for most captures. Pure, so it's unit-tested; the caller
+    /// persists the result.
+    ///
+    /// `cutoffHour` is the user's "my day ends at" preference (Settings → Scheduling, the same
+    /// value `DayPlanner`'s waking window and "Plan my day" use — one clock, not two). Past it,
+    /// there's no realistic "later today" left to search: rather than hunt a closed window and
+    /// fall back to dumping the task on today anyway (the original bug — every capture after
+    /// that hour landed in "Anytime" no matter what), the whole search moves to tomorrow instead.
     static func fitIntoToday(
         new: [TaskItem],
         existing: [TaskItem],
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        cutoffHour: Int = DayPlanner.defaultDayEndHour
     ) -> [TaskItem] {
         let targets = new.filter { needsPlanning($0, now: now, calendar: calendar) }
         guard !targets.isEmpty else { return new }
 
-        let today = calendar.startOfDay(for: now)
+        let pastCutoff = calendar.component(.hour, from: now) >= cutoffHour
+        let planningDay = pastCutoff
+            ? calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+            : calendar.startOfDay(for: now)
+        // A fresh day tomorrow has nothing yet to skip past; today, the search still starts now.
+        let searchFrom = pastCutoff ? planningDay : now
 
-        // Everything already holding a real clock time today is busy time we schedule around —
-        // existing tasks and (implicitly, since they aren't passed here) events elsewhere.
+        // Everything already holding a real clock time on the planning day is busy time we
+        // schedule around — existing tasks and (implicitly, since they aren't passed here)
+        // events elsewhere.
         let busy: [CalendarEvent] = existing.compactMap { task in
             guard task.status != "completed", !task.deleted, !task.dueIsAllDay,
                   let start = DueDate.parse(task.dueDate),
-                  calendar.isDate(start, inSameDayAs: now) else { return nil }
+                  calendar.isDate(start, inSameDayAs: planningDay) else { return nil }
             let minutes = task.effortMinutes ?? 30
             let end = calendar.date(byAdding: .minute, value: minutes, to: start) ?? start
             return CalendarEvent(id: task.id, title: task.title, start: start, end: end,
                                  isAllDay: false, location: nil, colorHex: nil)
         }
 
-        let slots = DayPlanner.freeSlots(events: busy, on: today, now: now, calendar: calendar)
+        let slots = DayPlanner.freeSlots(events: busy, on: planningDay, now: searchFrom,
+                                          calendar: calendar, dayEndHour: cutoffHour)
         var cursors = slots.map(\.start)
         var placed: [String: Date] = [:]
 
@@ -62,7 +77,7 @@ enum AutoFit {
                 t.dueDate = DueDate.canonicalString(from: start)   // soft timed slot
                 t.dueIsAllDay = false
             } else {
-                t.dueDate = DueDate.canonicalString(from: today)   // no gap → still today, all-day
+                t.dueDate = DueDate.canonicalString(from: planningDay)   // no gap → whole-day intention
                 t.dueIsAllDay = true
             }
             t.pinned = false             // movable: the user never asked for this exact time

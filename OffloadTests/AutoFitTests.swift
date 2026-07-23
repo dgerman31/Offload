@@ -60,4 +60,39 @@ struct AutoFitTests {
         let out = AutoFit.fitIntoToday(new: [tomorrow], existing: [], now: now, calendar: cal)[0]
         #expect(out.dueDate == tomorrow.dueDate)   // untouched
     }
+
+    // MARK: Past the day's cutoff — roll to tomorrow instead of "Anytime" today
+
+    @Test("A capture made past the cutoff hour gets a real slot tomorrow, not dumped on today")
+    func pastCutoffRollsToTomorrow() {
+        let now = at(22)   // 10pm, past the default 9pm cutoff
+        let loose = TaskItem(title: "Read cardio chapter", effortMinutes: 30)
+        let t = AutoFit.fitIntoToday(new: [loose], existing: [], now: now, calendar: cal,
+                                     cutoffHour: DayPlanner.defaultDayEndHour)[0]
+        #expect(t.dueIsAllDay == false)   // a real slot, not the old "still today, all-day" fallback
+        let due = DueDate.parse(t.dueDate)
+        #expect(due.map { cal.isDate($0, inSameDayAs: now) } == false)   // not today
+        #expect(due.map { $0 > now } == true)                            // tomorrow, in the future
+    }
+
+    @Test("Past cutoff, tomorrow's own busy time is still respected")
+    func pastCutoffSchedulesAroundTomorrowsBusyWork() {
+        let now = at(22)
+        let busyTomorrow = TaskItem(title: "Clinic", dueDate: "2026-07-21T09:00", effortMinutes: 120)
+        let fresh = TaskItem(title: "Email advisor", effortMinutes: 30)
+        let out = AutoFit.fitIntoToday(new: [fresh], existing: [busyTomorrow], now: now, calendar: cal,
+                                       cutoffHour: DayPlanner.defaultDayEndHour)[0]
+        let due = DueDate.parse(out.dueDate)
+        #expect(due.map { cal.isDate($0, inSameDayAs: cal.date(byAdding: .day, value: 1, to: now)!) } == true)
+        #expect(due.map { cal.component(.hour, from: $0) >= 11 } == true)   // after the 9-11 clinic block
+    }
+
+    @Test("Before the cutoff hour, today's own search still applies as before")
+    func beforeCutoffStillFitsToday() {
+        let now = at(20)   // 8pm, still before the default 9pm cutoff
+        let loose = TaskItem(title: "Quick email", effortMinutes: 15)
+        let t = AutoFit.fitIntoToday(new: [loose], existing: [], now: now, calendar: cal,
+                                     cutoffHour: DayPlanner.defaultDayEndHour)[0]
+        #expect(DueDate.parse(t.dueDate).map { cal.isDate($0, inSameDayAs: now) } == true)
+    }
 }

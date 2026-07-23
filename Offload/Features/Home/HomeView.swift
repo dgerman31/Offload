@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var now = Date()
     @State private var appeared = false
     @State private var addingTask = false
+    @State private var searching = false
     @State private var editingPins = false
     @State private var planningDay = false
     @State private var justPlannedDay = false
@@ -107,6 +108,16 @@ struct HomeView: View {
                     .accessibilityLabel("Add task")
                 }
                 ToolbarItem(placement: .primaryAction) {
+                    // Search moved off the tab bar (Study took its slot) but stays one tap
+                    // away rather than disappearing, same reachability the capture/add icons
+                    // already get here.
+                    Button { searching = true } label: {
+                        Image(systemName: "magnifyingglass.circle.fill").font(.title2)
+                    }
+                    .buttonStyle(.pressable(scale: 0.9))
+                    .accessibilityLabel("Search")
+                }
+                ToolbarItem(placement: .primaryAction) {
                     Button { capture.beginCapture() } label: {
                         Image(systemName: "bolt.circle.fill").font(.title2)
                     }
@@ -163,6 +174,9 @@ struct HomeView: View {
             .sheet(isPresented: $addingTask) {
                 AddTaskSheet(initialDate: nil)
             }
+            .sheet(isPresented: $searching) {
+                SearchView()
+            }
             .sheet(isPresented: $editingPins) {
                 PinEditSheet(summaries: projectStore.summaries)
             }
@@ -185,8 +199,17 @@ struct HomeView: View {
             .fullScreenCover(item: $focusTask) { task in
                 FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
             }
-            .overlay(alignment: .bottom) { undoOverlay }
-            .animation(Motion.standard, value: store.undo?.id)
+            // Scoped to just the overlay, not the whole screen: this used to sit on the
+            // NavigationStack itself, which meant *every* change to `store.undo` put the entire
+            // scroll content — including whatever row a delete/complete had just added or
+            // removed from the ForEach below — into the same animated transaction as the banner.
+            // A delete both changes `undo` and removes a row at the same instant, so that's
+            // exactly the moment two unrelated animations could collide and produce a visibly
+            // wrong result elsewhere on screen (the "zoomed in" report). The banner's own
+            // `.transition` still animates fine from an animation this close to it.
+            .overlay(alignment: .bottom) {
+                undoOverlay.animation(Motion.standard, value: store.undo?.id)
+            }
         }
     }
 

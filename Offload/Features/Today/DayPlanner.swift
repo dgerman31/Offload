@@ -17,6 +17,16 @@ enum DayPlanner {
     static let defaultDayStartHour = 9
     static let defaultDayEndHour = 21
 
+    /// The user's "my day ends at" preference (Settings → Scheduling, and the same value the
+    /// "Plan my day" sheet's own picker edits) — one setting, read by anything that needs to know
+    /// when today is effectively over. `UserDefaults.integer(forKey:)` returns 0 for a key
+    /// that's never been written, so an unset preference falls back to the default rather than
+    /// reading as midnight.
+    nonisolated static func storedDayEndHour(defaults: UserDefaults = .standard) -> Int {
+        let stored = defaults.integer(forKey: dayEndHourKey)
+        return stored > 0 ? stored : defaultDayEndHour
+    }
+
     /// Breathing room between scheduled tasks; back-to-back plans never survive contact.
     static let bufferMinutes = 5
     /// Gaps shorter than this aren't worth planning into.

@@ -16,7 +16,7 @@ enum CustomCategories {
     static let maxCustom = 6
 
     /// The immutable defaults, which can never be removed — tasks always have somewhere to live.
-    static let builtIn = ["Work", "Personal", "Health", "Finance", "Projects", "Ideas", "Habits", "Other"]
+    static let builtIn = ["Work", "Personal", "Health", "Finance", "Projects", "Ideas", "Habits", "Study", "Other"]
 
     static func load(_ defaults: UserDefaults = .standard) -> [String] {
         guard let json = defaults.string(forKey: storageKey),

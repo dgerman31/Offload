@@ -167,4 +167,51 @@ struct GymTests {
         let shifts = GymStore.cascadeAfterSkip(skipped, in: [earlier, alreadyDone], calendar: cal)
         #expect(shifts.isEmpty)
     }
+
+    // MARK: Set logging
+
+    @Test("An exercise with a set count is logged once every set is checked off, not before")
+    func isLoggedTracksSetCount() {
+        var exercise = GymExercise(name: "Squat", sets: 3, reps: "5")
+        #expect(exercise.isLogged == false)
+        exercise.completedSets = 2
+        #expect(exercise.isLogged == false)
+        exercise.completedSets = 3
+        #expect(exercise.isLogged == true)
+    }
+
+    @Test("A set-less item (a hold, a stretch) logs as done the moment it's touched at all")
+    func isLoggedWithNoSetCountNeedsOnlyOneTouch() {
+        var exercise = GymExercise(name: "Couch stretch", sets: nil, reps: "60 sec", isMobility: true)
+        #expect(exercise.isLogged == false)
+        exercise.completedSets = 1
+        #expect(exercise.isLogged == true)
+    }
+
+    // MARK: Weekly consistency
+
+    @Test("weekProgress counts completed against planned-or-completed, ignoring skipped")
+    func weekProgressCountsCorrectly() {
+        let cal = utcCalendar
+        let sunday = cal.date(from: DateComponents(year: 2026, month: 7, day: 19))!
+        var done = WorkoutSession(title: "Push", date: "2026-07-20")
+        done.status = "completed"
+        let planned = WorkoutSession(title: "Legs", date: "2026-07-21")
+        var skipped = WorkoutSession(title: "Pull", date: "2026-07-22")
+        skipped.status = "skipped"
+        let nextWeek = WorkoutSession(title: "Push", date: "2026-07-27")   // outside this week
+
+        let progress = GymStore.weekProgress([done, planned, skipped, nextWeek], weekStart: sunday, calendar: cal)
+        #expect(progress.completed == 1)
+        #expect(progress.total == 2)   // done + planned; skipped and next week's don't count
+    }
+
+    @Test("A week with no sessions at all reports 0 of 0")
+    func weekProgressEmptyWeek() {
+        let cal = utcCalendar
+        let sunday = cal.date(from: DateComponents(year: 2026, month: 7, day: 19))!
+        let progress = GymStore.weekProgress([], weekStart: sunday, calendar: cal)
+        #expect(progress.completed == 0)
+        #expect(progress.total == 0)
+    }
 }

@@ -50,6 +50,7 @@ extension Color.Offload {
         case "Projects": return Color(light: 0x7A5AE0, dark: 0x9E86F0)   // violet
         case "Ideas":    return Color(light: 0x1AA0B8, dark: 0x45C2D8)   // teal
         case "Habits":   return Color(light: 0x2E8BC9, dark: 0x5FAEE5)   // sky
+        case "Study":    return Color(light: 0x4F46E5, dark: 0x818CF8)   // indigo
         default:         return Color(light: 0x6B7280, dark: 0x9AA0AA)   // slate
         }
     }

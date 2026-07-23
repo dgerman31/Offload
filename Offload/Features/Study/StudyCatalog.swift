@@ -55,8 +55,19 @@ enum StudySystem: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Total real Anki cards across every subtopic — shown as the system's own summary.
-    var totalAnkiCards: Int { subtopics.reduce(0) { $0 + $1.ankiCardCount } }
+    /// Total real, *distinct* Anki cards for the whole system — shown as the system's own
+    /// summary. Deliberately not a sum of the subtopic counts above: a card can carry more than
+    /// one subtopic subtag at once (the exact double-counting bug this session already found
+    /// and fixed once, at the system-tag level), so summing would overstate the true total by
+    /// however many cards straddle two subtopics. These are the verified deduplicated counts
+    /// read directly off the real collection.
+    var totalAnkiCards: Int {
+        switch self {
+        case .neuro:      return 2389
+        case .hematology: return 1750
+        case .repro:      return 1487
+        }
+    }
 }
 
 struct StudySubtopic: Identifiable, Hashable {

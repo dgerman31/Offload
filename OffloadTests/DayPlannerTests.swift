@@ -179,8 +179,9 @@ struct DayPlannerTests {
         #expect(first.task.title == "Deep work")
         #expect(first.start == date(9))
         #expect(first.end == date(9, 30))
-        // The next one starts after a buffer, not back-to-back.
-        #expect(plan.scheduled[1].start == date(9, 35))
+        // The next one starts after a buffer, not back-to-back — and 9:30 + 5min buffer (9:35)
+        // isn't itself a quarter-hour mark, so it rounds up once more to 9:45.
+        #expect(plan.scheduled[1].start == date(9, 45))
     }
 
     @Test("Work that can't fit is reported, not crammed in")

@@ -4,9 +4,11 @@ import SwiftUI
 ///
 /// Two independent swipes, per the redesign: the week strip on top pages **week by week**
 /// (Sun–Sat), and the agenda body pages **day by day**. Selecting a day in the strip moves the
-/// body; swiping the body moves the strip. Real events and timed tasks render as colour-blocked
-/// time ranges with gaps shown as breaks; all-day and undated work sits in an "Anytime" group
-/// below. Everything is theme-aware — the layout is the mockup's, the palette adapts light/dark.
+/// body; swiping the body moves the strip. Real events and timed tasks render on a real
+/// time-grid (`DayTimeGrid`) positioned and sized by their actual clock time, with any task —
+/// including a Gym-linked or pinned one — draggable to any 15-minute slot; all-day and undated
+/// work sits in an "Anytime" group below. Everything is theme-aware — the palette adapts
+/// light/dark.
 struct DayView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var store = TaskStore()
@@ -195,74 +197,79 @@ struct DayView: View {
     /// A time-grid block — compact by design, since a block's height is dictated by its real
     /// duration (as little as 15 minutes) rather than however much its content needs, unlike the
     /// old free-flowing agenda card. Left border carries the category accent.
+    ///
+    /// Deliberately not a `Button`: a `Button`'s tap recognition is a separate, opaque gesture
+    /// recognizer that can't know a sibling drag gesture (the grid's long-press-reschedule, or
+    /// `.swipeToDelete`'s own swipe) already decided the same touch was something else — which
+    /// is exactly how a completed drag-to-reschedule, or a completed swipe, could *also* open
+    /// this row's detail sheet. `.swipeToDelete(onTap:onDelete:)` now owns tap-vs-swipe itself
+    /// from a single gesture, so there's nothing left to race against.
     private func gridBlockContent(_ entry: TimedEntry) -> some View {
         let accent = self.accent(entry.item)
-        return Button { open(entry.item) } label: {
-            HStack(spacing: 8) {
-                Rectangle().fill(accent).frame(width: 3)
-                if case let .task(task) = entry.item {
-                    Button { Task { await store.toggleComplete(task) } } label: {
-                        Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
-                            .symbolEffect(.bounce, value: task.status)
-                    }
-                    .buttonStyle(.pressable(scale: 0.85))
+        return HStack(spacing: 8) {
+            Rectangle().fill(accent).frame(width: 3)
+            if case let .task(task) = entry.item {
+                Button { Task { await store.toggleComplete(task) } } label: {
+                    Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
+                        .symbolEffect(.bounce, value: task.status)
                 }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.item.title)
-                        .font(.Offload.manrope(13, .bold))
-                        .foregroundStyle(Color.Offload.text)
-                        .lineLimit(1)
-                    Text("\(CalendarView.time(entry.start)) – \(CalendarView.time(entry.end))")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.Offload.muted)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
+                .buttonStyle(.pressable(scale: 0.85))
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(accent.opacity(0.12), in: .rect(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(accent.opacity(0.25), lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.item.title)
+                    .font(.Offload.manrope(13, .bold))
+                    .foregroundStyle(Color.Offload.text)
+                    .lineLimit(1)
+                Text("\(CalendarView.time(entry.start)) – \(CalendarView.time(entry.end))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.Offload.muted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
         }
-        .buttonStyle(.pressable(scale: 0.98))
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(accent.opacity(0.12), in: .rect(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .strokeBorder(accent.opacity(0.25), lineWidth: 0.5))
+        .contentShape(Rectangle())
         .contextMenu { blockMenu(entry.item) }
-        .swipeToDelete(ifTask: entry.item) { task in Task { await store.delete(task) } }
+        .swipeToDelete(ifTask: entry.item, onTap: { open(entry.item) }) { task in Task { await store.delete(task) } }
     }
 
     /// A whole-day event or undated task — no clock, so it reads as an intention, not a block.
+    /// Not a `Button`, same reasoning as `gridBlockContent`: `.swipeToDelete(onTap:onDelete:)`
+    /// owns the tap so it can't race the swipe gesture.
     private func untimedBlock(_ item: DayItem) -> some View {
         let accent = self.accent(item)
-        return Button { open(item) } label: {
-            HStack(spacing: 10) {
-                if case let .task(task) = item {
-                    Button { Task { await store.toggleComplete(task) } } label: {
-                        Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
-                            .symbolEffect(.bounce, value: task.status)
-                    }
-                    .buttonStyle(.pressable(scale: 0.85))
-                } else {
-                    Circle().fill(accent).frame(width: 8, height: 8)
+        return HStack(spacing: 10) {
+            if case let .task(task) = item {
+                Button { Task { await store.toggleComplete(task) } } label: {
+                    Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
+                        .symbolEffect(.bounce, value: task.status)
                 }
-                Text(item.title)
-                    .font(.Offload.taskTitle)
-                    .foregroundStyle(Color.Offload.text)
-                Spacer(minLength: 8)
-                Text(item.isEvent ? "All day" : "Planned")
-                    .font(.Offload.data)
-                    .foregroundStyle(Color.Offload.muted)
+                .buttonStyle(.pressable(scale: 0.85))
+            } else {
+                Circle().fill(accent).frame(width: 8, height: 8)
             }
-            .padding(13)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(accent.opacity(0.10), in: .rect(cornerRadius: 12, style: .continuous))
+            Text(item.title)
+                .font(.Offload.taskTitle)
+                .foregroundStyle(Color.Offload.text)
+            Spacer(minLength: 8)
+            Text(item.isEvent ? "All day" : "Planned")
+                .font(.Offload.data)
+                .foregroundStyle(Color.Offload.muted)
         }
-        .buttonStyle(.pressable(scale: 0.99))
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(accent.opacity(0.10), in: .rect(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
         .contextMenu { blockMenu(item) }
-        .swipeToDelete(ifTask: item) { task in Task { await store.delete(task) } }
+        .swipeToDelete(ifTask: item, onTap: { open(item) }) { task in Task { await store.delete(task) } }
         .reorderable(id: item.id, enabled: isFlexibleTask(item), onDrop: handleDrop)
     }
 
@@ -315,14 +322,16 @@ struct DayView: View {
     // MARK: Timing helpers
 
     /// A timed entry with a resolved start/end, ready to render as a grid block. Conforms to
-    /// `DayGridEntry` so `DayTimeGrid` can position, size, and (for flexible tasks) drag it.
+    /// `DayGridEntry` so `DayTimeGrid` can position, size, and drag it. Any task — including a
+    /// Gym-linked or otherwise pinned one — is draggable; only a real calendar event isn't
+    /// (rescheduling one of those would need writing back to EventKit, a different feature).
     private struct TimedEntry: Identifiable, DayGridEntry {
         let item: DayItem
         let start: Date
         let end: Date
         var id: String { item.id }
         var isDraggable: Bool {
-            if case let .task(task) = item { return !task.isAnchored }
+            if case .task = item { return true }
             return false
         }
     }
@@ -369,13 +378,16 @@ struct DayView: View {
 
 private extension View {
     /// Swipe-to-delete for a `DayItem` block — only tasks are deletable this way; a real
-    /// calendar event is edited/deleted through its own native editor instead.
+    /// calendar event is edited/deleted through its own native editor instead. `onTap` still
+    /// applies to both: a task gets it via `.swipeToDelete`'s own race-free tap ownership, and
+    /// an event — which has no competing drag gesture to race against here — just gets a plain
+    /// tap gesture.
     @ViewBuilder
-    func swipeToDelete(ifTask item: DayItem, delete: @escaping (TaskItem) -> Void) -> some View {
+    func swipeToDelete(ifTask item: DayItem, onTap: @escaping () -> Void, delete: @escaping (TaskItem) -> Void) -> some View {
         if case let .task(task) = item {
-            self.swipeToDelete { delete(task) }
+            self.swipeToDelete(onTap: onTap) { delete(task) }
         } else {
-            self
+            self.onTapGesture(perform: onTap)
         }
     }
 }

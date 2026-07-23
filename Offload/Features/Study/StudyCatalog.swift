@@ -203,11 +203,14 @@ struct StudyLeaf: Identifiable, Hashable {
     var id: String { name }
 }
 
-/// A study resource that stands entirely apart from the Anki tree — one per system, not tied to
-/// any subtopic or leaf. Each has no clean natural unit in the data, so duration is either a
-/// fixed default question count (at the user's own ~2.5 min/question pace) or a fixed plain
-/// duration — never fabricated precision — and always editable afterward through the task's own
-/// normal edit screen like any other task.
+/// A study resource that stands entirely apart from the Anki tree — and from Neuro/Hematology/
+/// Repro too. The user was explicit these have nothing to do with any system ("it will just be
+/// something i add to the schedule like doing a uworld block today"), so each is one plain,
+/// standalone quick-add, same idea as the existing AMBOSS Mixed Review button, just without its
+/// end-of-day placement rule. No clean natural unit in the data either, so duration is a fixed
+/// default question count (at the user's own ~2.5 min/question pace) or a fixed plain duration —
+/// never fabricated precision — and always editable afterward through the task's own normal
+/// edit screen like any other task.
 enum StudyResource: String, CaseIterable, Identifiable {
     case firstAid = "First Aid"
     case uworld = "UWorld"
@@ -232,7 +235,7 @@ enum StudyResource: String, CaseIterable, Identifiable {
     static let defaultFirstAidMinutes = 30
     static let defaultSketchyMinutes = 20
 
-    /// Minutes and a short human-readable volume note for this resource, for one system.
+    /// Minutes and a short human-readable volume note for this resource.
     var plan: (minutes: Int, note: String) {
         switch self {
         case .uworld:
@@ -265,10 +268,6 @@ enum StudyCatalog {
         "Anki: \(system.rawValue) – \(nodeName)"
     }
 
-    static func resourceTitle(system: StudySystem, resource: StudyResource) -> String {
-        "\(resource.rawValue): \(system.rawValue)"
-    }
-
     static let ambossMixedReviewTitle = "AMBOSS Mixed Review"
 
     /// Build (but don't yet schedule or persist) the Anki task for a subtopic or a leaf — both
@@ -282,12 +281,13 @@ enum StudyCatalog {
         )
     }
 
-    /// Build the system-level First Aid/UWorld/AMBOSS/Sketchy task — deliberately not tied to
-    /// any subtopic, per the user's explicit "not a per topic thing".
-    static func makeResourceTask(system: StudySystem, resource: StudyResource) -> TaskItem {
+    /// Build a standalone First Aid/UWorld/AMBOSS/Sketchy task — not tied to any system or
+    /// subtopic at all, per the user's explicit "it has nothing to do with neuro repro and all
+    /// that."
+    static func makeResourceTask(_ resource: StudyResource) -> TaskItem {
         let (minutes, note) = resource.plan
         return TaskItem(
-            title: resourceTitle(system: system, resource: resource),
+            title: resource.rawValue,
             descriptionText: note,
             category: category,
             effortMinutes: minutes

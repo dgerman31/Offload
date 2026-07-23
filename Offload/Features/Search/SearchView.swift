@@ -427,16 +427,19 @@ struct SearchView: View {
                                     Task { await store.toggleComplete(task) }
                                 }
                             } else {
-                                TaskRowView(task: task, onEdit: {
+                                // `onEdit: nil` — moved to `.swipeToDelete`'s `onTap` instead of
+                                // `TaskRowView`'s internal `.onTapGesture`, which would otherwise
+                                // race the swipe's own drag gesture on the same touch.
+                                TaskRowView(task: task, onEdit: nil) {
+                                    Task { await store.toggleComplete(task) }
+                                }
+                                .swipeToDelete(onTap: {
                                     if let gymSessionId = task.gymSessionId {
                                         AppNavigation.shared.openGymSession(gymSessionId)
                                     } else {
                                         editing = task
                                     }
-                                }) {
-                                    Task { await store.toggleComplete(task) }
-                                }
-                                .swipeToDelete { Task { await TaskActions.delete(task) } }
+                                }) { Task { await TaskActions.delete(task) } }
                             }
                         }
                         .padding(.horizontal, selecting ? 0 : 12)

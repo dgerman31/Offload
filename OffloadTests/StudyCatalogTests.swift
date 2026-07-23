@@ -65,10 +65,10 @@ struct StudyCatalogTests {
         #expect(leafTask.descriptionText == "95 cards")
     }
 
-    @Test("makeResourceTask is keyed only by system, never a subtopic")
-    func makeResourceTaskIsSystemLevel() {
-        let task = StudyCatalog.makeResourceTask(system: .repro, resource: .firstAid)
-        #expect(task.title == "First Aid: Repro")
+    @Test("makeResourceTask is a plain standalone block, not tied to any system or subtopic")
+    func makeResourceTaskIsStandalone() {
+        let task = StudyCatalog.makeResourceTask(.firstAid)
+        #expect(task.title == "First Aid")
         #expect(task.category == "Study")
         #expect(task.effortMinutes == StudyResource.defaultFirstAidMinutes)
     }

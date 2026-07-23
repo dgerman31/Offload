@@ -12,8 +12,9 @@ import GRDB
 /// A study pick has no equivalent content — it's just "study this, for about this long" — so
 /// each pick is simply an ordinary `TaskItem`, and several picks become several separate tasks.
 ///
-/// First Aid/UWorld/AMBOSS/Sketchy are deliberately **not** part of the Anki subtopic tree — one
-/// per system, not per subtopic, per the user's explicit "not a per topic thing."
+/// First Aid/UWorld/AMBOSS/Sketchy are deliberately **not** part of the Anki subtopic tree at
+/// all, and not tied to any system either — plain standalone quick-adds, per the user's explicit
+/// "it has nothing to do with neuro repro and all that."
 struct StudyView: View {
     @State private var store = TaskStore()
     @State private var appeared = false
@@ -48,7 +49,7 @@ struct StudyView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     header.appearIn(0, when: appeared)
-                    ambossQuickAdd.appearIn(1, when: appeared)
+                    quickAddSection.appearIn(1, when: appeared)
                     ForEach(Array(StudySystem.allCases.enumerated()), id: \.element) { index, system in
                         systemCard(system)
                             .appearIn(min(index + 2, 8), when: appeared)
@@ -82,9 +83,31 @@ struct StudyView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: AMBOSS quick add
+    // MARK: Quick add — completely separate from the Anki systems below
 
-    private var ambossQuickAdd: some View {
+    /// First Aid, UWorld, AMBOSS, and Sketchy live here, not inside any system card — the user
+    /// was explicit these "have nothing to do with neuro repro and all that." One tap schedules
+    /// a plain, generic block; there's no subtopic or system involved at all.
+    private var quickAddSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("QUICK ADD", systemImage: "bolt.fill")
+                .font(.caption2).fontWeight(.bold).tracking(0.8)
+                .foregroundStyle(Color.Offload.muted)
+
+            ambossMixedReviewButton
+
+            FlowLayout(spacing: 8, lineSpacing: 8) {
+                ForEach(StudyResource.allCases) { resource in
+                    resourceQuickAddButton(resource)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .offloadCard()
+    }
+
+    private var ambossMixedReviewButton: some View {
         let added = addedTitles.contains(StudyCatalog.ambossMixedReviewTitle)
         return Button {
             addOptimistically(StudyCatalog.ambossMixedReviewTitle)
@@ -102,7 +125,7 @@ struct StudyView: View {
                     )
                 VStack(alignment: .leading, spacing: 2) {
                     Text("AMBOSS Mixed Review")
-                        .font(.Offload.manrope(16, .bold))
+                        .font(.Offload.manrope(15, .bold))
                         .foregroundStyle(Color.Offload.text)
                     Text("10 questions · ~25 min · lands at the end of today")
                         .font(.Offload.data)
@@ -111,11 +134,36 @@ struct StudyView: View {
                 Spacer(minLength: 0)
                 addGlyph(added)
             }
-            .padding(16)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .offloadCard()
+            .background(accent.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.pressable(scale: 0.98))
+        .sensoryFeedback(.success, trigger: added)
+    }
+
+    private func resourceQuickAddButton(_ resource: StudyResource) -> some View {
+        let added = addedTitles.contains(resource.rawValue)
+        let (minutes, note) = resource.plan
+        return Button {
+            addOptimistically(resource.rawValue)
+            Task { await add(StudyCatalog.makeResourceTask(resource)) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: resource.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(resource.rawValue).font(.caption).fontWeight(.semibold).foregroundStyle(accent)
+                    Text("\(note) · \(Self.durationLabel(minutes))")
+                        .font(.system(size: 10)).foregroundStyle(accent).opacity(0.75)
+                }
+                addGlyph(added)
+            }
+            .padding(.horizontal, 11).padding(.vertical, 8)
+            .background(accent.opacity(0.12), in: .rect(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.pressable(scale: 0.93))
         .sensoryFeedback(.success, trigger: added)
     }
 
@@ -148,8 +196,6 @@ struct StudyView: View {
             }
             .buttonStyle(.plain)
 
-            resourceRow(system)
-
             if !ankiHidden {
                 VStack(spacing: 2) {
                     ForEach(system.subtopics) { subtopic in
@@ -166,38 +212,6 @@ struct StudyView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .offloadCard()
         .animation(Motion.snappy, value: ankiHidden)
-    }
-
-    /// The four resources that stand apart from the Anki tree — one pick per system, never per
-    /// subtopic.
-    private func resourceRow(_ system: StudySystem) -> some View {
-        FlowLayout(spacing: 8, lineSpacing: 8) {
-            ForEach(StudyResource.allCases) { resource in
-                let title = StudyCatalog.resourceTitle(system: system, resource: resource)
-                let added = addedTitles.contains(title)
-                let (minutes, note) = resource.plan
-                Button {
-                    addOptimistically(title)
-                    Task { await add(StudyCatalog.makeResourceTask(system: system, resource: resource)) }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: resource.icon)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(accent)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(resource.rawValue).font(.caption).fontWeight(.semibold).foregroundStyle(accent)
-                            Text("\(note) · \(Self.durationLabel(minutes))")
-                                .font(.system(size: 10)).foregroundStyle(accent).opacity(0.75)
-                        }
-                        addGlyph(added)
-                    }
-                    .padding(.horizontal, 11).padding(.vertical, 8)
-                    .background(accent.opacity(0.12), in: .rect(cornerRadius: 11, style: .continuous))
-                }
-                .buttonStyle(.pressable(scale: 0.93))
-                .sensoryFeedback(.success, trigger: added)
-            }
-        }
     }
 
     private func subtopicRow(_ system: StudySystem, _ subtopic: StudySubtopic) -> some View {

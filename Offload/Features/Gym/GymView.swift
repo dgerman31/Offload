@@ -280,49 +280,50 @@ struct GymView: View {
         .offloadCard()
     }
 
+    /// Not a `Button` — see `SwipeToDeleteModifier.onTap`'s doc comment. A `Button`'s tap
+    /// recognition is a separate gesture recognizer from the swipe's own drag, and the two race
+    /// on the same touch; `.swipeToDelete(onTap:onDelete:)` now owns tap-vs-swipe from one place.
     private func sessionRow(_ session: WorkoutSession) -> some View {
         let accent = Self.accent(for: session.workoutType)
         let done = session.status == "completed"
-        return Button { editingSession = session } label: {
-            HStack(spacing: 12) {
-                Button {
-                    Task { await store.toggleComplete(session) }
-                } label: {
-                    Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(done ? Color.Offload.green : accent)
-                }
-                .buttonStyle(.pressable(scale: 0.85))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.title)
-                        .font(.Offload.taskTitle)
-                        .foregroundStyle(Color.Offload.text)
-                        .strikethrough(done, color: Color.Offload.muted)
-                    HStack(spacing: 6) {
-                        Text(session.workoutType.capitalized)
-                            .font(.caption2).fontWeight(.semibold)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(accent.opacity(0.14), in: .capsule)
-                            .foregroundStyle(accent)
-                        if !session.muscleGroupList.isEmpty {
-                            Text(session.muscleGroupList.prefix(3).joined(separator: " · "))
-                                .font(.caption).foregroundStyle(Color.Offload.muted)
-                        }
-                        Spacer(minLength: 0)
-                        Text("\(session.durationMinutes)m")
-                            .font(.Offload.data).foregroundStyle(Color.Offload.muted)
-                    }
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.Offload.muted)
+        return HStack(spacing: 12) {
+            Button {
+                Task { await store.toggleComplete(session) }
+            } label: {
+                Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(done ? Color.Offload.green : accent)
             }
-            .padding(11)
-            .background(accent.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
+            .buttonStyle(.pressable(scale: 0.85))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.title)
+                    .font(.Offload.taskTitle)
+                    .foregroundStyle(Color.Offload.text)
+                    .strikethrough(done, color: Color.Offload.muted)
+                HStack(spacing: 6) {
+                    Text(session.workoutType.capitalized)
+                        .font(.caption2).fontWeight(.semibold)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(accent.opacity(0.14), in: .capsule)
+                        .foregroundStyle(accent)
+                    if !session.muscleGroupList.isEmpty {
+                        Text(session.muscleGroupList.prefix(3).joined(separator: " · "))
+                            .font(.caption).foregroundStyle(Color.Offload.muted)
+                    }
+                    Spacer(minLength: 0)
+                    Text("\(session.durationMinutes)m")
+                        .font(.Offload.data).foregroundStyle(Color.Offload.muted)
+                }
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.Offload.muted)
         }
-        .buttonStyle(.pressable(scale: 0.98))
-        .swipeToDelete { Task { await store.delete(session) } }
+        .padding(11)
+        .background(accent.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
+        .swipeToDelete(onTap: { editingSession = session }) { Task { await store.delete(session) } }
     }
 
     static func dayLabel(_ date: Date) -> String {

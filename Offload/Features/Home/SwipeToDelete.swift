@@ -22,13 +22,25 @@ import SwiftUI
 /// a slow drag settles gently, instead of every release using the identical canned motion.
 struct SwipeToDeleteModifier: ViewModifier {
     var onDelete: () -> Void
+    /// The row's own "open" action, now owned by this single gesture rather than a separate
+    /// `Button`/`.onTapGesture` living alongside it. Two independent gesture recognizers on the
+    /// same touch sequence race — a `Button`'s built-in tap detection has no way to know a drag
+    /// gesture elsewhere decided the same touch was a swipe, so it can (and did) still fire on
+    /// release. Recognizing the tap from *inside* this gesture's own `onEnded` removes the race
+    /// by construction: there's only one recognizer now, deciding once, from the same data.
+    var onTap: (() -> Void)? = nil
 
     @State private var offset: CGFloat = 0
     @State private var crossedThreshold = false
     @State private var isDeleting = false
     @State private var rowWidth: CGFloat = 400
+    /// Now that the row itself isn't a real `Button` (see `onTap`'s doc comment), this replaces
+    /// the tactile press-down scale a `Button` used to give for free.
+    @State private var isPressed = false
     private let revealWidth: CGFloat = 84
     private let autoDeleteThreshold: CGFloat = 200
+    /// Below this much total movement, a release counts as a tap rather than any kind of drag.
+    private let tapMovementThreshold: CGFloat = 10
     /// How much a drag past the threshold still moves things, as a fraction of the raw distance —
     /// real resistance instead of an instant hard clamp.
     private let rubberBandFactor: CGFloat = 0.3
@@ -38,13 +50,12 @@ struct SwipeToDeleteModifier: ViewModifier {
             deleteRail
             content
                 .offset(x: offset)
+                .scaleEffect(isPressed ? 0.98 : 1)
+                .animation(Motion.quick, value: isPressed)
                 .simultaneousGesture(drag)
-                // Disabled the instant a reveal starts: without this, releasing a swipe that
-                // didn't fully commit — or the brief animated window before an outright delete
-                // actually removes the row — left the row's own tap target reachable, so a
-                // release that landed back on the row opened its detail sheet instead of just
-                // finishing the swipe. Native swipe actions never let the row underneath react
-                // to a tap while anything is revealed.
+                // Disabled while revealed so the row's *other* interactive elements (a
+                // completion checkbox, say) can't be triggered mid-swipe — the tap-to-open
+                // race itself is now settled inside `drag`'s own `onEnded` below, not by this.
                 .allowsHitTesting(offset == 0)
             if offset > 0 {
                 // Tapping the now-non-interactive row while it's revealed closes the swipe
@@ -94,8 +105,13 @@ struct SwipeToDeleteModifier: ViewModifier {
     }
 
     private var drag: some Gesture {
-        DragGesture(minimumDistance: 12)
+        // `minimumDistance: 0` — not 12 — because this gesture now also owns tap detection
+        // (see `onEnded`): at 12, it would simply never recognize a near-stationary touch at
+        // all, so a genuine tap could never reach the tap-vs-swipe decision below.
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
+                let totalMovement = max(abs(value.translation.width), abs(value.translation.height))
+                isPressed = totalMovement < tapMovementThreshold
                 // A vertical scroll must never be mistaken for a swipe attempt — bail out
                 // entirely (not just "don't act"; `offset` genuinely never moves) whenever the
                 // drag isn't clearly horizontal-dominant yet.
@@ -120,6 +136,20 @@ struct SwipeToDeleteModifier: ViewModifier {
             }
             .onEnded { value in
                 crossedThreshold = false
+                isPressed = false
+                let totalMovement = max(abs(value.translation.width), abs(value.translation.height))
+                guard totalMovement >= tapMovementThreshold else {
+                    // Barely moved at all — a tap, not any kind of drag. Deciding this *here*,
+                    // inside the same gesture that also owns the swipe, is what actually fixes
+                    // the race with a separate `Button`/`.onTapGesture`: there is only ever one
+                    // recognizer looking at this touch, so there's nothing else that could
+                    // still fire independently once this gesture has made its call. Reachable
+                    // only when the row was at rest to begin with — once revealed, `content`'s
+                    // `.allowsHitTesting(offset == 0)` above stops this gesture from receiving
+                    // touches at all, and the separate close-on-tap overlay takes over instead.
+                    onTap?()
+                    return
+                }
                 guard abs(value.translation.width) > abs(value.translation.height) else {
                     withAnimation(Motion.snappy) { offset = 0 }
                     return
@@ -178,8 +208,12 @@ struct SwipeToDeleteModifier: ViewModifier {
 }
 
 extension View {
-    /// Swipe right to reveal Delete (tap to confirm), or drag further to delete outright.
-    func swipeToDelete(_ onDelete: @escaping () -> Void) -> some View {
-        modifier(SwipeToDeleteModifier(onDelete: onDelete))
+    /// Swipe right to reveal Delete (tap to confirm), or drag further to delete outright. Pass
+    /// `onTap` for the row's own "open" action instead of attaching a separate `Button`/
+    /// `.onTapGesture` alongside this modifier — the two are independent gesture recognizers
+    /// that race on the same touch, which is exactly what let a completed swipe still open the
+    /// row's detail sheet. Omit it (as before) for a row with no tap action of its own.
+    func swipeToDelete(onTap: (() -> Void)? = nil, onDelete: @escaping () -> Void) -> some View {
+        modifier(SwipeToDeleteModifier(onDelete: onDelete, onTap: onTap))
     }
 }

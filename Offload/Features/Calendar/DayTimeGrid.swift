@@ -4,19 +4,18 @@ import SwiftUI
 protocol DayGridEntry: Identifiable {
     var start: Date { get }
     var end: Date { get }
-    /// Only flexible (non-anchored) entries can be dragged — pinned times and real calendar
-    /// events are commitments, not a sequence choice, same restriction the old row-to-row
-    /// reorder already had.
+    /// Any task can be dragged to any slot, including a Gym-linked or otherwise pinned one —
+    /// only a real calendar event (not under this app's control to reschedule) can't be.
     var isDraggable: Bool { get }
 }
 
-/// A real time-grid for one day's timed items: gridlines labeled every 30 minutes across the
-/// app's day-start/end window, with each entry positioned and sized by its actual time instead
-/// of stacked in a list. Flexible entries can be long-pressed and dragged to any 15-minute-
-/// aligned point on the grid, including empty space — something native `.draggable`/
-/// `.dropDestination` can't do (there's no discrete view to drop *onto*; the target here is an
-/// arbitrary point on a continuous canvas), so this is a deliberate, scoped exception to
-/// preferring native gesture primitives elsewhere in the app. The long-press gate (nothing
+/// A real time-grid for one day's timed items: gridlines every 30 minutes (only the on-the-hour
+/// ones carry a printed label) across the app's day-start/end window, with each entry positioned
+/// and sized by its actual time instead of stacked in a list. Any task can be long-pressed and
+/// dragged to any 15-minute-aligned point on the grid, including empty space — something native
+/// `.draggable`/`.dropDestination` can't do (there's no discrete view to drop *onto*; the target
+/// here is an arbitrary point on a continuous canvas), so this is a deliberate, scoped exception
+/// to preferring native gesture primitives elsewhere in the app. The long-press gate (nothing
 /// happens on a plain vertical swipe) is what keeps this from fighting the page's own scrolling,
 /// the same reasoning `SwipeToDeleteModifier` uses for its own `.simultaneousGesture`.
 struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
@@ -29,12 +28,14 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     var onReschedule: (Entry, Date) -> Void
     @ViewBuilder var rowContent: (Entry) -> RowContent
 
-    static var hourHeight: CGFloat { 64 }
+    /// Taller than a typical calendar app's default zoom, deliberately — more vertical room per
+    /// hour so a block's own title/time text has space to breathe, at the cost of scrolling
+    /// further to see the whole day.
+    static var hourHeight: CGFloat { 100 }
     private var pointsPerMinute: CGFloat { Self.hourHeight / 60 }
-    /// A block never renders shorter than this, so even a 15-minute task stays legible — real
-    /// calendars make the same trade (a very short event can visually overlap the next one
-    /// rather than collapse to an unreadable sliver).
-    private static var minimumBlockHeight: CGFloat { 40 }
+    /// A block never renders shorter than this, so even a 15-minute task stays legible.
+    private static var minimumBlockHeight: CGFloat { 32 }
+    private static var gutterWidth: CGFloat { 54 }
 
     @State private var draggingID: Entry.ID?
     @State private var liveSnappedStart: Date?
@@ -49,17 +50,48 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
         max(60, Int(windowEnd.timeIntervalSince(windowStart) / 60))
     }
     private var totalHeight: CGFloat { CGFloat(totalMinutes) * pointsPerMinute }
-    private var halfHourMarks: [Int] { Array(stride(from: 0, to: totalMinutes, by: 30)) }
+    /// Only on-the-hour marks get a printed label — a half-hour still gets a lighter tick line
+    /// for rhythm, just no text, so the gutter doesn't turn into a wall of numbers.
+    private var hourMarks: [Int] { Array(stride(from: 0, to: totalMinutes, by: 60)) }
+    private var halfHourOnlyMarks: [Int] { Array(stride(from: 30, to: totalMinutes, by: 60)) }
 
     private func y(for date: Date) -> CGFloat {
         CGFloat(date.timeIntervalSince(windowStart) / 60) * pointsPerMinute
     }
+    private func y(atMinute minute: Int) -> CGFloat { CGFloat(minute) * pointsPerMinute }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            gutter
+        HStack(alignment: .top, spacing: 8) {
+            // Labels and gridlines both derive their Y from the exact same `y(atMinute:)`, in
+            // separate same-height columns, so a label and its line can never drift apart —
+            // the previous version stacked them independently (a `VStack` of per-half-hour
+            // frames for each), which is what actually caused them not to line up.
+            ZStack(alignment: .topTrailing) {
+                ForEach(hourMarks, id: \.self) { minute in
+                    Text(Self.label(windowStart, addingMinutes: minute, calendar: calendar))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.Offload.muted)
+                        .fixedSize()
+                        // Nudged up roughly half this font's line height, so the text sits
+                        // centered on its gridline rather than hanging below it.
+                        .offset(y: y(atMinute: minute) - 7)
+                }
+            }
+            .frame(width: Self.gutterWidth, height: totalHeight, alignment: .topTrailing)
+
             ZStack(alignment: .topLeading) {
-                gridLines
+                ForEach(hourMarks, id: \.self) { minute in
+                    Rectangle()
+                        .fill(Color.Offload.divider)
+                        .frame(height: 1)
+                        .offset(y: y(atMinute: minute))
+                }
+                ForEach(halfHourOnlyMarks, id: \.self) { minute in
+                    Rectangle()
+                        .fill(Color.Offload.divider.opacity(0.45))
+                        .frame(height: 1)
+                        .offset(y: y(atMinute: minute))
+                }
                 ForEach(entries) { entry in
                     block(for: entry)
                 }
@@ -69,33 +101,9 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
         .frame(height: totalHeight)
     }
 
-    private var gutter: some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            ForEach(halfHourMarks, id: \.self) { minuteOffset in
-                Text(Self.label(windowStart, addingMinutes: minuteOffset, calendar: calendar))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.Offload.muted)
-                    .frame(height: 30 * pointsPerMinute, alignment: .top)
-            }
-        }
-        .frame(width: 50, alignment: .trailing)
-    }
-
-    private var gridLines: some View {
-        VStack(spacing: 0) {
-            ForEach(halfHourMarks, id: \.self) { _ in
-                Rectangle()
-                    .fill(Color.Offload.divider)
-                    .frame(height: 1)
-                    .frame(height: 30 * pointsPerMinute, alignment: .top)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     static func label(_ start: Date, addingMinutes minutes: Int, calendar: Calendar) -> String {
         let date = calendar.date(byAdding: .minute, value: minutes, to: start) ?? start
-        let df = DateFormatter(); df.dateFormat = "h:mm a"
+        let df = DateFormatter(); df.dateFormat = "h a"
         return df.string(from: date)
     }
 

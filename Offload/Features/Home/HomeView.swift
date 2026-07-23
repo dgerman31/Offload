@@ -524,11 +524,15 @@ struct HomeView: View {
     }
 
     private func taskRow(_ task: TaskItem) -> some View {
-        TaskRowView(task: task, onEdit: { openTask(task) }) {
+        // `onEdit: nil` — the row's own tap-to-open moves to `.swipeToDelete`'s `onTap` instead
+        // of `TaskRowView`'s internal `.onTapGesture`, which would otherwise be a second,
+        // independent gesture recognizer racing the swipe's drag on the same touch (exactly
+        // what let a completed swipe still open the task's detail).
+        TaskRowView(task: task, onEdit: nil) {
             Task { await store.toggleComplete(task) }
         }
         .contextMenu { taskMenu(task) }
-        .swipeToDelete { Task { await store.delete(task) } }
+        .swipeToDelete(onTap: { openTask(task) }) { Task { await store.delete(task) } }
     }
 
     /// A task that's really the schedule block for a Gym-tab session opens the Gym tab to that

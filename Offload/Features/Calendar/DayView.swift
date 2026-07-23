@@ -483,8 +483,12 @@ private struct ReorderableRow: ViewModifier {
                 content.frame(width: width > 0 ? width : nil)
             }
             .dropDestination(for: String.self, action: { items, _ in
-                guard let draggedID = items.first, draggedID != task.id else { return }
+                // This overload (paired with `isTargeted:` below) reports whether the drop was
+                // actually handled, unlike the simpler single-closure form used before — a
+                // regression introduced when `isTargeted` was added without updating this.
+                guard let draggedID = items.first, draggedID != task.id else { return false }
                 onDrop(draggedID, task.id)
+                return true
             }, isTargeted: { targeted in
                 withAnimation(.easeOut(duration: 0.15)) { isTargeted = targeted }
             })

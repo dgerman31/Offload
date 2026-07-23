@@ -74,6 +74,63 @@ struct DayPlannerTests {
         #expect(slots.isEmpty)
     }
 
+    // MARK: Quarter-hour snapping
+
+    @Test("A time already on a quarter-hour mark is left alone")
+    func roundUpNoOpOnQuarterHour() {
+        for minute in [0, 15, 30, 45] {
+            let exact = date(10, minute)
+            #expect(DayPlanner.roundUpToQuarterHour(exact, calendar: utcCalendar) == exact)
+        }
+    }
+
+    @Test("Times between quarter-hours round up to the next one")
+    func roundUpToNextQuarterHour() {
+        let cases: [(minute: Int, expected: Int)] = [
+            (1, 15), (14, 15), (16, 30), (29, 30), (31, 45), (44, 45), (46, 0), (59, 0)
+        ]
+        for (minute, expected) in cases {
+            let rounded = DayPlanner.roundUpToQuarterHour(date(10, minute), calendar: utcCalendar)
+            let expectedHour = expected == 0 ? 11 : 10
+            #expect(rounded == date(expectedHour, expected),
+                    "10:\(minute) should round to \(expectedHour):\(expected)")
+        }
+    }
+
+    @Test("Leftover seconds push a time forward even when its minute is already a quarter-hour")
+    func roundUpWithLeftoverSeconds() {
+        let messy = utcCalendar.date(byAdding: .second, value: 10, to: date(10, 15))!
+        #expect(DayPlanner.roundUpToQuarterHour(messy, calendar: utcCalendar) == date(10, 30))
+    }
+
+    @Test("A free slot that starts mid-meeting-end still starts on a quarter-hour")
+    func freeSlotsStartOnQuarterHour() {
+        // The meeting ends at 10:07 — the next slot must not start there.
+        let messyEnd = utcCalendar.date(byAdding: .minute, value: 7, to: date(10))!
+        let event = CalendarEvent(id: "m", title: "Meeting", start: date(9), end: messyEnd,
+                                  isAllDay: false, location: nil, colorHex: nil)
+        let slots = DayPlanner.freeSlots(events: [event], on: date(9), now: date(8),
+                                         calendar: utcCalendar, dayStartHour: 9, dayEndHour: 17)
+        #expect(slots.count == 1)
+        #expect(slots[0].start == date(10, 15))   // rounded up from 10:07
+    }
+
+    @Test("Every task the planner places lands on a quarter-hour, even after an odd-length neighbor")
+    func planKeepsEveryTaskOnQuarterHour() {
+        let tasks = [
+            TaskItem(title: "First", priority: "high", effortMinutes: 37),   // an odd length
+            TaskItem(title: "Second", priority: "medium", effortMinutes: 20),
+            TaskItem(title: "Third", priority: "low", effortMinutes: 45)
+        ]
+        let plan = DayPlanner.plan(tasks: tasks, events: [], on: date(9), now: date(9),
+                                   calendar: utcCalendar, dayStartHour: 9, dayEndHour: 17)
+        #expect(plan.scheduled.count == 3)
+        for scheduled in plan.scheduled {
+            let minute = utcCalendar.component(.minute, from: scheduled.start)
+            #expect(minute % 15 == 0, "\(scheduled.task.title) started at :\(minute), not a quarter-hour")
+        }
+    }
+
     // MARK: Candidates
 
     @Test("Candidates are overdue first, then priority, then quickest")

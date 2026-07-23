@@ -206,6 +206,21 @@ final class TaskStore {
         await NotificationSync.shared.refresh()
     }
 
+    /// Persist a task dropped directly onto a specific slot on the Day tab's time-grid — a
+    /// single, exact write, not a re-plan of the whole day the way `applyReorder` is. Stays
+    /// soft/unpinned: dragging to a slot is still a placement choice, not a stated commitment,
+    /// so a later reflow can still move it.
+    func reschedule(_ task: TaskItem, to newStart: Date) async {
+        var updated = task
+        updated.dueDate = DueDate.canonicalString(from: newStart)
+        updated.dueIsAllDay = false
+        updated.pinned = false
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+        Haptics.success()
+        await NotificationSync.shared.refresh()
+    }
+
     /// Reverse the last undoable action by writing its prior state back.
     func performUndo() async {
         guard let restore = undo?.restore else { return }

@@ -39,6 +39,23 @@ struct SwipeToDeleteModifier: ViewModifier {
             content
                 .offset(x: offset)
                 .simultaneousGesture(drag)
+                // Disabled the instant a reveal starts: without this, releasing a swipe that
+                // didn't fully commit — or the brief animated window before an outright delete
+                // actually removes the row — left the row's own tap target reachable, so a
+                // release that landed back on the row opened its detail sheet instead of just
+                // finishing the swipe. Native swipe actions never let the row underneath react
+                // to a tap while anything is revealed.
+                .allowsHitTesting(offset == 0)
+            if offset > 0 {
+                // Tapping the now-non-interactive row while it's revealed closes the swipe
+                // instead of doing nothing — the same thing tapping a row with revealed native
+                // swipe actions does, and the fix for "the red delete stays open" once you've
+                // decided not to delete after all.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .offset(x: offset)
+                    .onTapGesture { snap(to: 0, releaseVelocity: 0) }
+            }
         }
         .clipped()
         .background(

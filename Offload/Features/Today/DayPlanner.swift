@@ -27,6 +27,31 @@ enum DayPlanner {
         return stored > 0 ? stored : defaultDayEndHour
     }
 
+    /// Same idea, for the start of the day — used by the Day tab's time-grid to know where its
+    /// visible window begins.
+    nonisolated static func storedDayStartHour(defaults: UserDefaults = .standard) -> Int {
+        let stored = defaults.integer(forKey: dayStartHourKey)
+        return stored > 0 ? stored : defaultDayStartHour
+    }
+
+    /// Round a moment up to the next quarter-hour mark (:00/:15/:30/:45) — already exactly on
+    /// one is left alone. Applied everywhere a start time gets manufactured (the first candidate
+    /// per free slot, every later slot boundary after a busy interval, each subsequent cursor
+    /// advance) so every scheduled time — auto-placed or dragged by hand on the grid — lands on
+    /// a clean 15-minute mark, never wherever a meeting happened to end or a previous task's
+    /// effort+buffer happened to sum to.
+    nonisolated static func roundUpToQuarterHour(_ date: Date, calendar: Calendar = .current) -> Date {
+        var comps = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second, .nanosecond], from: date)
+        let minute = comps.minute ?? 0
+        let hasLeftoverSeconds = (comps.second ?? 0) != 0 || (comps.nanosecond ?? 0) != 0
+        let remainder = minute % 15
+        guard remainder != 0 || hasLeftoverSeconds else { return date }
+        comps.minute = minute + (remainder == 0 ? 15 : 15 - remainder)
+        comps.second = 0
+        comps.nanosecond = 0
+        return calendar.date(from: comps) ?? date
+    }
+
     /// Breathing room between scheduled tasks; back-to-back plans never survive contact.
     static let bufferMinutes = 5
     /// Gaps shorter than this aren't worth planning into.
@@ -97,12 +122,15 @@ enum DayPlanner {
         }
 
         var slots: [FreeSlot] = []
-        var cursor = effectiveStart
+        // Rounded immediately and every time it advances past a busy interval, so every slot's
+        // own start — not just the very first candidate placed into it — is already
+        // quarter-hour aligned.
+        var cursor = roundUpToQuarterHour(effectiveStart, calendar: calendar)
         for interval in merged {
             if interval.start > cursor {
                 slots.append(FreeSlot(start: cursor, end: interval.start))
             }
-            cursor = max(cursor, interval.end)
+            cursor = roundUpToQuarterHour(max(cursor, interval.end), calendar: calendar)
         }
         if cursor < windowEnd {
             slots.append(FreeSlot(start: cursor, end: windowEnd))
@@ -249,7 +277,8 @@ enum DayPlanner {
 
             if let best {
                 result.scheduled.append(ScheduledTask(task: task, start: best.start, end: best.end))
-                cursors[best.index] = calendar.date(byAdding: .minute, value: bufferMinutes, to: best.end) ?? best.end
+                let afterBuffer = calendar.date(byAdding: .minute, value: bufferMinutes, to: best.end) ?? best.end
+                cursors[best.index] = roundUpToQuarterHour(afterBuffer, calendar: calendar)
                 committedMinutes += effort
             } else {
                 result.unplaced.append(task)

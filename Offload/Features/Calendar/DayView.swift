@@ -146,14 +146,18 @@ struct DayView: View {
                             .font(.Offload.data)
                             .foregroundStyle(Color.Offload.muted)
                     }
-                    VStack(spacing: 10) {
-                        ForEach(Array(timed.enumerated()), id: \.element.item.id) { index, entry in
-                            if index > 0, let gap = gap(timed[index - 1], entry) {
-                                breakBlock(from: gap.start, to: gap.end)
-                            }
-                            timeBlock(entry)
-                        }
-                    }
+                    DayTimeGrid(
+                        entries: timed,
+                        dayStartHour: DayPlanner.storedDayStartHour(),
+                        dayEndHour: DayPlanner.storedDayEndHour(),
+                        day: day,
+                        onReschedule: { entry, newStart in
+                            guard case let .task(task) = entry.item else { return }
+                            didReorder.toggle()
+                            Task { await store.reschedule(task, to: newStart) }
+                        },
+                        rowContent: gridBlockContent
+                    )
                 }
 
                 if !untimed.isEmpty {
@@ -188,55 +192,44 @@ struct DayView: View {
 
     // MARK: Blocks
 
-    /// A colour-blocked time range — the mockup's event/task card, adapted to the app's surface
-    /// tokens so it reads in light or dark. Left border carries the category accent.
-    private func timeBlock(_ entry: TimedEntry) -> some View {
+    /// A time-grid block — compact by design, since a block's height is dictated by its real
+    /// duration (as little as 15 minutes) rather than however much its content needs, unlike the
+    /// old free-flowing agenda card. Left border carries the category accent.
+    private func gridBlockContent(_ entry: TimedEntry) -> some View {
         let accent = self.accent(entry.item)
         return Button { open(entry.item) } label: {
-            HStack(spacing: 0) {
+            HStack(spacing: 8) {
                 Rectangle().fill(accent).frame(width: 3)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text("\(CalendarView.time(entry.start)) – \(CalendarView.time(entry.end))")
-                            .font(.Offload.data)
-                            .foregroundStyle(Color.Offload.muted)
-                        Spacer(minLength: 0)
-                        if case let .task(task) = entry.item {
-                            Button { Task { await store.toggleComplete(task) } } label: {
-                                Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
-                                    .symbolEffect(.bounce, value: task.status)
-                            }
-                            .buttonStyle(.pressable(scale: 0.85))
-                        }
+                if case let .task(task) = entry.item {
+                    Button { Task { await store.toggleComplete(task) } } label: {
+                        Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
+                            .symbolEffect(.bounce, value: task.status)
                     }
-                    Text(entry.item.title)
-                        .font(.Offload.manrope(15, .bold))
-                        .foregroundStyle(Color.Offload.text)
-                        .multilineTextAlignment(.leading)
-                    if let location = location(entry.item) {
-                        Label(location, systemImage: "mappin.and.ellipse")
-                            .font(.caption)
-                            .foregroundStyle(Color.Offload.muted)
-                            .lineLimit(1)
-                    }
-                    if let people = people(entry.item), !people.isEmpty {
-                        avatars(people)
-                    }
+                    .buttonStyle(.pressable(scale: 0.85))
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.item.title)
+                        .font(.Offload.manrope(13, .bold))
+                        .foregroundStyle(Color.Offload.text)
+                        .lineLimit(1)
+                    Text("\(CalendarView.time(entry.start)) – \(CalendarView.time(entry.end))")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.Offload.muted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
             }
-            .background(Color.Offload.surface, in: .rect(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.Offload.hairline, lineWidth: 0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(accent.opacity(0.12), in: .rect(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(accent.opacity(0.25), lineWidth: 0.5))
         }
-        .buttonStyle(.pressable(scale: 0.99))
+        .buttonStyle(.pressable(scale: 0.98))
         .contextMenu { blockMenu(entry.item) }
         .swipeToDelete(ifTask: entry.item) { task in Task { await store.delete(task) } }
-        .reorderable(entry.item, onDrop: handleDrop)
     }
 
     /// A whole-day event or undated task — no clock, so it reads as an intention, not a block.
@@ -270,44 +263,14 @@ struct DayView: View {
         .buttonStyle(.pressable(scale: 0.99))
         .contextMenu { blockMenu(item) }
         .swipeToDelete(ifTask: item) { task in Task { await store.delete(task) } }
-        .reorderable(item, onDrop: handleDrop)
+        .reorderable(id: item.id, enabled: isFlexibleTask(item), onDrop: handleDrop)
     }
 
-    private func breakBlock(from start: Date, to end: Date) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "cup.and.saucer")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.Offload.muted)
-            Text("Free")
-                .font(.Offload.manrope(11, .semibold))
-                .foregroundStyle(Color.Offload.muted)
-            Text("\(CalendarView.time(start)) – \(CalendarView.time(end))")
-                .font(.Offload.data)
-                .foregroundStyle(Color.Offload.muted.opacity(0.8))
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                .foregroundStyle(Color.Offload.divider)
-        )
-    }
-
-    private func avatars(_ names: [String]) -> some View {
-        HStack(spacing: -6) {
-            ForEach(Array(names.prefix(4).enumerated()), id: \.offset) { index, name in
-                let color = Self.avatarColors[index % Self.avatarColors.count]
-                Text(initial(name))
-                    .font(.Offload.manrope(10, .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
-                    .background(color, in: Circle())
-                    .overlay(Circle().strokeBorder(Color.Offload.surface, lineWidth: 1.5))
-            }
-        }
-        .padding(.top, 2)
+    /// Only a flexible (non-anchored) task is a sequence choice — a real event or a pinned
+    /// commitment stays exactly where it is.
+    private func isFlexibleTask(_ item: DayItem) -> Bool {
+        guard case let .task(task) = item else { return false }
+        return !task.isAnchored
     }
 
     @ViewBuilder
@@ -351,8 +314,18 @@ struct DayView: View {
 
     // MARK: Timing helpers
 
-    /// A timed entry with a resolved start/end, ready to render as a block.
-    private struct TimedEntry { let item: DayItem; let start: Date; let end: Date }
+    /// A timed entry with a resolved start/end, ready to render as a grid block. Conforms to
+    /// `DayGridEntry` so `DayTimeGrid` can position, size, and (for flexible tasks) drag it.
+    private struct TimedEntry: Identifiable, DayGridEntry {
+        let item: DayItem
+        let start: Date
+        let end: Date
+        var id: String { item.id }
+        var isDraggable: Bool {
+            if case let .task(task) = item { return !task.isAnchored }
+            return false
+        }
+    }
 
     /// The clock span of an item, or nil if it's all-day / undated.
     private func span(_ item: DayItem) -> (start: Date, end: Date)? {
@@ -380,12 +353,6 @@ struct DayView: View {
         return (start, end)
     }
 
-    /// A free gap between two consecutive blocks, if it's at least 20 minutes and non-overlapping.
-    private func gap(_ a: TimedEntry, _ b: TimedEntry) -> (start: Date, end: Date)? {
-        guard b.start.timeIntervalSince(a.end) >= 20 * 60 else { return nil }
-        return (a.end, b.start)
-    }
-
     private func accent(_ item: DayItem) -> Color {
         switch item {
         case let .event(event): return event.colorHex.map { Color(hex: $0) } ?? Color.Offload.teal
@@ -393,30 +360,11 @@ struct DayView: View {
         }
     }
 
-    private func location(_ item: DayItem) -> String? {
-        if case let .event(event) = item { return event.location }
-        return nil
-    }
-
-    private func people(_ item: DayItem) -> [String]? {
-        if case let .task(task) = item { return People.decode(task.people) }
-        return nil
-    }
-
-    private func initial(_ name: String) -> String {
-        String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
-    }
-
     private func dayHeading(_ day: Date) -> String {
         if Calendar.current.isDate(day, inSameDayAs: now) { return "Today" }
         let df = DateFormatter(); df.dateFormat = "EEEE, MMM d"
         return df.string(from: day)
     }
-
-    private static let avatarColors: [Color] = [
-        Color(hex: 0x7A5AE0), Color(hex: 0xE8547C), Color(hex: 0xD79A2B),
-        Color(hex: 0x2E8BC9), Color(hex: 0x18A97F), Color(hex: 0x4C6FE7)
-    ]
 }
 
 private extension View {
@@ -429,69 +377,6 @@ private extension View {
         } else {
             self
         }
-    }
-
-    /// Long-press and drag to reorder — only for a day's flexible tasks (not anchored/pinned
-    /// ones, not real events, which aren't a sequence choice). Native `.draggable`/
-    /// `.dropDestination` rather than a hand-rolled position-tracking gesture: it already knows
-    /// how to coexist with scrolling and tapping without any extra work here.
-    @ViewBuilder
-    func reorderable(_ item: DayItem, onDrop: @escaping (_ draggedID: String, _ targetID: String) -> Void) -> some View {
-        if case let .task(task) = item, !task.isAnchored {
-            self.modifier(ReorderableRow(task: task, onDrop: onDrop))
-        } else {
-            self
-        }
-    }
-}
-
-/// Backs `.reorderable`. A plain `View` extension function can't hold `@State`, and two things
-/// here need it: the row's own on-screen width, so the drag preview can be pinned to it instead
-/// of SwiftUI's default auto-generated preview (which otherwise hugs a `maxWidth: .infinity`
-/// row down to its intrinsic content size — visibly smaller than the row actually is); and
-/// whether this row is the current drop target, so a dotted placeholder can mark exactly where
-/// letting go would insert the dragged task, before you commit to it.
-private struct ReorderableRow: ViewModifier {
-    let task: TaskItem
-    let onDrop: (_ draggedID: String, _ targetID: String) -> Void
-
-    @State private var width: CGFloat = 0
-    @State private var isTargeted = false
-
-    func body(content: Content) -> some View {
-        content
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { width = proxy.size.width }
-                        .onChange(of: proxy.size.width) { _, new in width = new }
-                }
-            )
-            .overlay(alignment: .top) {
-                if isTargeted {
-                    Capsule()
-                        .stroke(style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
-                        .foregroundStyle(Color.Offload.indigo)
-                        .frame(height: 2)
-                        .offset(y: -8)
-                        .transition(.opacity)
-                }
-            }
-            .draggable(task.id) {
-                // The same row content, pinned to its captured width — what you see mid-drag
-                // is exactly what was sitting on the day, not a shrunk-down stand-in.
-                content.frame(width: width > 0 ? width : nil)
-            }
-            .dropDestination(for: String.self, action: { items, _ in
-                // This overload (paired with `isTargeted:` below) reports whether the drop was
-                // actually handled, unlike the simpler single-closure form used before — a
-                // regression introduced when `isTargeted` was added without updating this.
-                guard let draggedID = items.first, draggedID != task.id else { return false }
-                onDrop(draggedID, task.id)
-                return true
-            }, isTargeted: { targeted in
-                withAnimation(.easeOut(duration: 0.15)) { isTargeted = targeted }
-            })
     }
 }
 

@@ -7,33 +7,29 @@ import Foundation
 /// so these numbers are a fixed contract, not made up.
 struct StudyCatalogTests {
 
-    @Test("Anki duration is the subtopic's real card count at 15 sec/card")
+    @Test("Anki duration is a node's real card count at 15 sec/card, for a subtopic or a leaf")
     func ankiDurationFromRealCardCount() {
         let neuroStructures = StudySystem.neuro.subtopics.first { $0.name == "Nervous System Structures" }!
         #expect(neuroStructures.ankiCardCount == 849)
-        let (minutes, note) = StudyResource.anki.plan(for: neuroStructures)
-        #expect(minutes == (849 * 15) / 60)
-        #expect(note == "849 cards")
+        #expect(StudyCatalog.ankiMinutes(forCards: neuroStructures.ankiCardCount) == (849 * 15) / 60)
+
+        let leaf = neuroStructures.leaves.first { $0.name == "Cranial Nerves" }!
+        #expect(leaf.ankiCardCount == 135)
+        #expect(StudyCatalog.ankiMinutes(forCards: leaf.ankiCardCount) == (135 * 15) / 60)
     }
 
-    @Test("UWorld and AMBOSS use fixed default question counts at the user's own pace")
-    func questionBasedResourcesUseDefaults() {
-        let subtopic = StudySubtopic(name: "Anything", ankiCardCount: 100)
-        let (uworldMinutes, uworldNote) = StudyResource.uworld.plan(for: subtopic)
+    @Test("First Aid, UWorld, AMBOSS, and Sketchy use fixed defaults, independent of any subtopic")
+    func systemLevelResourcesUseFixedDefaults() {
+        let (uworldMinutes, uworldNote) = StudyResource.uworld.plan
         #expect(uworldNote == "40 questions")
         #expect(uworldMinutes == (40 * 150) / 60)
 
-        let (ambossMinutes, ambossNote) = StudyResource.amboss.plan(for: subtopic)
+        let (ambossMinutes, ambossNote) = StudyResource.amboss.plan
         #expect(ambossNote == "20 questions")
         #expect(ambossMinutes == (20 * 150) / 60)
-    }
 
-    @Test("First Aid and Sketchy get a fixed duration, independent of card count")
-    func fixedDurationResourcesIgnoreCardCount() {
-        let small = StudySubtopic(name: "Small", ankiCardCount: 10)
-        let large = StudySubtopic(name: "Large", ankiCardCount: 5000)
-        #expect(StudyResource.firstAid.plan(for: small).minutes == StudyResource.firstAid.plan(for: large).minutes)
-        #expect(StudyResource.sketchy.plan(for: small).minutes == StudyResource.sketchy.plan(for: large).minutes)
+        #expect(StudyResource.firstAid.plan.minutes == StudyResource.defaultFirstAidMinutes)
+        #expect(StudyResource.sketchy.plan.minutes == StudyResource.defaultSketchyMinutes)
     }
 
     @Test("Total Anki cards per system match the real, deduplicated collection counts")
@@ -43,15 +39,38 @@ struct StudyCatalogTests {
         #expect(StudySystem.repro.totalAnkiCards == 1487)
     }
 
-    @Test("makeTask builds a Study-category task with the deterministic title and computed effort")
-    func makeTaskBuildsExpectedFields() {
+    @Test("Every system has at least one subtopic, and every subtopic has at least one leaf")
+    func everySubtopicHasLeaves() {
+        for system in StudySystem.allCases {
+            #expect(!system.subtopics.isEmpty)
+            for subtopic in system.subtopics {
+                #expect(!subtopic.leaves.isEmpty, "\(system.rawValue) – \(subtopic.name) has no leaves")
+            }
+        }
+    }
+
+    @Test("makeAnkiTask builds a Study-category task with the deterministic title and computed effort")
+    func makeAnkiTaskBuildsExpectedFields() {
         let subtopic = StudySystem.hematology.subtopics.first { $0.name == "Hemostasis" }!
-        let task = StudyCatalog.makeTask(system: .hematology, subtopic: subtopic, resource: .anki)
+        let task = StudyCatalog.makeAnkiTask(system: .hematology, nodeName: subtopic.name, cardCount: subtopic.ankiCardCount)
         #expect(task.title == "Anki: Hematology – Hemostasis")
         #expect(task.category == "Study")
         #expect(task.descriptionText == "464 cards")
         #expect(task.effortMinutes == (464 * 15) / 60)
-        #expect(task.dueDate == nil)   // left unscheduled for AutoFit to place
+        #expect(task.dueDate == nil)   // left unscheduled for AutoFit/end-of-day placement
+
+        let leaf = subtopic.leaves.first { $0.name == "Anticoagulant Drugs" }!
+        let leafTask = StudyCatalog.makeAnkiTask(system: .hematology, nodeName: leaf.name, cardCount: leaf.ankiCardCount)
+        #expect(leafTask.title == "Anki: Hematology – Anticoagulant Drugs")
+        #expect(leafTask.descriptionText == "95 cards")
+    }
+
+    @Test("makeResourceTask is keyed only by system, never a subtopic")
+    func makeResourceTaskIsSystemLevel() {
+        let task = StudyCatalog.makeResourceTask(system: .repro, resource: .firstAid)
+        #expect(task.title == "First Aid: Repro")
+        #expect(task.category == "Study")
+        #expect(task.effortMinutes == StudyResource.defaultFirstAidMinutes)
     }
 
     @Test("The nightly AMBOSS mixed review task defaults to 10 questions, ~25 minutes")
@@ -70,11 +89,15 @@ struct StudyCatalogTests {
         #expect(task.effortMinutes == 50)
     }
 
-    @Test("Every subtopic's title is unique per system, so 'already added today' matching by title is unambiguous")
-    func titlesAreUniquePerSystem() {
+    @Test("Subtopic names are unique per system, and leaf names are unique within their subtopic")
+    func namesAreUniqueEnoughForTitleMatching() {
         for system in StudySystem.allCases {
-            let titles = system.subtopics.map(\.name)
-            #expect(Set(titles).count == titles.count)
+            let subtopicNames = system.subtopics.map(\.name)
+            #expect(Set(subtopicNames).count == subtopicNames.count)
+            for subtopic in system.subtopics {
+                let leafNames = subtopic.leaves.map(\.name)
+                #expect(Set(leafNames).count == leafNames.count)
+            }
         }
     }
 }

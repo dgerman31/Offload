@@ -46,6 +46,7 @@ struct DayPlanView: View {
                                     isPast: false
                                 ) {
                                     planRow(item)
+                                        .reorderable(id: item.id, onDrop: reorder)
                                 }
                             }
                         }
@@ -95,6 +96,29 @@ struct DayPlanView: View {
             usedAI = result.usedAI
             planning = false
         }
+    }
+
+    /// Drag one proposed row before another and re-derive times from the new order — a plain
+    /// deterministic recompute (`DayPlanner.plan(preferredOrder:)`, not `SmartPlanner`/AI again),
+    /// since this is a manual tweak of a plan you're already looking at, not a fresh plan.
+    /// Everything in `kept` already came from `DayPlanner.candidates`, which only ever returns
+    /// flexible tasks, so there's no anchored item here that shouldn't be reorderable.
+    private func reorder(draggedID: String, ontoID targetID: String) {
+        var order = kept.map(\.id)
+        guard let fromIndex = order.firstIndex(of: draggedID) else { return }
+        order.remove(at: fromIndex)
+        guard let toIndex = order.firstIndex(of: targetID) else { return }
+        order.insert(draggedID, at: toIndex)
+
+        let start = WakeTracker.dayStartHour(now: Date(), fallback: dayStartHour)
+        let recomputed = DayPlanner.plan(
+            tasks: tasks, events: events, on: day, now: Date(),
+            dayStartHour: start, dayEndHour: dayEndHour,
+            energyProfile: EnergyProfile(rawValue: energyRaw),
+            preferredOrder: order
+        )
+        withAnimation(Motion.standard) { plan = recomputed }
+        Haptics.light()
     }
 
     // MARK: Pieces

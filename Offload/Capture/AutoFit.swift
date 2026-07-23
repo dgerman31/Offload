@@ -64,7 +64,12 @@ enum AutoFit {
                 guard let end = calendar.date(byAdding: .minute, value: effort, to: start),
                       end <= slots[index].end else { continue }
                 placed[task.id] = start
-                cursors[index] = calendar.date(byAdding: .minute, value: effort + 5, to: start) ?? slots[index].end
+                // `slots` already start on a quarter-hour (`DayPlanner.freeSlots` rounds them),
+                // but each subsequent placement within the same slot needs the same rounding
+                // applied again here, so every task lands on a clean 15-minute mark, not
+                // wherever the previous one's effort+buffer happened to sum to.
+                let afterBuffer = calendar.date(byAdding: .minute, value: effort + 5, to: start) ?? slots[index].end
+                cursors[index] = DayPlanner.roundUpToQuarterHour(afterBuffer, calendar: calendar)
                 break
             }
         }

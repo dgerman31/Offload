@@ -2,37 +2,45 @@ import SwiftUI
 import GRDB
 
 /// The Study tab — a med-school study organizer. Unlike Gym, nothing here is AI-planned: it's a
-/// catalog of real subtopics (the user's own AnKing v12 collection) and study resources (Anki,
-/// First Aid, UWorld, AMBOSS, Sketchy) picked from each morning. Picking one schedules it
-/// immediately as a real task on today's schedule, through the exact same
-/// `AutoFit.fitIntoToday` pipeline `AddTaskSheet` already uses — never a separate list off to
-/// the side.
+/// catalog of real subtopics (the user's own AnKing v12 collection) and study resources (First
+/// Aid, UWorld, AMBOSS, Sketchy) picked from each morning. Picking one schedules it immediately
+/// as a real task on today's schedule, through the exact same `AutoFit.fitIntoToday` pipeline
+/// `AddTaskSheet` already uses — never a separate list off to the side.
 ///
 /// Deliberately has no parallel "session" model the way Gym has `WorkoutSession`: Gym needs one
 /// because a session carries real AI-written content (exercises, sets, reps) a task can't hold.
 /// A study pick has no equivalent content — it's just "study this, for about this long" — so
-/// each pick is simply an ordinary `TaskItem`, and several picks become several separate tasks
-/// (confirmed with the user, who wanted them entered that way rather than batched).
+/// each pick is simply an ordinary `TaskItem`, and several picks become several separate tasks.
+///
+/// First Aid/UWorld/AMBOSS/Sketchy are deliberately **not** part of the Anki subtopic tree — one
+/// per system, not per subtopic, per the user's explicit "not a per topic thing."
 struct StudyView: View {
     @State private var store = TaskStore()
-    @State private var expandedSubtopic: String?
     @State private var appeared = false
-    @State private var justAddedTitle: String?
+    /// Systems whose Anki subtopic tree is currently hidden (collapsed).
+    @State private var collapsedAnkiTrees: Set<String> = []
+    /// Subtopics currently showing their leaves.
+    @State private var expandedSubtopics: Set<String> = []
+    /// Titles added *this session*, shown as added instantly rather than waiting on the store's
+    /// round trip through the database and back — the whole point being immediate confirmation
+    /// that a tap registered.
+    @State private var optimisticallyAdded: Set<String> = []
 
     private var accent: Color { Color.Offload.accent(for: StudyCatalog.category) }
 
-    /// Titles of today's already-scheduled Study tasks — matched by the deterministic title
-    /// `StudyCatalog` always builds, so a resource button can show "already on today's
-    /// schedule" without any hidden bookkeeping field. Not a hard block: the user intentionally
-    /// redoes subtopics as they unsuspend more of the deck, so tapping again just adds another.
-    private var todayTitles: Set<String> {
+    /// Titles of today's already-scheduled Study tasks, unioned with this session's optimistic
+    /// set — matched by the deterministic title `StudyCatalog` always builds, so a row can show
+    /// "already on today's schedule" without any hidden bookkeeping field. Not a hard block: the
+    /// user intentionally redoes subtopics as they unsuspend more of the deck.
+    private var addedTitles: Set<String> {
         let cal = Calendar.current
         let today = Date()
-        return Set(store.allTasks.compactMap { task -> String? in
+        let fromStore = Set(store.allTasks.compactMap { task -> String? in
             guard task.category == StudyCatalog.category else { return nil }
             guard let due = DueDate.parse(task.dueDate), cal.isDate(due, inSameDayAs: today) else { return nil }
             return task.title
         })
+        return fromStore.union(optimisticallyAdded)
     }
 
     var body: some View {
@@ -55,6 +63,7 @@ struct StudyView: View {
             .navigationTitle("Study")
             .navigationBarTitleDisplayMode(.inline)
             .task { await store.observe() }
+            .task { await store.loadEvents(around: Date()) }
             .task { withAnimation(Motion.settle) { appeared = true } }
         }
     }
@@ -63,9 +72,6 @@ struct StudyView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("STEP 1")
-                .font(.caption2).fontWeight(.bold).tracking(1.1)
-                .foregroundStyle(accent)
             Text("What are you studying today?")
                 .font(.Offload.manrope(20, .bold))
                 .foregroundStyle(Color.Offload.text)
@@ -79,9 +85,10 @@ struct StudyView: View {
     // MARK: AMBOSS quick add
 
     private var ambossQuickAdd: some View {
-        let added = todayTitles.contains(StudyCatalog.ambossMixedReviewTitle)
+        let added = addedTitles.contains(StudyCatalog.ambossMixedReviewTitle)
         return Button {
-            Task { await add(StudyCatalog.makeAmbossMixedReviewTask()) }
+            addOptimistically(StudyCatalog.ambossMixedReviewTitle)
+            Task { await addAtEndOfDay(StudyCatalog.makeAmbossMixedReviewTask()) }
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: "shuffle")
@@ -97,129 +104,191 @@ struct StudyView: View {
                     Text("AMBOSS Mixed Review")
                         .font(.Offload.manrope(16, .bold))
                         .foregroundStyle(Color.Offload.text)
-                    Text("10 questions · ~25 min · every night")
+                    Text("10 questions · ~25 min · lands at the end of today")
                         .font(.Offload.data)
                         .foregroundStyle(Color.Offload.muted)
                 }
                 Spacer(minLength: 0)
-                addedBadge(added)
+                addGlyph(added)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .offloadCard()
         }
         .buttonStyle(.pressable(scale: 0.98))
-        .sensoryFeedback(.success, trigger: justAddedTitle) { _, new in new == StudyCatalog.ambossMixedReviewTitle }
+        .sensoryFeedback(.success, trigger: added)
     }
 
     // MARK: System cards
 
     private func systemCard(_ system: StudySystem) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                Image(systemName: system.icon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(accent)
-                Text(system.rawValue.uppercased())
-                    .font(.caption).fontWeight(.bold).tracking(0.8)
-                    .foregroundStyle(Color.Offload.muted)
-                Spacer(minLength: 0)
-                Text("\(system.totalAnkiCards) cards")
-                    .font(.caption).foregroundStyle(Color.Offload.muted)
+        let ankiHidden = collapsedAnkiTrees.contains(system.id)
+        return VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(Motion.snappy) {
+                    if ankiHidden { collapsedAnkiTrees.remove(system.id) } else { collapsedAnkiTrees.insert(system.id) }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: system.icon)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(accent)
+                    Text(system.rawValue.uppercased())
+                        .font(.caption).fontWeight(.bold).tracking(0.8)
+                        .foregroundStyle(Color.Offload.muted)
+                    Spacer(minLength: 0)
+                    Text("\(system.totalAnkiCards) Anki cards")
+                        .font(.caption).foregroundStyle(Color.Offload.muted)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.Offload.muted)
+                        .rotationEffect(.degrees(ankiHidden ? -90 : 0))
+                }
+                .contentShape(Rectangle())
             }
-            .padding(.bottom, 6)
+            .buttonStyle(.plain)
 
-            VStack(spacing: 2) {
-                ForEach(system.subtopics) { subtopic in
-                    subtopicRow(system, subtopic)
-                    if subtopic.id != system.subtopics.last?.id {
-                        Rectangle().fill(Color.Offload.divider).frame(height: 1)
+            resourceRow(system)
+
+            if !ankiHidden {
+                VStack(spacing: 2) {
+                    ForEach(system.subtopics) { subtopic in
+                        subtopicRow(system, subtopic)
+                        if subtopic.id != system.subtopics.last?.id {
+                            Rectangle().fill(Color.Offload.divider).frame(height: 1)
+                        }
                     }
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .offloadCard()
+        .animation(Motion.snappy, value: ankiHidden)
+    }
+
+    /// The four resources that stand apart from the Anki tree — one pick per system, never per
+    /// subtopic.
+    private func resourceRow(_ system: StudySystem) -> some View {
+        FlowLayout(spacing: 8, lineSpacing: 8) {
+            ForEach(StudyResource.allCases) { resource in
+                let title = StudyCatalog.resourceTitle(system: system, resource: resource)
+                let added = addedTitles.contains(title)
+                let (minutes, note) = resource.plan
+                Button {
+                    addOptimistically(title)
+                    Task { await add(StudyCatalog.makeResourceTask(system: system, resource: resource)) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: resource.icon)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(accent)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(resource.rawValue).font(.caption).fontWeight(.semibold).foregroundStyle(accent)
+                            Text("\(note) · \(Self.durationLabel(minutes))")
+                                .font(.system(size: 10)).foregroundStyle(accent).opacity(0.75)
+                        }
+                        addGlyph(added)
+                    }
+                    .padding(.horizontal, 11).padding(.vertical, 8)
+                    .background(accent.opacity(0.12), in: .rect(cornerRadius: 11, style: .continuous))
+                }
+                .buttonStyle(.pressable(scale: 0.93))
+                .sensoryFeedback(.success, trigger: added)
+            }
+        }
     }
 
     private func subtopicRow(_ system: StudySystem, _ subtopic: StudySubtopic) -> some View {
-        DisclosureGroup(
-            isExpanded: Binding(
-                get: { expandedSubtopic == subtopic.id },
-                set: { expandedSubtopic = $0 ? subtopic.id : nil }
-            )
-        ) {
-            FlowLayout(spacing: 8, lineSpacing: 8) {
-                ForEach(StudyResource.allCases) { resource in
-                    resourceChip(system, subtopic, resource)
-                }
-            }
-            .padding(.top, 10)
-            .padding(.bottom, 6)
-        } label: {
+        let leavesShown = expandedSubtopics.contains(subtopic.id)
+        let title = StudyCatalog.ankiTitle(system: system, nodeName: subtopic.name)
+        let added = addedTitles.contains(title)
+        return VStack(spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(subtopic.name)
-                        .font(.Offload.taskTitle)
-                        .foregroundStyle(Color.Offload.text)
-                    Text("\(subtopic.ankiCardCount) Anki cards")
-                        .font(.Offload.data)
-                        .foregroundStyle(Color.Offload.muted)
+                Button {
+                    withAnimation(Motion.snappy) {
+                        if leavesShown { expandedSubtopics.remove(subtopic.id) } else { expandedSubtopics.insert(subtopic.id) }
+                    }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(subtopic.name)
+                                .font(.Offload.taskTitle)
+                                .foregroundStyle(Color.Offload.text)
+                            Text("\(subtopic.ankiCardCount) cards · \(Self.durationLabel(StudyCatalog.ankiMinutes(forCards: subtopic.ankiCardCount)))")
+                                .font(.Offload.data)
+                                .foregroundStyle(Color.Offload.muted)
+                        }
+                        Spacer(minLength: 8)
+                        if !subtopic.leaves.isEmpty {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color.Offload.muted)
+                                .rotationEffect(.degrees(leavesShown ? 0 : -90))
+                        }
+                    }
+                    .contentShape(Rectangle())
                 }
-                Spacer(minLength: 8)
+                .buttonStyle(.plain)
+
+                Button {
+                    addOptimistically(title)
+                    Task { await add(StudyCatalog.makeAnkiTask(system: system, nodeName: subtopic.name, cardCount: subtopic.ankiCardCount)) }
+                } label: {
+                    addGlyph(added)
+                }
+                .buttonStyle(.pressable(scale: 0.85))
+                .sensoryFeedback(.success, trigger: added)
             }
             .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .tint(Color.Offload.muted)
-        .animation(Motion.snappy, value: expandedSubtopic)
-    }
 
-    private func resourceChip(_ system: StudySystem, _ subtopic: StudySubtopic, _ resource: StudyResource) -> some View {
-        let title = StudyCatalog.title(system: system, subtopic: subtopic, resource: resource)
-        let added = todayTitles.contains(title)
-        let (minutes, note) = resource.plan(for: subtopic)
-        return Button {
-            Task { await add(StudyCatalog.makeTask(system: system, subtopic: subtopic, resource: resource)) }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: resource.icon)
-                    .font(.system(size: 11, weight: .semibold))
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(resource.rawValue)
-                        .font(.caption).fontWeight(.semibold)
-                    Text("\(note) · \(Self.durationLabel(minutes))")
-                        .font(.system(size: 10))
-                        .opacity(0.75)
+            if leavesShown {
+                VStack(spacing: 6) {
+                    ForEach(subtopic.leaves) { leaf in
+                        leafRow(system, leaf)
+                    }
                 }
-                if added {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                }
+                .padding(.leading, 14)
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            .padding(.horizontal, 11).padding(.vertical, 8)
-            .background(added ? accent.opacity(0.9) : accent.opacity(0.12), in: .rect(cornerRadius: 11, style: .continuous))
-            .foregroundStyle(added ? .white : accent)
         }
-        .buttonStyle(.pressable(scale: 0.93))
-        .sensoryFeedback(.success, trigger: justAddedTitle) { _, new in new == title }
+        .animation(Motion.snappy, value: leavesShown)
     }
 
-    // MARK: Adding
-
-    private func addedBadge(_ added: Bool) -> some View {
-        Group {
-            if added {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(Color.Offload.green)
-            } else {
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 18))
+    private func leafRow(_ system: StudySystem, _ leaf: StudyLeaf) -> some View {
+        let title = StudyCatalog.ankiTitle(system: system, nodeName: leaf.name)
+        let added = addedTitles.contains(title)
+        return HStack {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(leaf.name)
+                    .font(.Offload.body)
+                    .foregroundStyle(Color.Offload.text)
+                Text("\(leaf.ankiCardCount) cards · \(Self.durationLabel(StudyCatalog.ankiMinutes(forCards: leaf.ankiCardCount)))")
+                    .font(.system(size: 11))
                     .foregroundStyle(Color.Offload.muted)
             }
+            Spacer(minLength: 8)
+            Button {
+                addOptimistically(title)
+                Task { await add(StudyCatalog.makeAnkiTask(system: system, nodeName: leaf.name, cardCount: leaf.ankiCardCount)) }
+            } label: {
+                addGlyph(added)
+            }
+            .buttonStyle(.pressable(scale: 0.85))
+            .sensoryFeedback(.success, trigger: added)
         }
+    }
+
+    // MARK: Shared bits
+
+    /// The same "+" → filled green checkmark treatment everywhere something can be added —
+    /// tapping it is the entire interaction, and it flips the instant you tap it.
+    private func addGlyph(_ added: Bool) -> some View {
+        Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(added ? Color.Offload.green : Color.Offload.muted)
     }
 
     static func durationLabel(_ minutes: Int) -> String {
@@ -227,6 +296,15 @@ struct StudyView: View {
         let hours = minutes / 60
         let rest = minutes % 60
         return rest == 0 ? "\(hours)h" : "\(hours)h\(rest)m"
+    }
+
+    // MARK: Adding
+
+    /// Mark a title added right now, in this view's own state — instant visual confirmation
+    /// that the tap registered, independent of how long the database round trip takes.
+    private func addOptimistically(_ title: String) {
+        Haptics.light()
+        optimisticallyAdded.insert(title)
     }
 
     /// Schedule a freshly built study task exactly like `AddTaskSheet.add()` does: give it a
@@ -239,7 +317,32 @@ struct StudyView: View {
         let fitted = AutoFit.fitIntoToday(new: [task], existing: existing,
                                           cutoffHour: DayPlanner.storedDayEndHour()).first ?? task
         await TaskActions.create(fitted)
-        justAddedTitle = task.title
+    }
+
+    /// The nightly AMBOSS review always lands after everything else already on today's
+    /// schedule — a wind-down block, not something that should compete for an earlier open
+    /// slot the way AutoFit's earliest-fit search would place it.
+    private func addAtEndOfDay(_ task: TaskItem) async {
+        let cal = Calendar.current
+        let now = Date()
+        let today = cal.startOfDay(for: now)
+        var latestEnd = cal.date(bySettingHour: DayPlanner.storedDayEndHour(), minute: 0, second: 0, of: today) ?? today
+
+        for existing in store.allTasks {
+            guard existing.status != "completed", !existing.dueIsAllDay,
+                  let start = DueDate.parse(existing.dueDate), cal.isDate(start, inSameDayAs: today) else { continue }
+            let end = cal.date(byAdding: .minute, value: existing.effortMinutes ?? 30, to: start) ?? start
+            if end > latestEnd { latestEnd = end }
+        }
+        for event in store.todayEvents where event.end > latestEnd {
+            latestEnd = event.end
+        }
+
+        var toSave = task
+        toSave.dueDate = DueDate.canonicalString(from: max(latestEnd, now))
+        toSave.dueIsAllDay = false
+        toSave.pinned = false
+        await TaskActions.create(toSave)
     }
 }
 

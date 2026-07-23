@@ -13,8 +13,12 @@ final class RestTimer {
     private var ticker: Task<Void, Never>?
 
     init(seconds: Int) {
-        totalSeconds = max(1, seconds)
-        remaining = totalSeconds
+        // Assigns from a local rather than reading `self.totalSeconds` right back — an
+        // `@Observable` property's getter goes through the observation-tracking accessor, which
+        // isn't safe to call on `self` until every stored property is initialized.
+        let total = max(1, seconds)
+        totalSeconds = total
+        remaining = total
     }
 
     var progress: Double {

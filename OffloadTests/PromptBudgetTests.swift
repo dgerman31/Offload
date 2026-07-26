@@ -34,6 +34,9 @@ struct PromptBudgetTests {
     /// "working on the X project…" produced tasks and no project, because the model's only
     /// documented route for a non-command project was a chip the user had to tap. Nothing tested
     /// the prompt's field coverage, which is why it shipped.
+    // `@MainActor` because `GeminiExtractionService` is main-actor isolated, so reaching its
+    // `systemPrompt` from a synchronous nonisolated test body doesn't compile under Swift 6.
+    @MainActor
     @Test("Every field in the Gemini schema is documented in the Gemini prompt")
     func geminiPromptDocumentsEverySchemaField() {
         let prompt = GeminiExtractionService.systemPrompt(now: Date(), categories: CustomCategories.builtIn)
@@ -45,6 +48,7 @@ struct PromptBudgetTests {
         }
     }
 
+    @MainActor
     @Test("The prompt tells the model to fill suggestedProject even when it isn't a command")
     func geminiPromptDecouplesProjectFromCommand() {
         let prompt = GeminiExtractionService.systemPrompt(now: Date(), categories: CustomCategories.builtIn)

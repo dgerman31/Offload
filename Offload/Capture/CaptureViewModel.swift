@@ -26,6 +26,10 @@ final class CaptureViewModel {
     var text = ""
     var phase: Phase = .editing
     var isListening = false
+    /// A recoverable problem to show *over* the editor — the mic wouldn't start, permission is
+    /// off — as distinct from `Phase.failed`, which takes over the screen and means "extraction
+    /// failed after you submitted". Nothing here should cost you the editor or what you've typed.
+    var errorBanner: String?
     /// Live mic level, 0…1, for the waveform.
     var inputLevel: Double = 0
 
@@ -64,24 +68,27 @@ final class CaptureViewModel {
     }
 
     /// Begin dictation immediately when the sheet was opened via the Action Button
-    /// (spec §2.3 auto-record). Reuses the exact guarded start path as the mic button, so the
-    /// Low Power Mode guard and authorization request still apply.
-    func beginAutoListen() async {
-        guard !isListening else { return }
+    /// (spec §2.3 auto-record). Reuses the same start path as the mic button, so authorization is
+    /// still requested. Returns whether the mic actually came up, so the caller can fall back to
+    /// the keyboard instead of leaving you on a screen where nothing happened.
+    @discardableResult
+    func beginAutoListen() async -> Bool {
+        guard !isListening else { return true }
         await startListening()
+        return isListening
     }
 
-    /// Shared mic-start path: honor the Low Power Mode guard and authorization request, then
-    /// stream the transcript into `text`. Never bypasses either safety check.
+    /// Shared mic-start path: request authorization, then stream the transcript into `text`.
+    ///
+    /// A mic that won't start is **not** a failed capture. It used to set `phase = .failed`, which
+    /// replaces the whole screen with an error that has no text field on it and no route back to
+    /// the editor — so "voice is unavailable" became "capture is unavailable", with the typed
+    /// fallback the message itself promises nowhere to be found. Now it surfaces as a banner over
+    /// a still-usable editor.
     private func startListening() async {
-        // Low Power Mode disables on-device speech and can crash the recognizer on start —
-        // guard it out and tell the user, never attempt (and never crash).
-        if ProcessInfo.processInfo.isLowPowerModeEnabled {
-            phase = .failed("Turn off Low Power Mode to use voice — it disables on-device speech. You can still type.")
-            return
-        }
+        errorBanner = nil
         guard await transcription.requestAuthorization() else {
-            phase = .failed("Microphone or speech access is off. You can still type your thought.")
+            errorBanner = "Microphone or speech access is off. You can still type your thought."
             return
         }
         // The callback now fires off the main actor — hop back before touching UI state.
@@ -101,7 +108,7 @@ final class CaptureViewModel {
             Haptics.light()
         } catch {
             isListening = false
-            phase = .failed("Couldn't start the microphone. You can still type your thought.")
+            errorBanner = "Couldn't start the microphone. You can still type your thought."
         }
     }
 
@@ -197,9 +204,17 @@ final class CaptureViewModel {
         }
     }
 
+    /// Leave the failure screen without losing what was typed — `reset()` also dismisses the
+    /// sheet, so it can't double as "let me try typing instead".
+    func backToEditing() {
+        errorBanner = nil
+        phase = .editing
+    }
+
     func reset() {
         if isListening { stopListening() }
         text = ""
+        errorBanner = nil
         phase = .editing
         pending = nil
         resolutions = [:]

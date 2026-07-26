@@ -95,4 +95,48 @@ struct AutoFitTests {
                                      cutoffHour: DayPlanner.defaultDayEndHour)[0]
         #expect(DueDate.parse(t.dueDate).map { cal.isDate($0, inSameDayAs: now) } == true)
     }
+
+    // MARK: Nothing lands in "Anytime" — a full day rolls forward instead
+
+    @Test("A task too long for what's left of today gets a real time tomorrow, never all-day")
+    func overflowRollsToTheNextDay() {
+        let now = at(19)   // 7pm, two hours before the 9pm cutoff
+        // Four hours of work can't fit in two hours of remaining day, whatever the gaps look like.
+        let big = TaskItem(title: "Write the discussion section", effortMinutes: 240)
+        let t = AutoFit.fitIntoToday(new: [big], existing: [], now: now, calendar: cal,
+                                     cutoffHour: DayPlanner.defaultDayEndHour)[0]
+        #expect(t.dueIsAllDay == false)   // the whole point: a real clock time, not "Anytime"
+        let due = DueDate.parse(t.dueDate)
+        #expect(due != nil)
+        #expect(due.map { cal.isDate($0, inSameDayAs: now) } == false)
+        #expect(due.map { $0 > now } == true)
+    }
+
+    @Test("A day packed solid pushes the leftovers onto the next day, each with a real time")
+    func packedDayPushesLeftoversForward() {
+        let now = at(9)
+        // One commitment covering the entire waking window leaves today with no usable gap.
+        let allDayBusy = TaskItem(title: "Conference", dueDate: "2026-07-20T09:00", effortMinutes: 13 * 60)
+        let a = TaskItem(title: "Email advisor", effortMinutes: 30)
+        let b = TaskItem(title: "Order reagents", effortMinutes: 30)
+        let out = AutoFit.fitIntoToday(new: [a, b], existing: [allDayBusy], now: now, calendar: cal,
+                                       cutoffHour: DayPlanner.defaultDayEndHour)
+        #expect(out.allSatisfy { $0.dueIsAllDay == false })
+        #expect(out.allSatisfy { DueDate.parse($0.dueDate) != nil })
+        // Both moved off today rather than being stacked on top of the conference.
+        #expect(out.allSatisfy { task in
+            DueDate.parse(task.dueDate).map { !cal.isDate($0, inSameDayAs: now) } == true
+        })
+    }
+
+    @Test("A task belonging to a project is scheduled like any other, not left unplanned")
+    func schedulesProjectTasks() {
+        let now = at(9)
+        // Captures create projects now, so skipping project tasks meant a whole new project's
+        // worth of work quietly landed in "Anytime".
+        let projectTask = TaskItem(title: "Draft the opening", projectId: "project-1", effortMinutes: 45)
+        let t = AutoFit.fitIntoToday(new: [projectTask], existing: [], now: now, calendar: cal)[0]
+        #expect(t.dueIsAllDay == false)
+        #expect(DueDate.parse(t.dueDate) != nil)
+    }
 }

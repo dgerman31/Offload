@@ -28,4 +28,28 @@ struct PromptBudgetTests {
         #expect(prompt.contains("arranging"))           // "schedule a meeting" isn't an appointment
         #expect(prompt.contains("deadline"))            // due date vs do date
     }
+
+    /// The Gemini prompt had every schema field documented under `## Fields` *except*
+    /// `suggestedProject`, whose only mention was scoped to the `isCommand: true` branch — so
+    /// "working on the X project…" produced tasks and no project, because the model's only
+    /// documented route for a non-command project was a chip the user had to tap. Nothing tested
+    /// the prompt's field coverage, which is why it shipped.
+    @Test("Every field in the Gemini schema is documented in the Gemini prompt")
+    func geminiPromptDocumentsEverySchemaField() {
+        let prompt = GeminiExtractionService.systemPrompt(now: Date(), categories: CustomCategories.builtIn)
+        for field in ["reasoning", "isCommand", "suggestedProject", "title", "details",
+                      "dueDate", "deadline", "effortMinutes", "priority", "category",
+                      "contextTags", "people", "subtasks", "isAppointment"] {
+            #expect(prompt.contains(field),
+                    "The Gemini prompt never mentions `\(field)`, so the model has no instruction for it")
+        }
+    }
+
+    @Test("The prompt tells the model to fill suggestedProject even when it isn't a command")
+    func geminiPromptDecouplesProjectFromCommand() {
+        let prompt = GeminiExtractionService.systemPrompt(now: Date(), categories: CustomCategories.builtIn)
+        // The exact phrasing from the bug report needs to be covered by an example.
+        #expect(prompt.contains("working on"))
+        #expect(prompt.contains("independent of `isCommand`"))
+    }
 }

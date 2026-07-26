@@ -32,6 +32,21 @@ enum HomeGrouping {
         }
     }
 
+    /// The tasks that deserve a row of their own, out of everything currently open: real top-level
+    /// tasks, plus any step whose parent isn't in the list (completed or deleted) and would
+    /// otherwise vanish entirely — the same orphan-promotion rule `sections(from:now:)` applies.
+    ///
+    /// A step that still has its parent is deliberately excluded: it belongs *under* that parent,
+    /// not loose in the list beside it, where a breakdown of one task reads as a pile of unrelated
+    /// errands.
+    static func rootsOnly(_ tasks: [TaskItem]) -> [TaskItem] {
+        let ids = Set(tasks.map(\.id))
+        return tasks.filter { task in
+            guard let parent = task.parentTaskId else { return true }
+            return !ids.contains(parent)
+        }
+    }
+
     /// Most-pressing first: higher priority, then the soonest due date (dated tasks before
     /// undated ones), then title for a stable, predictable order. Pure — safe to unit-test.
     static func inDisplayOrder(_ tasks: [TaskItem]) -> [TaskItem] {

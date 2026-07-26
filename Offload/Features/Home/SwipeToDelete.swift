@@ -1,71 +1,89 @@
 import SwiftUI
 
-/// Swipe-right-to-delete for any task row, anywhere — card-based screens (Home, Day) included,
-/// not just `List` rows. SwiftUI's native `.swipeActions` only works inside a `List`, so this is
-/// a self-contained drag: swipe right to reveal a red Delete rail, tap it to confirm, or keep
-/// dragging past the threshold to delete outright (the same two ways iOS's own swipe-to-delete
-/// works).
+/// Tracks which single row, app-wide, currently has its Delete rail revealed.
 ///
-/// Two things that matter for this to sit inside a normal scrolling screen without getting in the
-/// way: it only ever reacts to a drag that's clearly more horizontal than vertical (a vertical
-/// scroll is ignored completely, at the gesture-recognition level — not just "decides not to act"
-/// on it, which would still have blocked the scroll), and it uses `.simultaneousGesture` rather
-/// than claiming exclusive priority, so the scroll view underneath keeps receiving and acting on
-/// the same touch the entire time regardless of what this view does with it.
+/// iOS's own lists (Reminders, Mail, Messages) all hold to one rule: exactly one row is ever
+/// open, and it closes the moment you scroll or open another one. A `List` gets that for free;
+/// a card-based screen has to coordinate it, and not coordinating it is precisely what leaves a
+/// red rail parked on screen after you've moved on — the "it doesn't go away when I let go"
+/// report.
+@MainActor
+@Observable
+final class SwipeRevealCoordinator {
+    static let shared = SwipeRevealCoordinator()
+
+    /// The id of the row whose Delete rail is showing, if any.
+    private(set) var openRowID: String?
+
+    func open(_ id: String) { openRowID = id }
+    func closeAll() { openRowID = nil }
+    func close(_ id: String) { if openRowID == id { openRowID = nil } }
+}
+
+/// Swipe-right-to-delete for any task row, anywhere — card-based screens (Home, Gym, Search)
+/// included, not just `List` rows. SwiftUI's native `.swipeActions` only works inside a `List`
+/// (`swipeActionsContainer`, which lifts that restriction, is iOS 27), so this is a
+/// self-contained drag: swipe right to reveal a red Delete rail, tap it to confirm, or keep
+/// dragging past the threshold to delete outright — the same two ways iOS's own swipe works.
 ///
-/// Tuned to match native iOS's feel, not just its two end-states: the red rail's width tracks the
-/// drag distance directly (no gap between it and the sliding content), the icon fades in smoothly
-/// with the drag instead of popping in or sitting there at rest, dragging past the delete
-/// threshold rubber-bands rather than hard-stopping, and the row animates fully off-screen before
-/// the underlying data is actually removed, so the visual and the mutation never race. The release
-/// itself inherits the drag's actual velocity — a fast flick snaps or deletes with real authority,
-/// a slow drag settles gently, instead of every release using the identical canned motion.
+/// **Living inside a `ScrollView` without breaking it** is the whole design constraint here, and
+/// it comes down to two rules learned the hard way:
+///
+/// 1. `minimumDistance` must stay comfortably *above* the ~10pt a `ScrollView` needs to claim a
+///    pan. A `DragGesture(minimumDistance: 0)` recognizes on touch-down, which means it wins the
+///    touch before the scroll view ever gets a chance — that single value is what made the Day
+///    tab nearly unscrollable wherever a task sat under your finger.
+/// 2. `.gesture`, never `.simultaneousGesture`. Sharing a touch sounds like the accommodating
+///    choice, but a simultaneous `DragGesture` on a row inside a scroll view stops that scroll
+///    view from scrolling — the opposite of the intent.
+///
+/// Tap-vs-swipe is settled by gesture *composition* rather than by measuring distances by hand:
+/// `.exclusively(before:)` runs the tap only if the drag never recognized. One recognizer, one
+/// decision, so a completed swipe can't also open the row (which is what a sibling `Button` did).
 struct SwipeToDeleteModifier: ViewModifier {
+    /// Stable identity for the one-rail-open-at-a-time rule.
+    let id: String
     var onDelete: () -> Void
-    /// The row's own "open" action, now owned by this single gesture rather than a separate
-    /// `Button`/`.onTapGesture` living alongside it. Two independent gesture recognizers on the
-    /// same touch sequence race — a `Button`'s built-in tap detection has no way to know a drag
-    /// gesture elsewhere decided the same touch was a swipe, so it can (and did) still fire on
-    /// release. Recognizing the tap from *inside* this gesture's own `onEnded` removes the race
-    /// by construction: there's only one recognizer now, deciding once, from the same data.
+    /// The row's own "open" action. Passed here rather than attached as a separate
+    /// `Button`/`.onTapGesture` alongside this modifier: two independent recognizers race on the
+    /// same touch, and a `Button`'s built-in tap has no way to know a sibling drag already
+    /// decided the touch was a swipe — which is how a completed swipe still opened the detail.
     var onTap: (() -> Void)? = nil
 
     @State private var offset: CGFloat = 0
     @State private var crossedThreshold = false
     @State private var isDeleting = false
     @State private var rowWidth: CGFloat = 400
-    /// Now that the row itself isn't a real `Button` (see `onTap`'s doc comment), this replaces
-    /// the tactile press-down scale a `Button` used to give for free.
-    @State private var isPressed = false
+
+    private var coordinator: SwipeRevealCoordinator { .shared }
+
     private let revealWidth: CGFloat = 84
     private let autoDeleteThreshold: CGFloat = 200
-    /// Below this much total movement, a release counts as a tap rather than any kind of drag.
-    private let tapMovementThreshold: CGFloat = 10
     /// How much a drag past the threshold still moves things, as a fraction of the raw distance —
     /// real resistance instead of an instant hard clamp.
     private let rubberBandFactor: CGFloat = 0.3
+    /// Comfortably above the ~10pt a `ScrollView` needs to claim a pan, so scrolling always wins
+    /// an ordinary vertical drag and this gesture never even starts. See the type's docs.
+    private let minimumSwipeDistance: CGFloat = 20
+    /// A flick this fast (points/second) holds the rail open even if it didn't travel far.
+    private let flickVelocity: CGFloat = 600
 
     func body(content: Content) -> some View {
         ZStack(alignment: .leading) {
             deleteRail
             content
                 .offset(x: offset)
-                .scaleEffect(isPressed ? 0.98 : 1)
-                .animation(Motion.quick, value: isPressed)
-                .simultaneousGesture(drag)
+                .gesture(swipeOrTap)
                 // Disabled while revealed so the row's *other* interactive elements (a
-                // completion checkbox, say) can't be triggered mid-swipe — the tap-to-open
-                // race itself is now settled inside `drag`'s own `onEnded` below, not by this.
+                // completion checkbox, say) can't be triggered mid-swipe.
                 .allowsHitTesting(offset == 0)
             if offset > 0 {
-                // Tapping the now-non-interactive row while it's revealed closes the swipe
-                // instead of doing nothing — the same thing tapping a row with revealed native
-                // swipe actions does, and the fix for "the red delete stays open" once you've
-                // decided not to delete after all.
+                // Tapping the revealed row closes it rather than doing nothing — what tapping a
+                // row with open native swipe actions does.
                 Color.clear
                     .contentShape(Rectangle())
                     .offset(x: offset)
-                    .onTapGesture { snap(to: 0, releaseVelocity: 0) }
+                    .onTapGesture { close() }
             }
         }
         .clipped()
@@ -74,6 +92,12 @@ struct SwipeToDeleteModifier: ViewModifier {
                 Color.clear.onAppear { rowWidth = proxy.size.width }
             }
         )
+        // Another row opened, or something scrolled: give up the rail immediately.
+        .onChange(of: coordinator.openRowID) { _, open in
+            if open != id, offset > 0 {
+                withAnimation(Motion.snappy) { offset = 0 }
+            }
+        }
         // Declarative haptics tied to the exact moments they mean something: a light tap right
         // as the drag crosses into "let go and this deletes," and a firmer one when it commits.
         .sensoryFeedback(.impact(weight: .light), trigger: crossedThreshold) { _, new in new }
@@ -90,7 +114,7 @@ struct SwipeToDeleteModifier: ViewModifier {
                 .fill(Color.Offload.red)
                 .frame(width: max(0, offset))
                 .frame(maxHeight: .infinity)
-            Button(action: { confirmDelete() }) {
+            Button { confirmDelete() } label: {
                 Label("Delete", systemImage: "trash.fill")
                     .labelStyle(.iconOnly)
                     .font(.system(size: 16, weight: .semibold))
@@ -102,21 +126,23 @@ struct SwipeToDeleteModifier: ViewModifier {
         // Fully transparent exactly at rest; fades in over the first ~24pt of drag, well before
         // anything is actionable, so there's never a moment of an icon floating with no motion.
         .opacity(min(1, offset / 24))
+        // At rest the row's own content covers this anyway, but an invisible 84pt button sitting
+        // under the leading edge of every row is the kind of thing that silently steals a tap
+        // meant for a completion circle. Off unless it's actually showing.
+        .allowsHitTesting(offset > 0)
     }
 
-    private var drag: some Gesture {
-        // `minimumDistance: 0` — not 12 — because this gesture now also owns tap detection
-        // (see `onEnded`): at 12, it would simply never recognize a near-stationary touch at
-        // all, so a genuine tap could never reach the tap-vs-swipe decision below.
-        DragGesture(minimumDistance: 0)
+    /// One composed gesture that owns both meanings of the touch. `.exclusively(before:)` gives
+    /// the tap a turn only when the drag *failed* to recognize (the finger never travelled
+    /// `minimumSwipeDistance`), so a swipe and a tap can never both fire from one touch.
+    private var swipeOrTap: some Gesture {
+        DragGesture(minimumDistance: minimumSwipeDistance)
             .onChanged { value in
-                let totalMovement = max(abs(value.translation.width), abs(value.translation.height))
-                isPressed = totalMovement < tapMovementThreshold
-                // A vertical scroll must never be mistaken for a swipe attempt — bail out
-                // entirely (not just "don't act"; `offset` genuinely never moves) whenever the
-                // drag isn't clearly horizontal-dominant yet.
+                // A vertical scroll must never read as a swipe. The minimum distance above
+                // already hands ordinary scrolling to the ScrollView before this gesture starts;
+                // this is the backstop for a diagonal drag that does start here.
                 guard abs(value.translation.width) > abs(value.translation.height) else {
-                    offset = 0
+                    if offset != 0 { offset = 0 }
                     crossedThreshold = false
                     return
                 }
@@ -125,9 +151,9 @@ struct SwipeToDeleteModifier: ViewModifier {
                     ? max(0, raw)
                     : autoDeleteThreshold + (raw - autoDeleteThreshold) * rubberBandFactor
 
-                // Flips right as you cross into "let go and this deletes" — not only once
-                // you've already committed. Re-arms if you drag back below the line. The actual
-                // haptic fires declaratively from `.sensoryFeedback`, keyed to this value.
+                // Flips right as you cross into "let go and this deletes" — not only once you've
+                // already committed. Re-arms if you drag back below the line. The haptic itself
+                // fires declaratively from `.sensoryFeedback`, keyed to this value.
                 if offset > autoDeleteThreshold, !crossedThreshold {
                     crossedThreshold = true
                 } else if offset <= autoDeleteThreshold {
@@ -136,20 +162,6 @@ struct SwipeToDeleteModifier: ViewModifier {
             }
             .onEnded { value in
                 crossedThreshold = false
-                isPressed = false
-                let totalMovement = max(abs(value.translation.width), abs(value.translation.height))
-                guard totalMovement >= tapMovementThreshold else {
-                    // Barely moved at all — a tap, not any kind of drag. Deciding this *here*,
-                    // inside the same gesture that also owns the swipe, is what actually fixes
-                    // the race with a separate `Button`/`.onTapGesture`: there is only ever one
-                    // recognizer looking at this touch, so there's nothing else that could
-                    // still fire independently once this gesture has made its call. Reachable
-                    // only when the row was at rest to begin with — once revealed, `content`'s
-                    // `.allowsHitTesting(offset == 0)` above stops this gesture from receiving
-                    // touches at all, and the separate close-on-tap overlay takes over instead.
-                    onTap?()
-                    return
-                }
                 guard abs(value.translation.width) > abs(value.translation.height) else {
                     withAnimation(Motion.snappy) { offset = 0 }
                     return
@@ -159,12 +171,16 @@ struct SwipeToDeleteModifier: ViewModifier {
                 let velocity = value.velocity.width
                 if offset > autoDeleteThreshold {
                     confirmDelete(releaseVelocity: velocity)
-                } else if value.translation.width > revealWidth / 2 {
-                    snap(to: revealWidth, releaseVelocity: velocity)
+                } else if offset >= revealWidth || velocity > flickVelocity {
+                    // Reminders only *holds* the rail open once you've pulled past the button's
+                    // full width, or flicked hard enough to clearly mean it. A tentative
+                    // half-swipe springs shut instead of latching open.
+                    reveal(velocity: velocity)
                 } else {
                     snap(to: 0, releaseVelocity: velocity)
                 }
             }
+            .exclusively(before: TapGesture().onEnded { onTap?() })
     }
 
     /// Spring to `target`, inheriting the drag's release velocity. SwiftUI's spring velocity is
@@ -185,6 +201,18 @@ struct SwipeToDeleteModifier: ViewModifier {
         }
     }
 
+    /// Latch the rail open, claiming the app's single "open row" slot so any other open rail
+    /// closes and a scroll can close this one.
+    private func reveal(velocity: CGFloat) {
+        coordinator.open(id)
+        snap(to: revealWidth, releaseVelocity: velocity)
+    }
+
+    private func close() {
+        coordinator.close(id)
+        snap(to: 0, releaseVelocity: 0)
+    }
+
     /// Slide the row fully clear of the screen — inheriting release velocity when there is one
     /// (a drag-triggered delete), or a plain spring when there isn't (tapping the Delete button
     /// directly). The actual deletion fires on a fixed short delay rather than the animation's
@@ -195,6 +223,7 @@ struct SwipeToDeleteModifier: ViewModifier {
     /// time, regardless of how the spring itself behaves.
     private func confirmDelete(releaseVelocity: CGFloat = 0) {
         isDeleting = true
+        coordinator.close(id)
         let target = rowWidth + 80
         let normalized = normalizedVelocity(releaseVelocity, distance: target - offset)
         withAnimation(.interpolatingSpring(duration: 0.3, bounce: 0.1, initialVelocity: normalized)) {
@@ -210,10 +239,28 @@ struct SwipeToDeleteModifier: ViewModifier {
 extension View {
     /// Swipe right to reveal Delete (tap to confirm), or drag further to delete outright. Pass
     /// `onTap` for the row's own "open" action instead of attaching a separate `Button`/
-    /// `.onTapGesture` alongside this modifier — the two are independent gesture recognizers
-    /// that race on the same touch, which is exactly what let a completed swipe still open the
-    /// row's detail sheet. Omit it (as before) for a row with no tap action of its own.
-    func swipeToDelete(onTap: (() -> Void)? = nil, onDelete: @escaping () -> Void) -> some View {
-        modifier(SwipeToDeleteModifier(onDelete: onDelete, onTap: onTap))
+    /// `.onTapGesture` alongside this modifier — the two are independent gesture recognizers that
+    /// race on the same touch, which is what let a completed swipe still open the row's detail.
+    ///
+    /// `id` only needs to be stable and unique among rows on screen (a task id is ideal); it's
+    /// what enforces "one rail open at a time".
+    func swipeToDelete(id: String, onTap: (() -> Void)? = nil, onDelete: @escaping () -> Void) -> some View {
+        modifier(SwipeToDeleteModifier(id: id, onDelete: onDelete, onTap: onTap))
+    }
+
+    /// Close any revealed Delete rail as soon as the user starts scrolling — what a `List` does
+    /// for free, and the reason a rail never sits stranded on screen in Reminders. Attach to the
+    /// `ScrollView` on any screen that uses `swipeToDelete`.
+    ///
+    /// Keyed to `.interacting` (content actually moving) and deliberately *not* `.tracking` (a
+    /// finger merely down): tracking fires on every touch, including the touch that lands on the
+    /// revealed Delete button, which would close the rail out from under its own tap.
+    @MainActor
+    func closesSwipeRailsOnScroll() -> some View {
+        onScrollPhaseChange { _, phase in
+            if phase == .interacting {
+                SwipeRevealCoordinator.shared.closeAll()
+            }
+        }
     }
 }

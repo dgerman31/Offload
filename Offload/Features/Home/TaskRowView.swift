@@ -107,7 +107,12 @@ struct TaskRowView: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture { onEdit?() }   // tap the text area to edit (toggle is its own button)
+            // Tap the text area to edit (the toggle is its own button). Attached only when there
+            // is actually an action: an `.onTapGesture` still recognizes and consumes the tap
+            // even when its closure does nothing, which would silently swallow taps meant for
+            // whatever owns this row — `.swipeToDelete`'s `onTap`, on the screens that pass
+            // `onEdit: nil` precisely so it can own them.
+            .gesture(onEdit.map { edit in TapGesture().onEnded { edit() } })
 
             Spacer(minLength: 0)
         }

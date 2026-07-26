@@ -198,12 +198,13 @@ struct DayView: View {
     /// duration (as little as 15 minutes) rather than however much its content needs, unlike the
     /// old free-flowing agenda card. Left border carries the category accent.
     ///
-    /// Deliberately not a `Button`: a `Button`'s tap recognition is a separate, opaque gesture
-    /// recognizer that can't know a sibling drag gesture (the grid's long-press-reschedule, or
-    /// `.swipeToDelete`'s own swipe) already decided the same touch was something else — which
-    /// is exactly how a completed drag-to-reschedule, or a completed swipe, could *also* open
-    /// this row's detail sheet. `.swipeToDelete(onTap:onDelete:)` now owns tap-vs-swipe itself
-    /// from a single gesture, so there's nothing left to race against.
+    /// Interaction here is deliberately all-native and pan-free: a plain tap opens it, a native
+    /// `.draggable` lift (owned by `DayTimeGrid`) reschedules it, and a long press opens the
+    /// context menu — which is where Delete lives on this screen. There is no hand-rolled
+    /// horizontal swipe, for two compounding reasons: a custom pan gesture on a row inside a
+    /// `ScrollView` fights that scroll view for the touch (this screen was the worst offender —
+    /// it was nearly unscrollable wherever a block sat under your finger), and a horizontal swipe
+    /// here would *also* fight the day pager, whose whole job is horizontal.
     private func gridBlockContent(_ entry: TimedEntry) -> some View {
         let accent = self.accent(entry.item)
         return HStack(spacing: 8) {
@@ -235,13 +236,14 @@ struct DayView: View {
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .strokeBorder(accent.opacity(0.25), lineWidth: 0.5))
         .contentShape(Rectangle())
+        .onTapGesture { open(entry.item) }
         .contextMenu { blockMenu(entry.item) }
-        .swipeToDelete(ifTask: entry.item, onTap: { open(entry.item) }) { task in Task { await store.delete(task) } }
     }
 
     /// A whole-day event or undated task — no clock, so it reads as an intention, not a block.
-    /// Not a `Button`, same reasoning as `gridBlockContent`: `.swipeToDelete(onTap:onDelete:)`
-    /// owns the tap so it can't race the swipe gesture.
+    /// Tap to open, long-press for actions (including Delete), same as `gridBlockContent` and for
+    /// the same reason: no custom pan gesture on this screen, so scrolling and day-paging stay
+    /// entirely the system's to arbitrate.
     private func untimedBlock(_ item: DayItem) -> some View {
         let accent = self.accent(item)
         return HStack(spacing: 10) {
@@ -268,8 +270,8 @@ struct DayView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(accent.opacity(0.10), in: .rect(cornerRadius: 12, style: .continuous))
         .contentShape(Rectangle())
+        .onTapGesture { open(item) }
         .contextMenu { blockMenu(item) }
-        .swipeToDelete(ifTask: item, onTap: { open(item) }) { task in Task { await store.delete(task) } }
         .reorderable(id: item.id, enabled: isFlexibleTask(item), onDrop: handleDrop)
     }
 
@@ -373,22 +375,6 @@ struct DayView: View {
         if Calendar.current.isDate(day, inSameDayAs: now) { return "Today" }
         let df = DateFormatter(); df.dateFormat = "EEEE, MMM d"
         return df.string(from: day)
-    }
-}
-
-private extension View {
-    /// Swipe-to-delete for a `DayItem` block — only tasks are deletable this way; a real
-    /// calendar event is edited/deleted through its own native editor instead. `onTap` still
-    /// applies to both: a task gets it via `.swipeToDelete`'s own race-free tap ownership, and
-    /// an event — which has no competing drag gesture to race against here — just gets a plain
-    /// tap gesture.
-    @ViewBuilder
-    func swipeToDelete(ifTask item: DayItem, onTap: @escaping () -> Void, delete: @escaping (TaskItem) -> Void) -> some View {
-        if case let .task(task) = item {
-            self.swipeToDelete(onTap: onTap) { delete(task) }
-        } else {
-            self.onTapGesture(perform: onTap)
-        }
     }
 }
 

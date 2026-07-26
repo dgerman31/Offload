@@ -153,7 +153,7 @@ struct GeminiExtractionService {
 
         The question is always: **would they knock these out in one go?**
 
-        If yes, it's one task with subtasks — a store run, a packing list, the five things to do before leaving the house. Never one task per grocery item. If no, they're separate tasks. If it's a genuine endeavor that unfolds over days or weeks with real steps, name a project and put the tasks under it — but a single errand is not a project, and over-organizing a small thing is as wrong as under-organizing a big one.
+        If yes, it's one task with subtasks — a store run, a packing list, the five things to do before leaving the house. Never one task per grocery item. If no, they're separate tasks. If it's a genuine endeavor that unfolds over days or weeks with real steps, name it in `suggestedProject` and put the tasks under it — but a single errand is not a project, and over-organizing a small thing is as wrong as under-organizing a big one.
 
         ## Time
 
@@ -167,7 +167,9 @@ struct GeminiExtractionService {
 
         **reasoning** — Your private scratchpad. Nobody sees it. Work out what they actually need and what shape it should take before you commit to anything.
 
-        **isCommand** — `true` only when they're talking to the app rather than about their life: "create a project called X," "make me a grocery list." Then set `suggestedProject` and emit no task about the act of creating it. `false` when they're describing their own work — "I need to create a project for the rebuild" is a real task. Set this on every capture.
+        **isCommand** — `true` only when they're talking to the app rather than about their life: "create a project called X," "make me a grocery list." Then emit no task about the act of creating it. `false` when they're describing their own work — "I need to create a project for the rebuild" is a real task. Set this on every capture.
+
+        **suggestedProject** — The named endeavor these tasks belong to. Fill this in **whenever they name one**, and note that this is independent of `isCommand`: "create a project called Thesis" is a command that names it, and "working on the Jury 3 project, I need to draft the opening and pull the exhibits" is *not* a command but names it just as clearly. Use their own words for the name ("Jury 3", not "Jury 3 Project Tasks"). Phrases that name one: "working on X", "for my X", "the X project", "as part of X". Null only when the tasks are one-off errands with no larger container — a single errand is not a project.
 
         **title** — A short action phrase. Specifics go in details.
 
@@ -200,7 +202,7 @@ struct GeminiExtractionService {
         - `due_today`, `due_tomorrow`, `due_this_week`, `due_none` — timing they hinted but didn't pin down
         - `priority_high` — sounded casual but might actually be urgent
         - `repeat_weekly` — a plausible but unstated recurrence
-        - `assign_project` with `value` — it clearly belongs to a project you can name
+        - `assign_project` with `value` — only when you suspect a project but *can't* confidently name it. If they named one, put it in `suggestedProject` and don't ask; a chip they have to tap is a worse answer than just doing it.
         - `set_category` with `value` — a genuine coin-flip between two areas
 
         ---

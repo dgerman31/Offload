@@ -154,8 +154,12 @@ final class CaptureService {
             let effectiveTasks = commitment.routines.isEmpty
                 ? mapped.tasks
                 : mapped.tasks.filter { task in
-                    // Keep tasks whose titles weren't converted to routines.
-                    !commitment.routines.contains { $0.title == task.title }
+                    // Keep tasks whose titles weren't converted to routines. Compared
+                    // case-insensitively on purpose: a routine's title is the raw extracted text
+                    // while a task's has been through `CaptureMapper.actionTitle`, which
+                    // capitalizes the first letter — so an exact match silently failed for every
+                    // lowercase-initial capture, leaving both a routine *and* a duplicate task.
+                    !commitment.routines.contains { $0.title.caseInsensitiveCompare(task.title) == .orderedSame }
                 }
 
             return PreparedCapture(
@@ -238,8 +242,28 @@ final class CaptureService {
         // Feature D: routines from commitment-shaped captures.
         let newRoutines = prepared.routines
         try await db.dbQueue.write { database in
-            if insertProject, let project { try project.insert(database) }
-            for task in fittedTasks { try task.insert(database) }
+            // Reuse a project of the same name instead of minting a second one: capturing "more
+            // for the thesis" twice belongs in one project, not two identical rows. The tasks the
+            // mapper already pointed at the new project get re-pointed at the surviving one.
+            var reusedProjectId: String?
+            if insertProject, let project {
+                let match = try Project
+                    .filter(Column("deleted") == false)
+                    .fetchAll(database)
+                    .first { $0.title.caseInsensitiveCompare(project.title) == .orderedSame }
+                if let match {
+                    reusedProjectId = match.id
+                } else {
+                    try project.insert(database)
+                }
+            }
+            for fitted in fittedTasks {
+                var task = fitted
+                if let reusedProjectId, task.projectId == project?.id {
+                    task.projectId = reusedProjectId
+                }
+                try task.insert(database)
+            }
             for updated in backfillUpdates { try updated.update(database) }
             for routine in newRoutines { try routine.insert(database) }
         }

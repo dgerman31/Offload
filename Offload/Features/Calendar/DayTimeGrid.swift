@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// What `DayTimeGrid` needs from an entry to position, size, and (maybe) drag it.
-protocol DayGridEntry: Identifiable {
+/// What `DayTimeGrid` needs from an entry to position, size, and (maybe) drag it. `ID == String`
+/// because a drag carries the entry's id across as its transferable payload.
+protocol DayGridEntry: Identifiable where ID == String {
     var start: Date { get }
     var end: Date { get }
     /// Any task can be dragged to any slot, including a Gym-linked or otherwise pinned one —
@@ -11,20 +12,26 @@ protocol DayGridEntry: Identifiable {
 
 /// A real time-grid for one day's timed items: gridlines every 30 minutes (only the on-the-hour
 /// ones carry a printed label) across the app's day-start/end window, with each entry positioned
-/// and sized by its actual time instead of stacked in a list. Any task can be long-pressed and
-/// dragged to any 15-minute-aligned point on the grid, including empty space — something native
-/// `.draggable`/`.dropDestination` can't do (there's no discrete view to drop *onto*; the target
-/// here is an arbitrary point on a continuous canvas), so this is a deliberate, scoped exception
-/// to preferring native gesture primitives elsewhere in the app. The long-press gate (nothing
-/// happens on a plain vertical swipe) is what keeps this from fighting the page's own scrolling,
-/// the same reasoning `SwipeToDeleteModifier` uses for its own `.simultaneousGesture`.
+/// and sized by its actual time instead of stacked in a list.
+///
+/// **Rescheduling is native drag-and-drop** — `.draggable` on each block, one `.dropDestination`
+/// covering the whole canvas — rather than a hand-built `LongPressGesture.sequenced(before:)`.
+/// The earlier hand-built version is what made this screen hard to scroll: a long-press-then-drag
+/// gesture attached to a row inside a `ScrollView` competes with that scroll view for the touch,
+/// and attaching it `.simultaneous`ly makes that worse rather than better. Native drag has no such
+/// problem — the system owns the lift, so scrolling, tapping, and the context menu all keep
+/// working untouched.
+///
+/// Dropping anywhere on the canvas works, not just onto another block: `.dropDestination` reports
+/// the drop's `location`, so an arbitrary point on a continuous surface resolves to a time through
+/// the same y-to-minute math the gridlines use, snapped to the nearest 15 minutes.
 struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     var entries: [Entry]
     var dayStartHour: Int
     var dayEndHour: Int
     var day: Date
     var calendar: Calendar = .current
-    /// Called with the snapped `Date` a dragged entry was released at.
+    /// Called with the snapped `Date` a dragged entry was dropped at.
     var onReschedule: (Entry, Date) -> Void
     @ViewBuilder var rowContent: (Entry) -> RowContent
 
@@ -36,9 +43,10 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     /// A block never renders shorter than this, so even a 15-minute task stays legible.
     private static var minimumBlockHeight: CGFloat { 32 }
     private static var gutterWidth: CGFloat { 54 }
+    /// Every dropped time lands on one of :00 / :15 / :30 / :45.
+    static var snapMinutes: Int { 15 }
 
-    @State private var draggingID: Entry.ID?
-    @State private var liveSnappedStart: Date?
+    @State private var isTargeted = false
 
     private var windowStart: Date {
         calendar.date(bySettingHour: dayStartHour, minute: 0, second: 0, of: day) ?? day
@@ -96,7 +104,15 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
                     block(for: entry)
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: totalHeight, alignment: .topLeading)
+            // A quiet wash while a block is held over the canvas, so it reads as a real drop
+            // surface rather than the drag having nowhere to land.
+            .background(isTargeted ? Color.Offload.indigo.opacity(0.06) : .clear)
+            .dropDestination(for: String.self) { ids, location in
+                drop(ids: ids, at: location)
+            } isTargeted: { targeted in
+                isTargeted = targeted
+            }
         }
         .frame(height: totalHeight)
     }
@@ -109,43 +125,28 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
 
     @ViewBuilder
     private func block(for entry: Entry) -> some View {
-        let isDragging = draggingID == entry.id
-        let top = isDragging ? y(for: liveSnappedStart ?? entry.start) : y(for: entry.start)
+        let top = y(for: entry.start)
         let height = max(Self.minimumBlockHeight, y(for: entry.end) - y(for: entry.start))
-        rowContent(entry)
+        let content = rowContent(entry)
             .frame(height: height, alignment: .top)
             .offset(y: top)
-            .zIndex(isDragging ? 1 : 0)
-            .opacity(isDragging ? 0.85 : 1)
-            .animation(isDragging ? nil : Motion.snappy, value: top)
-            .simultaneousGesture(entry.isDraggable ? dragGesture(for: entry) : nil)
+            .animation(Motion.snappy, value: top)
+        if entry.isDraggable {
+            content.draggable(entry.id)
+        } else {
+            content
+        }
     }
 
-    /// Nearest multiple of 15, rounding (not truncating) so a small drag in either direction
-    /// snaps predictably instead of always biasing toward zero.
-    private func snapped(_ rawMinutes: Int, to increment: Int = 15) -> Int {
-        Int((Double(rawMinutes) / Double(increment)).rounded()) * increment
-    }
-
-    private func dragGesture(for entry: Entry) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.35)
-            .sequenced(before: DragGesture(minimumDistance: 1, coordinateSpace: .local))
-            .onChanged { value in
-                guard case .second(true, let drag?) = value else { return }
-                draggingID = entry.id
-                let rawMinutes = Int(drag.translation.height / pointsPerMinute)
-                let delta = snapped(rawMinutes)
-                let candidate = calendar.date(byAdding: .minute, value: delta, to: entry.start) ?? entry.start
-                liveSnappedStart = min(max(candidate, windowStart), windowEnd)
-            }
-            .onEnded { value in
-                defer { draggingID = nil; liveSnappedStart = nil }
-                guard case .second(true, let drag?) = value else { return }
-                let rawMinutes = Int(drag.translation.height / pointsPerMinute)
-                let delta = snapped(rawMinutes)
-                let candidate = calendar.date(byAdding: .minute, value: delta, to: entry.start) ?? entry.start
-                let clamped = min(max(candidate, windowStart), windowEnd)
-                onReschedule(entry, DayPlanner.roundUpToQuarterHour(clamped, calendar: calendar))
-            }
+    /// Resolve a drop point on the canvas to a snapped time and hand it back. Returns whether the
+    /// drop was one of ours — `false` lets the system play its "didn't take" animation rather than
+    /// silently swallowing an unrelated drag.
+    private func drop(ids: [String], at location: CGPoint) -> Bool {
+        guard let id = ids.first, let entry = entries.first(where: { $0.id == id }) else { return false }
+        let snapped = DayPlanner.nearestMultiple(Int(location.y / pointsPerMinute), of: Self.snapMinutes)
+        let clamped = min(max(0, snapped), totalMinutes)
+        guard let target = calendar.date(byAdding: .minute, value: clamped, to: windowStart) else { return false }
+        onReschedule(entry, target)
+        return true
     }
 }

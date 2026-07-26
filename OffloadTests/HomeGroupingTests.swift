@@ -85,4 +85,23 @@ struct HomeGroupingTests {
         // mediums (dated soonest-first, then undated) all rank above the low.
         #expect(work.tasks.map(\.title) == ["Medium sooner", "Medium later", "Medium no date", "Low soon"])
     }
+
+    // MARK: Steps belong under their parent, not loose beside it
+
+    @Test("A step with a live parent is not its own row; its parent still is")
+    func stepsAreNotTheirOwnRows() {
+        let parent = TaskItem(title: "Ship the poster", category: "Work")
+        let step = TaskItem(title: "print it", category: "Work", parentTaskId: parent.id)
+        let unrelated = TaskItem(title: "Buy milk", category: "Personal")
+        let roots = HomeGrouping.rootsOnly([parent, step, unrelated])
+        #expect(roots.map(\.title) == ["Ship the poster", "Buy milk"])
+    }
+
+    @Test("A step whose parent is gone is promoted rather than disappearing")
+    func orphanedStepsArePromoted() {
+        // The parent isn't in the list at all — completed, or deleted. Without promotion this
+        // task would exist in the database and appear nowhere in the app.
+        let orphan = TaskItem(title: "print it", category: "Work", parentTaskId: "parent-that-is-gone")
+        #expect(HomeGrouping.rootsOnly([orphan]).map(\.title) == ["print it"])
+    }
 }

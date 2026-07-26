@@ -144,6 +144,7 @@ struct SearchView: View {
                 .padding(.bottom, 40)
             }
             .scrollIndicators(.hidden)
+            .closesSwipeRailsOnScroll()
             .background(Color.Offload.background)
             .navigationTitle("Search")
             .searchable(text: $store.query, prompt: "Tasks, projects, ideas…")
@@ -433,7 +434,7 @@ struct SearchView: View {
                                 TaskRowView(task: task, onEdit: nil) {
                                     Task { await store.toggleComplete(task) }
                                 }
-                                .swipeToDelete(onTap: {
+                                .swipeToDelete(id: task.id, onTap: {
                                     if let gymSessionId = task.gymSessionId {
                                         AppNavigation.shared.openGymSession(gymSessionId)
                                     } else {

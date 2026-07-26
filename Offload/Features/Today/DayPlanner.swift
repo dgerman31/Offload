@@ -52,6 +52,16 @@ enum DayPlanner {
         return calendar.date(from: comps) ?? date
     }
 
+    /// The *nearest* multiple of `increment` to a raw minute offset — rounding rather than
+    /// truncating, so a point landing between two marks resolves to whichever is actually closer
+    /// instead of always biasing earlier. Used for drag-and-drop onto the day grid, where the
+    /// finger lands wherever it lands; `roundUpToQuarterHour` is the right call for the planner's
+    /// own cursor, which must never step backwards into time it already allocated.
+    nonisolated static func nearestMultiple(_ rawMinutes: Int, of increment: Int = 15) -> Int {
+        guard increment > 0 else { return rawMinutes }
+        return Int((Double(rawMinutes) / Double(increment)).rounded()) * increment
+    }
+
     /// Breathing room between scheduled tasks; back-to-back plans never survive contact.
     static let bufferMinutes = 5
     /// Gaps shorter than this aren't worth planning into.

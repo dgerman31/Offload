@@ -137,26 +137,36 @@ struct TaskDetailView: View {
         }
     }
 
+    /// Only the circle completes a step — the rest of the row isn't a target.
+    ///
+    /// The whole row used to be one `Button`, which meant brushing a step's *text* while reading
+    /// or scrolling ticked it off. Completion is destructive-ish (it strikes the step through and
+    /// changes the parent's progress), so it should take an aimed tap at the control that
+    /// represents it, exactly like the completion circle on every task row elsewhere in the app.
     private var subtaskList: some View {
         VStack(spacing: 10) {
             ForEach(store.subtasks) { sub in
+                HStack(spacing: 11) {
                     Button {
                         Task { await TaskActions.toggleComplete(sub) }
                         Haptics.light()
                     } label: {
-                        HStack(spacing: 11) {
-                            Image(systemName: sub.status == "completed" ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 15))
-                                .foregroundStyle(sub.status == "completed" ? Color.Offload.green : Color.Offload.muted)
-                            Text(sub.title)
-                                .font(.Offload.body)
-                                .foregroundStyle(sub.status == "completed" ? Color.Offload.muted : Color.Offload.text)
-                                .strikethrough(sub.status == "completed", color: Color.Offload.muted)
-                                .multilineTextAlignment(.leading)
-                            Spacer(minLength: 0)
-                        }
+                        Image(systemName: sub.status == "completed" ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 15))
+                            .foregroundStyle(sub.status == "completed" ? Color.Offload.green : Color.Offload.muted)
+                            .symbolEffect(.bounce, value: sub.status)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.pressable(scale: 0.99))
+                    .buttonStyle(.pressable(scale: 0.85))
+                    .accessibilityLabel(sub.status == "completed" ? "Mark “\(sub.title)” not done" : "Mark “\(sub.title)” done")
+
+                    Text(sub.title)
+                        .font(.Offload.body)
+                        .foregroundStyle(sub.status == "completed" ? Color.Offload.muted : Color.Offload.text)
+                        .strikethrough(sub.status == "completed", color: Color.Offload.muted)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 0)
+                }
             }
         }
     }

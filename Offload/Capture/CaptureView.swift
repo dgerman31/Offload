@@ -33,8 +33,12 @@ struct CaptureView: View {
             .onAppear {
                 // Opened via the Action Button? Start recording immediately (spec §2.3).
                 // Any other entry (HomeView taps) stays typing-first and focuses the keyboard.
+                // If the mic can't come up at all, fall through to the keyboard rather than
+                // leaving the Action Button — the app's primary entry point — on a dead screen.
                 if capture.consumeAutoListen() {
-                    Task { await vm.beginAutoListen() }
+                    Task {
+                        if await vm.beginAutoListen() == false { fieldFocused = true }
+                    }
                 } else {
                     fieldFocused = true
                 }
@@ -50,6 +54,19 @@ struct CaptureView: View {
                 .font(.system(.title2, design: .rounded).weight(.bold))
                 .tracking(-0.4)
                 .foregroundStyle(Color.Offload.text)
+
+            // A mic that wouldn't start says so here, without taking the editor away.
+            if let banner = vm.errorBanner {
+                Label(banner, systemImage: "mic.slash.fill")
+                    .font(.Offload.body)
+                    .foregroundStyle(Color.Offload.amber)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color.Offload.amber.opacity(0.12), in: .rect(cornerRadius: 12, style: .continuous))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .onTapGesture { vm.errorBanner = nil }
+                    .accessibilityHint("Tap to dismiss")
+            }
 
             TextField("Speak or type a passing thought…", text: $vm.text, axis: .vertical)
                 .font(.Offload.body)
@@ -116,6 +133,7 @@ struct CaptureView: View {
         }
         .animation(Motion.standard, value: vm.isListening)
         .animation(Motion.standard, value: vm.isProcessing)
+        .animation(Motion.standard, value: vm.errorBanner)
     }
 
     /// Breathing ring shown while the mic is live.
@@ -335,8 +353,15 @@ struct CaptureView: View {
                 .font(.Offload.body)
                 .foregroundStyle(Color.Offload.text)
             HStack {
+                // Gated on `canSave`: with nothing typed, `save()` returns immediately and the
+                // button was a silent no-op on a screen with no other way forward.
                 Button("Try again") { Task { await vm.save() } }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!vm.canSave)
+                // The way back to the editor, keeping whatever text you had. Without this, the
+                // only exit from here was closing the sheet entirely.
+                Button("Back to typing") { vm.backToEditing() }
+                    .buttonStyle(.bordered)
                 Button("Close") { finish() }
                     .buttonStyle(.bordered)
             }

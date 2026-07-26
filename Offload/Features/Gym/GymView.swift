@@ -43,6 +43,7 @@ struct GymView: View {
                 .padding(.bottom, 40)
             }
             .scrollIndicators(.hidden)
+            .closesSwipeRailsOnScroll()
             .background(Color.Offload.background)
             .navigationTitle("Gym")
             .navigationBarTitleDisplayMode(.inline)
@@ -282,7 +283,8 @@ struct GymView: View {
 
     /// Not a `Button` — see `SwipeToDeleteModifier.onTap`'s doc comment. A `Button`'s tap
     /// recognition is a separate gesture recognizer from the swipe's own drag, and the two race
-    /// on the same touch; `.swipeToDelete(onTap:onDelete:)` now owns tap-vs-swipe from one place.
+    /// on the same touch; `.swipeToDelete(id:onTap:onDelete:)` settles tap-vs-swipe inside one
+    /// composed gesture instead.
     private func sessionRow(_ session: WorkoutSession) -> some View {
         let accent = Self.accent(for: session.workoutType)
         let done = session.status == "completed"
@@ -323,7 +325,7 @@ struct GymView: View {
         .padding(11)
         .background(accent.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
         .contentShape(Rectangle())
-        .swipeToDelete(onTap: { editingSession = session }) { Task { await store.delete(session) } }
+        .swipeToDelete(id: session.id, onTap: { editingSession = session }) { Task { await store.delete(session) } }
     }
 
     static func dayLabel(_ date: Date) -> String {

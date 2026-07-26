@@ -24,6 +24,9 @@ struct HomeView: View {
     @State private var activeRitual: RitualView.Mode?
     @State private var pendingReschedule: TaskItem?
     @State private var focusTask: TaskItem?
+    /// Which tasks currently have their steps folded open. Held here rather than per-row so the
+    /// state survives the list re-sorting under you as things get ticked off.
+    @State private var expandedTaskIDs: Set<String> = []
     @AppStorage(PinnedProjects.key) private var pinnedCSV = ""
     private var patterns: PatternService { PatternService.shared }
 
@@ -50,16 +53,28 @@ struct HomeView: View {
     /// The single running list: things with no plan, plus anything whose soft day slipped —
     /// surfaced quietly (each row says "was planned Fri"), never in a red overdue card. Slipped
     /// items sort first so they're not buried, but they carry no alarm.
+    ///
+    /// Only *root* tasks appear here. A step belongs under the task it's a step of (see
+    /// `steps(of:)`), not loose in the list as if it were its own errand — "buy milk" and "call
+    /// the pharmacy back" read as unrelated chores once they're flattened side by side, which is
+    /// exactly the sense in which steps were getting "inputed as separate tasks".
     private var loose: [TaskItem] {
         let startOfToday = Calendar.current.startOfDay(for: now)
-        let undated = store.openTasks.filter { DueDate.parse($0.dueDate) == nil }
-        let carried = store.openTasks
+        let roots = HomeGrouping.rootsOnly(store.openTasks)
+        let undated = roots.filter { DueDate.parse($0.dueDate) == nil }
+        let carried = roots
             .filter { task in
                 guard let due = DueDate.parse(task.dueDate) else { return false }
                 return due < startOfToday
             }
             .sorted { (DueDate.parse($0.dueDate) ?? now) < (DueDate.parse($1.dueDate) ?? now) }
         return carried + HomeGrouping.inDisplayOrder(undated)
+    }
+
+    /// A task's steps, in the order they were added, including finished ones — a "1 of 4" that
+    /// only counts what's left would go backwards as you tick things off.
+    private func steps(of task: TaskItem) -> [TaskItem] {
+        store.allTasks.filter { $0.parentTaskId == task.id && !$0.deleted }
     }
 
     var body: some View {
@@ -96,6 +111,7 @@ struct HomeView: View {
                 .padding(.bottom, 40)
             }
             .scrollIndicators(.hidden)
+            .closesSwipeRailsOnScroll()
             .background(Color.Offload.background)
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.inline)
@@ -479,10 +495,31 @@ struct HomeView: View {
         card("On your list", icon: "tray.fill", tint: Color.Offload.muted) {
             VStack(spacing: 2) {
                 ForEach(loose) { task in
-                    taskRow(task).scrollAppearSubtle()
+                    VStack(spacing: 2) {
+                        taskRow(task)
+                        // Steps stay folded away by default — the point of Home is "what needs
+                        // me", and a task's internal breakdown is detail you ask for.
+                        if expandedTaskIDs.contains(task.id) {
+                            ForEach(steps(of: task)) { step in
+                                stepRow(step)
+                            }
+                        }
+                    }
+                    .scrollAppearSubtle()
                 }
             }
         }
+    }
+
+    /// One step, nested under its parent. Indented and quieter than a root row, so the hierarchy
+    /// is legible at a glance rather than implied by position alone.
+    private func stepRow(_ step: TaskItem) -> some View {
+        TaskRowView(task: step, indented: true, onEdit: nil) {
+            Task { await store.toggleComplete(step) }
+        }
+        .contextMenu { taskMenu(step) }
+        .swipeToDelete(id: step.id, onTap: { openTask(step) }) { Task { await store.delete(step) } }
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: Projects entry point
@@ -524,15 +561,51 @@ struct HomeView: View {
     }
 
     private func taskRow(_ task: TaskItem) -> some View {
+        let taskSteps = steps(of: task)
         // `onEdit: nil` — the row's own tap-to-open moves to `.swipeToDelete`'s `onTap` instead
         // of `TaskRowView`'s internal `.onTapGesture`, which would otherwise be a second,
         // independent gesture recognizer racing the swipe's drag on the same touch (exactly
         // what let a completed swipe still open the task's detail).
-        TaskRowView(task: task, onEdit: nil) {
-            Task { await store.toggleComplete(task) }
+        return HStack(spacing: 4) {
+            TaskRowView(task: task, onEdit: nil) {
+                Task { await store.toggleComplete(task) }
+            }
+            if !taskSteps.isEmpty {
+                stepsDisclosure(for: task, steps: taskSteps)
+            }
         }
         .contextMenu { taskMenu(task) }
-        .swipeToDelete(onTap: { openTask(task) }) { Task { await store.delete(task) } }
+        .swipeToDelete(id: task.id, onTap: { openTask(task) }) { Task { await store.delete(task) } }
+    }
+
+    /// The fold-out control for a task's steps, carrying its own progress ("2/5") so the count is
+    /// useful while collapsed — otherwise you'd have to open it just to learn whether it's worth
+    /// opening. A real `Button`, so it claims its own taps rather than the row's open action.
+    private func stepsDisclosure(for task: TaskItem, steps: [TaskItem]) -> some View {
+        let expanded = expandedTaskIDs.contains(task.id)
+        let done = steps.filter { $0.status == "completed" }.count
+        return Button {
+            Haptics.light()
+            withAnimation(Motion.snappy) {
+                if expanded { expandedTaskIDs.remove(task.id) } else { expandedTaskIDs.insert(task.id) }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("\(done)/\(steps.count)")
+                    .font(.Offload.data)
+                    .monospacedDigit()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .rotationEffect(.degrees(expanded ? 0 : -90))
+            }
+            .foregroundStyle(Color.Offload.muted)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(Color.Offload.muted.opacity(0.10), in: .capsule)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.pressable(scale: 0.9))
+        .accessibilityLabel(expanded ? "Hide steps" : "Show \(steps.count) steps, \(done) done")
     }
 
     /// A task that's really the schedule block for a Gym-tab session opens the Gym tab to that

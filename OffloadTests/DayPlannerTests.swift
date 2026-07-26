@@ -103,6 +103,19 @@ struct DayPlannerTests {
         #expect(DayPlanner.roundUpToQuarterHour(messy, calendar: utcCalendar) == date(10, 30))
     }
 
+    /// What a drag-and-drop onto the day grid resolves to: the *closest* mark, not the one before
+    /// it, so a block dropped just shy of a line doesn't jump back 14 minutes.
+    @Test("Dropping between two quarter-hour marks snaps to whichever is closer")
+    func nearestMultipleRoundsBothWays() {
+        #expect(DayPlanner.nearestMultiple(0) == 0)
+        #expect(DayPlanner.nearestMultiple(7) == 0)     // just under halfway — back to :00
+        #expect(DayPlanner.nearestMultiple(8) == 15)    // just over halfway — forward to :15
+        #expect(DayPlanner.nearestMultiple(15) == 15)   // already on a mark — unmoved
+        #expect(DayPlanner.nearestMultiple(22) == 15)
+        #expect(DayPlanner.nearestMultiple(23) == 30)
+        #expect(DayPlanner.nearestMultiple(608) == 615) // 10h08 → 10h15
+    }
+
     @Test("A free slot that starts mid-meeting-end still starts on a quarter-hour")
     func freeSlotsStartOnQuarterHour() {
         // The meeting ends at 10:07 — the next slot must not start there.

@@ -15,6 +15,13 @@ disabled_rules:
   - line_length
   - trailing_whitespace
   - todo
+  # Single-letter locals (`c` for a calendar, `t` for a task under construction) are the house
+  # style in test fixtures and short helpers, and renaming them buys nothing.
+  - identifier_name
 
 excluded:
   - .build
+  # Test code force-unwraps `DateComponents` fixtures on purpose: a nil there means the fixture
+  # itself is wrong, and crashing the test is the correct outcome. Linting for it here would bury
+  # the app-code findings this job exists to surface.
+  - OffloadTests

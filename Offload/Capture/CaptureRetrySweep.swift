@@ -18,12 +18,16 @@ enum CaptureRetrySweep {
     /// Total extraction attempts allowed per capture, counting the original. Small on purpose:
     /// the failures this clears are transient, and one that survives three separate app launches
     /// is not going to be fixed by a fourth.
-    static let maxAttempts = 3
+    ///
+    /// `nonisolated` because the GRDB read below hands its closure off as `@Sendable`, which
+    /// can't reach a main-actor-isolated static. Both of these are immutable `Int`s — exactly
+    /// the case `nonisolated` exists for.
+    nonisolated static let maxAttempts = 3
 
     /// How many to retry in one sweep. This runs alongside routine materialization and the
     /// notification refresh on every foreground, and each retry is a full extraction — so it
     /// takes the oldest few rather than however many have accumulated.
-    static let batchSize = 3
+    nonisolated static let batchSize = 3
 
     /// Retry the oldest eligible failed captures. Never throws: a sweep is opportunistic
     /// background repair, and a capture that fails again is simply left for the next foreground

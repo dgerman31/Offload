@@ -29,6 +29,7 @@ struct SettingsView: View {
     @State private var generatingInsight = false
     @State private var confirmingErase = false
     @State private var erasing = false
+    @State private var eraseFailed = false
 
     var body: some View {
         NavigationStack {
@@ -248,14 +249,30 @@ struct SettingsView: View {
                 Button("Erase everything", role: .destructive) {
                     erasing = true
                     Task {
-                        try? await AppDatabase.shared.eraseAllData()
+                        // The one irreversible action in the app used to be `try?` followed by an
+                        // unconditional success haptic — so a failed erase felt exactly like a
+                        // successful one, and the user walked away believing their data was gone.
+                        // The delete runs in a single transaction, so a throw means nothing was
+                        // deleted, which is what the failure alert can honestly say.
+                        do {
+                            try await AppDatabase.shared.eraseAllData()
+                            Haptics.success()
+                        } catch {
+                            Log.database.error("erase all data failed: \(error.localizedDescription)")
+                            Haptics.warning()
+                            eraseFailed = true
+                        }
                         erasing = false
-                        Haptics.success()
                     }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This deletes every task, project, and capture on this iPhone. It can't be undone.")
+            }
+            .alert("Couldn't erase your data", isPresented: $eraseFailed) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Nothing was deleted — the whole erase runs at once, so it either all happens or none of it does. Try again, and if it keeps failing, restart Offload.")
             }
         }
     }

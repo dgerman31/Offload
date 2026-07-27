@@ -67,6 +67,7 @@ struct GymSessionDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Session options")
             }
         }
         .confirmationDialog("Delete this session?", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -187,6 +188,8 @@ struct GymSessionDetailView: View {
                         }
                 }
                 .buttonStyle(.pressable(scale: 0.85))
+                .accessibilityLabel("Set \(number)")
+                .accessibilityValue(done ? "Done" : "Not done")
             }
             Text("\(exercise.completedSets)/\(sets) sets")
                 .font(.caption).foregroundStyle(Color.Offload.muted)

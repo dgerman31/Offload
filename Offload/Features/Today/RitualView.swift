@@ -158,7 +158,7 @@ struct RitualView: View {
                                     .foregroundStyle(Color.Offload.text)
                                 Spacer(minLength: 8)
                                 if let time = item.time {
-                                    Text(CalendarView.time(time))
+                                    Text(TimeFormat.time(time))
                                         .font(.Offload.data)
                                         .foregroundStyle(Color.Offload.muted)
                                         .lineLimit(1).fixedSize()

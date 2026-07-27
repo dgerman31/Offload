@@ -52,14 +52,20 @@ struct DayView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // Bucketed once here and handed down, because a `.page`-style `TabView` builds *every*
+        // page: `agenda(for:)` asking `DayTimeline.items` for its own day meant the full
+        // filter/sort pipeline ran once per page (~49 ms at 100 tasks, ~245 ms at 500) on every
+        // render — including every render caused by a task write on some other screen, since the
+        // task stream is app-wide. One pass, then 61 dictionary lookups.
+        let itemsByDay = DayTimeline.itemsByDay(tasks: store.allTasks, events: store.rangeEvents)
+        return NavigationStack {
             VStack(spacing: 12) {
                 WeekStrip(selected: $selectedDay, density: density, now: now)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
                     .appearIn(0, when: appeared)
 
-                dayPager
+                dayPager(itemsByDay)
                     .appearIn(1, when: appeared)
             }
             .background(Color.Offload.background)
@@ -109,11 +115,14 @@ struct DayView: View {
 
     // MARK: Day pager (swipe left/right = previous/next day)
 
-    private var dayPager: some View {
+    private func dayPager(_ itemsByDay: [Date: [DayItem]]) -> some View {
         TabView(selection: $selectedDay) {
             ForEach(days, id: \.timeIntervalSince1970) { day in
                 ScrollView {
-                    agenda(for: day)
+                    // Keyed by `startOfDay`, not by `day` itself: the pager's dates come from
+                    // `date(byAdding: .day)`, which preserves wall-clock time and so lands off
+                    // midnight in zones whose DST transition happens at midnight.
+                    agenda(for: day, items: itemsByDay[Calendar.current.startOfDay(for: day)] ?? [])
                         .padding(.horizontal, 16)
                         .padding(.top, 4)
                         .padding(.bottom, 40)
@@ -128,8 +137,7 @@ struct DayView: View {
     // MARK: Agenda for one day
 
     @ViewBuilder
-    private func agenda(for day: Date) -> some View {
-        let items = DayTimeline.items(tasks: store.allTasks, events: store.rangeEvents, on: day)
+    private func agenda(for day: Date, items: [DayItem]) -> some View {
         let timed = timedEntries(items)
         let untimed = items.filter { span($0) == nil }
 
@@ -144,7 +152,7 @@ struct DayView: View {
             } else {
                 if !timed.isEmpty {
                     if let range = span(of: timed) {
-                        Text("\(CalendarView.time(range.start)) – \(CalendarView.time(range.end))")
+                        Text("\(TimeFormat.time(range.start)) – \(TimeFormat.time(range.end))")
                             .font(.Offload.data)
                             .foregroundStyle(Color.Offload.muted)
                     }
@@ -223,7 +231,7 @@ struct DayView: View {
                     .font(.Offload.manrope(13, .bold))
                     .foregroundStyle(Color.Offload.text)
                     .lineLimit(1)
-                Text("\(CalendarView.time(entry.start)) – \(CalendarView.time(entry.end))")
+                Text("\(TimeFormat.time(entry.start)) – \(TimeFormat.time(entry.end))")
                     .font(.system(size: 10))
                     .foregroundStyle(Color.Offload.muted)
                     .lineLimit(1)
@@ -371,10 +379,11 @@ struct DayView: View {
         }
     }
 
+    /// Runs once per page the pager builds — 61 times per render — so the formatter comes from
+    /// the shared cache rather than being allocated here.
     private func dayHeading(_ day: Date) -> String {
         if Calendar.current.isDate(day, inSameDayAs: now) { return "Today" }
-        let df = DateFormatter(); df.dateFormat = "EEEE, MMM d"
-        return df.string(from: day)
+        return CachedDateFormat.string(from: day, pattern: "EEEE, MMM d")
     }
 }
 

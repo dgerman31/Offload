@@ -55,33 +55,56 @@ struct HomeView: View {
     /// items sort first so they're not buried, but they carry no alarm.
     ///
     /// Only *root* tasks appear here. A step belongs under the task it's a step of (see
-    /// `steps(of:)`), not loose in the list as if it were its own errand — "buy milk" and "call
+    /// `stepsByParent`), not loose in the list as if it were its own errand — "buy milk" and "call
     /// the pharmacy back" read as unrelated chores once they're flattened side by side, which is
     /// exactly the sense in which steps were getting "inputed as separate tasks".
-    private var loose: [TaskItem] {
+    ///
+    /// Takes the open tasks rather than reading `store.openTasks` itself: that's a filter over
+    /// every task, and `body` already needs the same list for its empty-state check.
+    ///
+    /// One `DueDate.parse` per root, in a single pass. The two filters used to parse every root
+    /// twice, and the sort's comparator parsed *both* sides on every comparison — the exact
+    /// pattern `DueDate`'s formatter cache exists to make survivable, done in the one place where
+    /// caching the formatter still leaves O(n log n) string parses.
+    private func looseTasks(from openTasks: [TaskItem]) -> [TaskItem] {
         let startOfToday = Calendar.current.startOfDay(for: now)
-        let roots = HomeGrouping.rootsOnly(store.openTasks)
-        let undated = roots.filter { DueDate.parse($0.dueDate) == nil }
-        let carried = roots
-            .filter { task in
-                guard let due = DueDate.parse(task.dueDate) else { return false }
-                return due < startOfToday
+        var undated: [TaskItem] = []
+        var carried: [(task: TaskItem, due: Date)] = []
+        for task in HomeGrouping.rootsOnly(openTasks) {
+            guard let due = DueDate.parse(task.dueDate) else {
+                undated.append(task)
+                continue
             }
-            .sorted { (DueDate.parse($0.dueDate) ?? now) < (DueDate.parse($1.dueDate) ?? now) }
-        return carried + HomeGrouping.inDisplayOrder(undated)
+            if due < startOfToday { carried.append((task, due)) }
+        }
+        return carried.sorted { $0.due < $1.due }.map(\.task)
+            + HomeGrouping.inDisplayOrder(undated)
     }
 
-    /// A task's steps, in the order they were added, including finished ones — a "1 of 4" that
+    /// Every task's steps, in the order they were added, including finished ones — a "1 of 4" that
     /// only counts what's left would go backwards as you tick things off.
-    private func steps(of task: TaskItem) -> [TaskItem] {
-        store.allTasks.filter { $0.parentTaskId == task.id && !$0.deleted }
+    ///
+    /// Grouped once per render rather than filtered per row: the per-row version was O(rows × all
+    /// tasks), which at 20 rows and 500 tasks is 10,000 comparisons — twice over, since an
+    /// expanded row asked again.
+    private var stepsByParent: [String: [TaskItem]] {
+        Dictionary(grouping: store.allTasks.filter { $0.parentTaskId != nil && !$0.deleted },
+                   by: { $0.parentTaskId ?? "" })
     }
 
     var body: some View {
-        NavigationStack {
+        // Each of these is a full pass over every task, so they're computed once here and threaded
+        // down as parameters. `summary` was being rebuilt five times per body evaluation (a filter
+        // with a `DueDate.parse` per task, plus a `NextBest.pick` over a fresh filter), `loose`
+        // twice, and the 60-second clock tick re-ran the lot while the app sat idle.
+        let s = summary
+        let openTasks = store.openTasks
+        let loose = looseTasks(from: openTasks)
+        let steps = stepsByParent
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
-                    heroCard.appearIn(0, when: appeared)
+                    heroCard(s).appearIn(0, when: appeared)
                     // Always visible, never conditionally hidden — a feature you have to
                     // discover by having exactly the right state isn't discoverable at all.
                     // If there's genuinely nothing to plan, the sheet itself says so.
@@ -90,18 +113,18 @@ struct HomeView: View {
                     PinnedBento(summaries: pinnedSummaries) { editingPins = true }
                         .appearIn(2, when: appeared).scrollAppear()
 
-                    if !summary.isClear || summary.nextTask != nil {
-                        nowAndNext.appearIn(3, when: appeared).scrollAppear()
+                    if !s.isClear || s.nextTask != nil {
+                        nowAndNext(s).appearIn(3, when: appeared).scrollAppear()
                     }
                     if !patterns.suggestions.isEmpty {
                         suggestionsCard.appearIn(4, when: appeared).scrollAppear()
                     }
                     if !loose.isEmpty {
-                        looseCard.appearIn(5, when: appeared).scrollAppear()
+                        looseCard(loose, stepsByParent: steps).appearIn(5, when: appeared).scrollAppear()
                     }
                     projectsLink.appearIn(6, when: appeared).scrollAppear()
 
-                    if store.openTasks.isEmpty && summary.completedToday == 0 {
+                    if openTasks.isEmpty && s.completedToday == 0 {
                         EmptyCaptureInvitation { capture.beginCapture() }
                             .padding(.top, 20)
                             .appearIn(3, when: appeared)
@@ -247,9 +270,11 @@ struct HomeView: View {
 
     // MARK: Hero
 
-    private var heroCard: some View {
-        let s = summary
+    /// Takes the day's summary rather than reading it — recomputing `summary` per call site is
+    /// what made one body evaluation five full passes over every task.
+    private func heroCard(_ s: DaySummary) -> some View {
         let percent = Int(s.progress * 100)
+        let chips = heroChips(s)
         return VStack(alignment: .leading, spacing: 16) {
             Text(s.greeting.uppercased())
                 .font(.Offload.manrope(11, .semibold))
@@ -274,9 +299,9 @@ struct HomeView: View {
                 }
             }
 
-            if !heroChips(s).isEmpty {
+            if !chips.isEmpty {
                 HStack(spacing: 8) {
-                    ForEach(heroChips(s), id: \.text) { chip in
+                    ForEach(chips, id: \.text) { chip in
                         heroChip(chip.text, chip.icon)
                     }
                 }
@@ -429,9 +454,8 @@ struct HomeView: View {
 
     // MARK: Now & Next
 
-    private var nowAndNext: some View {
-        let s = summary
-        return card("Next", icon: "arrow.forward.circle.fill", tint: Color.Offload.indigo) {
+    private func nowAndNext(_ s: DaySummary) -> some View {
+        card("Next", icon: "arrow.forward.circle.fill", tint: Color.Offload.indigo) {
             VStack(spacing: 12) {
                 if let event = s.nextEvent {
                     HStack(spacing: 12) {
@@ -440,7 +464,7 @@ struct HomeView: View {
                             Text(event.title)
                                 .font(.Offload.taskTitle)
                                 .foregroundStyle(Color.Offload.text)
-                            Text(event.isAllDay ? "All day" : CalendarView.time(event.start))
+                            Text(event.isAllDay ? "All day" : TimeFormat.time(event.start))
                                 .font(.Offload.data)
                                 .foregroundStyle(Color.Offload.muted)
                         }
@@ -491,16 +515,17 @@ struct HomeView: View {
 
     // MARK: The running list
 
-    private var looseCard: some View {
+    private func looseCard(_ loose: [TaskItem], stepsByParent: [String: [TaskItem]]) -> some View {
         card("On your list", icon: "tray.fill", tint: Color.Offload.muted) {
             VStack(spacing: 2) {
                 ForEach(loose) { task in
+                    let taskSteps = stepsByParent[task.id] ?? []
                     VStack(spacing: 2) {
-                        taskRow(task)
+                        taskRow(task, steps: taskSteps)
                         // Steps stay folded away by default — the point of Home is "what needs
                         // me", and a task's internal breakdown is detail you ask for.
                         if expandedTaskIDs.contains(task.id) {
-                            ForEach(steps(of: task)) { step in
+                            ForEach(taskSteps) { step in
                                 stepRow(step)
                             }
                         }
@@ -560,8 +585,7 @@ struct HomeView: View {
             .background(tint.opacity(0.12), in: .rect(cornerRadius: 9, style: .continuous))
     }
 
-    private func taskRow(_ task: TaskItem) -> some View {
-        let taskSteps = steps(of: task)
+    private func taskRow(_ task: TaskItem, steps taskSteps: [TaskItem]) -> some View {
         // `onEdit: nil` — the row's own tap-to-open moves to `.swipeToDelete`'s `onTap` instead
         // of `TaskRowView`'s internal `.onTapGesture`, which would otherwise be a second,
         // independent gesture recognizer racing the swipe's drag on the same touch (exactly

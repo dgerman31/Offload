@@ -54,6 +54,10 @@ struct PreparedCapture {
     /// 9–12"). Persisted in `finalize` alongside normal tasks. The tasks they came from are
     /// removed from `tasks` so they don't also create one-off `TaskItem`s.
     var routines: [Routine] = []
+    /// Which extractor actually produced this — `finalize` writes it to `captures.model_source`.
+    /// It used to hardcode `"foundation"` for every capture including the ones Gemini did, which
+    /// made the column a constant and the "what did the cloud actually do" question unanswerable.
+    var modelSource: String?
 }
 
 /// The end-to-end capture pipeline (spec §2.3). Persists the raw input FIRST so nothing
@@ -108,17 +112,32 @@ final class CaptureService {
     /// nothing yet. On extraction failure the raw capture is marked `failed` and the error
     /// is rethrown (the words are already saved). The returned `PreparedCapture` must be
     /// handed to `finalize` to actually write anything.
-    func prepare(rawInput: String, inputType: String) async throws -> PreparedCapture {
+    ///
+    /// `retrying` is the existing failed capture row when `CaptureRetrySweep` is re-attempting
+    /// one. Passing it reuses that row instead of inserting a second one — otherwise every retry
+    /// of a capture that keeps failing would leave another `failed` row behind, and the table
+    /// would grow with each launch instead of the retry count converging on its ceiling.
+    func prepare(rawInput: String, inputType: String, retrying: Capture? = nil) async throws -> PreparedCapture {
         let started = Date()
 
         // 1. Persist the raw capture first — never lose the user's words.
-        let initial = Capture(
-            rawInput: rawInput,
-            inputType: inputType,
-            transcript: rawInput,
-            processingStatus: "processing"
-        )
-        try await db.dbQueue.write { try initial.insert($0) }
+        let initial: Capture
+        if let retrying {
+            var claimed = retrying
+            claimed.processingStatus = "processing"
+            initial = claimed
+            let toSave = claimed
+            try await db.dbQueue.write { try toSave.update($0) }
+        } else {
+            initial = Capture(
+                rawInput: rawInput,
+                inputType: inputType,
+                transcript: rawInput,
+                processingStatus: "processing"
+            )
+            let toSave = initial
+            try await db.dbQueue.write { try toSave.insert($0) }
+        }
 
         do {
             // 2. Extract (typed output; no parsing). Gemini also returns clarifying chips and its
@@ -171,12 +190,15 @@ final class CaptureService {
                 existingById: Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
                 appointmentTaskIds: mapped.appointmentTaskIds,
                 chips: extraction.chips,
-                routines: commitment.routines
+                routines: commitment.routines,
+                modelSource: extraction.modelSource
             )
         } catch {
-            // Keep the raw transcript; mark failed so it can be retried later.
+            // Keep the raw transcript; mark failed and count the attempt, so `CaptureRetrySweep`
+            // knows both that there's work here and when to stop coming back to it.
             var failed = initial
             failed.processingStatus = "failed"
+            failed.retryCount += 1
             let finalized = failed
             try? await db.dbQueue.write { try finalized.update($0) }
             throw error
@@ -273,7 +295,10 @@ final class CaptureService {
         done.processingStatus = "done"
         done.processedAt = ISO8601DateFormatter().string(from: Date())
         done.processingMs = Int(Date().timeIntervalSince(prepared.startedAt) * 1000)
-        done.modelSource = "foundation"
+        // What actually ran, not a guess: `nil` only when an extractor didn't say, in which case
+        // the on-device path is the honest default (it's the one that can't report failure to
+        // reach the cloud).
+        done.modelSource = prepared.modelSource ?? ExtractionService.modelSource
         done.extractedTaskIds = Self.encodeIds(finalTasks.map(\.id))
         let finalized = done
         try await db.dbQueue.write { try finalized.update($0) }
@@ -341,8 +366,8 @@ final class CaptureService {
     /// `DictateCaptureIntent`, tests): prepare, then finalize keeping every candidate. This
     /// reproduces the exact pre-blocking behavior — tasks inserted, similar ones surfaced as
     /// warnings on the `Outcome`.
-    func process(rawInput: String, inputType: String) async throws -> Outcome {
-        let prepared = try await prepare(rawInput: rawInput, inputType: inputType)
+    func process(rawInput: String, inputType: String, retrying: Capture? = nil) async throws -> Outcome {
+        let prepared = try await prepare(rawInput: rawInput, inputType: inputType, retrying: retrying)
         // Empty resolutions => every candidate defaults to `.keepBoth`.
         return try await finalize(prepared, resolutions: [:])
     }

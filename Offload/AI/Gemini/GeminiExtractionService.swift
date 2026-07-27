@@ -11,6 +11,10 @@ struct GeminiExtractionService {
     var personalization: () async -> String?
     var categories: [String]
 
+    /// The value written to `captures.model_source` for work this extractor did. The vocabulary
+    /// (`foundation` | `mlx` | `cloud`) is documented on `Capture.modelSource`.
+    nonisolated static let modelSource = "cloud"
+
     // MARK: DTOs — plain Codable, decoupled from Apple's @Generable ExtractedCapture.
 
     private struct GCapture: Codable {
@@ -101,7 +105,8 @@ struct GeminiExtractionService {
         return ExtractionResult(
             capture: Self.domain(capture),
             chips: Self.chips(capture.chips),
-            isProjectCommand: capture.isCommand
+            isProjectCommand: capture.isCommand,
+            modelSource: Self.modelSource
         )
     }
 

@@ -7,6 +7,11 @@ import GRDB
 /// was ever actually running. Now Home, Day, and anything else that observes tasks all stay
 /// mounted at once, so without this every task edit was triggering a full-table refetch on each
 /// of them in parallel. `TaskStore.allTasks` delegates here so no call site has to change.
+///
+/// The claim that this made the problem go away was only true of `TaskStore` itself: `StatsStore`
+/// kept its own full-table observation running in the permanently-mounted Settings tab until it
+/// was moved over too. Anything new that needs the whole task table belongs here as well — a
+/// second `ValueObservation.tracking` on `tasks` re-earns the original cost in full.
 @MainActor
 @Observable
 final class SharedTasks {
@@ -162,15 +167,20 @@ final class TaskStore {
     /// Bank a healed timeline: write each reflowed task's projected time back so reminders and
     /// the plan follow reality. Only the tasks that actually moved are touched. They stay soft,
     /// so the timeline can keep healing from here.
+    ///
+    /// All of it in one transaction. A row per `write` block meant a reflow of 30 tasks cost 30
+    /// fsyncs *and* 30 `ValueObservation` fire cycles, each one re-rendering every mounted screen
+    /// that reads tasks. Batching doesn't weaken the "touch only what moved" rule — the same rows
+    /// are written, just together.
     func commitReflow(_ placed: [LiquidTimeline.Placed]) async {
-        for p in placed where p.hasMoved {
+        let moved: [TaskItem] = placed.filter(\.hasMoved).map { p in
             var updated = p.task
             updated.dueDate = DueDate.canonicalString(from: p.start)
             updated.dueIsAllDay = false
             updated.pinned = false
-            let toSave = updated
-            try? await db.dbQueue.write { try toSave.update($0) }
+            return updated
         }
+        await writeAll(moved, describing: "reflow")
         Haptics.success()
         undo = nil
         await NotificationSync.shared.refresh()
@@ -184,6 +194,10 @@ final class TaskStore {
     /// Reads a fresh snapshot directly from the database rather than the cached `allTasks` (which
     /// now delegates to the single shared task stream) — a one-shot mutation like this wants the
     /// current state at the moment it runs, not whatever the last-observed value happened to be.
+    ///
+    /// One transaction for the whole reorder, for the reason `commitReflow` documents: a 30-task
+    /// drag used to be 30 separate writes, and so 30 observation fire cycles — each of which
+    /// rebuilds the Day tab's timeline, the very screen the drag happened on.
     func applyReorder(_ orderedIds: [String], on day: Date, events: [CalendarEvent], now: Date = Date(), calendar: Calendar = .current) async {
         let current = (try? await db.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
@@ -191,6 +205,7 @@ final class TaskStore {
         let plan = DayPlanner.plan(tasks: current, events: events, on: day, now: now,
                                    calendar: calendar, preferredOrder: orderedIds)
         let originalById = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+        var moved: [TaskItem] = []
         for scheduled in plan.scheduled {
             guard let original = originalById[scheduled.task.id] else { continue }
             let originalStart = DueDate.parse(original.dueDate)
@@ -199,11 +214,28 @@ final class TaskStore {
             updated.dueDate = DueDate.canonicalString(from: scheduled.start)
             updated.dueIsAllDay = false
             updated.pinned = false
-            let toSave = updated
-            try? await db.dbQueue.write { try toSave.update($0) }
+            moved.append(updated)
         }
+        await writeAll(moved, describing: "reorder")
         Haptics.success()
         await NotificationSync.shared.refresh()
+    }
+
+    /// Update every row in a single transaction, or none of them.
+    ///
+    /// The all-or-nothing part is a real change from the previous per-row `try?`: a mid-batch
+    /// failure now rolls the whole batch back instead of leaving a half-applied schedule. That's
+    /// the better outcome for a reorder or a reflow, both of which describe one coherent plan —
+    /// and unlike the silent per-row version, it says so in the log.
+    private func writeAll(_ tasks: [TaskItem], describing operation: String) async {
+        guard !tasks.isEmpty else { return }
+        do {
+            try await db.dbQueue.write { database in
+                for task in tasks { try task.update(database) }
+            }
+        } catch {
+            Log.database.error("Batched \(operation, privacy: .public) write of \(tasks.count, privacy: .public) rows failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Persist a task dropped directly onto a specific slot on the Day tab's time-grid — a

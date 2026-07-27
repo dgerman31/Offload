@@ -107,6 +107,14 @@ final class ProjectStore {
 
     /// Pure query (testable): the whole project forest with rolled-up counts.
     /// `nonisolated` because it runs on the database queue, not the main actor.
+    ///
+    /// One `GROUP BY` instead of two `fetchCount`s per project. This runs inside
+    /// `ValueObservation.tracking` and reads the `tasks` table, so GRDB re-runs the whole thing on
+    /// every task write — and `ProjectStore` is mounted by Home, so that's all session. With 30
+    /// projects the old loop meant 61 queries every time a checkbox was ticked.
+    ///
+    /// Projects with no tasks simply don't come back as rows; `buildTree` already reads a missing
+    /// entry as `(0, 0)`, and rows belonging to a since-deleted project are ignored the same way.
     nonisolated static func fetchTree(_ db: Database) throws -> TreeResult {
         let projects = try Project
             .filter(Column("deleted") == false)
@@ -114,13 +122,21 @@ final class ProjectStore {
             .fetchAll(db)
 
         var ownTotals: [String: (total: Int, completed: Int)] = [:]
-        for project in projects {
-            let base = TaskItem
-                .filter(Column("project_id") == project.id)
-                .filter(Column("deleted") == false)
-            let total = try base.fetchCount(db)
-            let completed = try base.filter(Column("status") == "completed").fetchCount(db)
-            ownTotals[project.id] = (total, completed)
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT project_id,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed
+            FROM tasks
+            WHERE deleted = 0 AND project_id IS NOT NULL
+            GROUP BY project_id
+            """)
+        for row in rows {
+            // Non-null by construction: the WHERE clause excludes null `project_id`, and both
+            // aggregates are defined for every group the GROUP BY can produce.
+            let projectId: String = row["project_id"]
+            let total: Int = row["total"]
+            let completed: Int = row["completed"]
+            ownTotals[projectId] = (total, completed)
         }
 
         return TreeResult(roots: buildTree(projects: projects, ownTotals: ownTotals), all: projects)

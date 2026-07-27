@@ -38,13 +38,45 @@ final class AppDatabase: Sendable {
 
     // MARK: Data reset
 
-    /// Remove ALL user data — every task, project, capture, detected pattern, and correction —
-    /// in one transaction. Irreversible; backs the "Erase all tasks" reset in Settings. The
-    /// schema itself is left intact, so the app keeps working on a clean slate.
+    /// Every table that holds user data, in lock-step with the migrations below. **When a
+    /// migration adds a table, add it here.**
+    ///
+    /// This list had already drifted once: `routines` and `routine_exceptions` (added by
+    /// `v6_routines`) were missing, which made "Erase everything" undo itself. `RoutineService`
+    /// materializes routines on every foreground and its idempotency guard is "does today's task
+    /// for this routine already exist" — a task the erase had just deleted — so every active
+    /// routine re-inserted its task the moment the app came back, on top of a "can't be undone"
+    /// confirmation.
+    private static let userDataTables = [
+        "tasks", "projects", "captures", "patterns", "corrections", "workout_sessions",
+        "routines", "routine_exceptions",
+    ]
+
+    /// Remove ALL user data — every task, project, capture, routine, detected pattern, and
+    /// correction — in one transaction. Irreversible; backs the "Erase all tasks" reset in
+    /// Settings. The schema itself is left intact, so the app keeps working on a clean slate.
+    ///
+    /// Deleting is driven by the explicit list rather than by `sqlite_master` because a future
+    /// virtual table (the planned sqlite-vec `task_vectors`) brings shadow tables that must not be
+    /// deleted from directly. The trade-off is that the list can drift, so the same transaction
+    /// cross-checks it against the real schema and logs any table it didn't touch — the next
+    /// omission is loud instead of silent.
     func eraseAllData() async throws {
         try await dbQueue.write { db in
-            for table in ["tasks", "projects", "captures", "patterns", "corrections", "workout_sessions"] {
-                try db.execute(sql: "DELETE FROM \(table)")
+            for table in AppDatabase.userDataTables {
+                try db.execute(sql: "DELETE FROM \"\(table)\"")
+            }
+
+            let known = Set(AppDatabase.userDataTables)
+            let present = try String.fetchAll(db, sql: """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'grdb_%'
+                """)
+            let missed = present.filter { !known.contains($0) }
+            if !missed.isEmpty {
+                // Table names are schema constants, never user content — safe to log in the clear.
+                let names = missed.joined(separator: ", ")
+                Log.database.error("eraseAllData did not cover \(missed.count, privacy: .public) table(s): \(names, privacy: .public)")
             }
         }
     }
@@ -229,6 +261,16 @@ final class AppDatabase: Sendable {
 
                 ALTER TABLE tasks ADD COLUMN gym_session_id TEXT;
                 """)
+        }
+
+        // Retry bookkeeping for captures whose extraction failed. `prepare` has always marked
+        // those rows `failed` "so they can be retried later", but nothing read the status and
+        // later never came; `CaptureRetrySweep` now re-attempts them on foreground. This column is
+        // what keeps that bounded: every failed attempt increments it, and a capture that has used
+        // up its attempts is left alone for good instead of being retried on every launch forever.
+        // Additive and defaulted, like every migration above.
+        migrator.registerMigration("v9_capture_retry_count") { db in
+            try db.execute(sql: "ALTER TABLE captures ADD COLUMN retry_count INTEGER DEFAULT 0;")
         }
 
         // Later increments register additional migrations here, e.g. the

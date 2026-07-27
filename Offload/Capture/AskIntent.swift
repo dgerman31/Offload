@@ -51,7 +51,7 @@ struct DailyBriefIntent: AppIntent {
 
         var line = parts.joined(separator: ", ") + "."
         if let next = summary.nextEvent, !next.isAllDay {
-            line += " Next up is \(next.title) at \(CalendarView.time(next.start))."
+            line += " Next up is \(next.title) at \(TimeFormat.time(next.start))."
         } else if let task = summary.nextTask {
             line += " The best thing to start is \(task.title)."
         }

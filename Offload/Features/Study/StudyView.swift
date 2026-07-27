@@ -156,7 +156,8 @@ struct StudyView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(resource.rawValue).font(.caption).fontWeight(.semibold).foregroundStyle(accent)
                     Text("\(note) · \(Self.durationLabel(minutes))")
-                        .font(.system(size: 10)).foregroundStyle(accent).opacity(0.75)
+                        .font(.Offload.manrope(10, .regular, relativeTo: .caption2))
+                        .foregroundStyle(accent).opacity(0.75)
                 }
                 addGlyph(added)
             }
@@ -254,6 +255,7 @@ struct StudyView: View {
                 }
                 .buttonStyle(.pressable(scale: 0.85))
                 .sensoryFeedback(.success, trigger: added)
+                .accessibilityLabel(added ? "Added" : "Add \(subtopic.name)")
             }
             .padding(.vertical, 8)
 
@@ -280,7 +282,7 @@ struct StudyView: View {
                     .font(.Offload.body)
                     .foregroundStyle(Color.Offload.text)
                 Text("\(leaf.ankiCardCount) cards · \(Self.durationLabel(StudyCatalog.ankiMinutes(forCards: leaf.ankiCardCount)))")
-                    .font(.system(size: 11))
+                    .font(.Offload.manrope(11, .regular, relativeTo: .caption))
                     .foregroundStyle(Color.Offload.muted)
             }
             Spacer(minLength: 8)
@@ -292,6 +294,7 @@ struct StudyView: View {
             }
             .buttonStyle(.pressable(scale: 0.85))
             .sensoryFeedback(.success, trigger: added)
+            .accessibilityLabel(added ? "Added" : "Add \(leaf.name)")
         }
     }
 

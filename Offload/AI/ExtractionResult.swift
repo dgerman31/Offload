@@ -13,6 +13,11 @@ struct ExtractionResult: Sendable {
     var capture: ExtractedCapture
     var chips: [ClarifyChip] = []
     var isProjectCommand: Bool? = nil
+    /// Which extractor actually produced this, as stored in `captures.model_source` — the app's
+    /// only record of cloud-vs-on-device work. `nil` means the producer didn't say; `CaptureService`
+    /// resolves that rather than guessing (it used to hardcode `"foundation"` for every capture,
+    /// including the ones Gemini did, which made the whole column a constant).
+    var modelSource: String? = nil
 }
 
 /// A single deterministic refinement offered after capture. Gemini surfaces these ONLY when it

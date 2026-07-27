@@ -35,7 +35,12 @@ jobs:
   # 12-minute timeout and got the .ipa guillotined mid-build. Splitting them gives each its own
   # clock and its own runner, so a legit build finishes and neither starves the other.
   test:
-    runs-on: macos-15   # Apple Silicon runner. If a macos-26 image exists, this can be bumped.
+    # Pinned to a specific image, never `macos-latest`: that label rolls its default Xcode without
+    # notice, and with no local Xcode as a fallback this developer can't afford a moving
+    # foundation. Kept at `macos-15` rather than bumped — `setup-xcode` below pins Xcode 26.0
+    # explicitly, so the image version buys nothing here, and this is the only path to a working
+    # build. Not the place to spend a label that hasn't been proven on this repo.
+    runs-on: macos-15
     # A normal run is ~8–11 min (simulator cold boot + package resolution + the test suite
     # itself, which has grown over time) — 16 gives that real headroom without letting a
     # genuine hang run away.
@@ -47,6 +52,13 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.0"   # Foundation Models needs the iOS 26 SDK.
+
+      # So a broken build's log says which toolchain ran, without having to guess from the
+      # runner image version alone.
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
 
       # Fetching + resolving GRDB every run is pure waste; the checkout is deterministic.
       - name: Cache Swift packages
@@ -111,14 +123,31 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
+            -enableCodeCoverage YES \
+            -resultBundlePath TestResults.xcresult \
             ONLY_ACTIVE_ARCH=YES \
             | xcbeautify
+
+      # Surfaced as a log signal only — no threshold gate. Absolute coverage gates are easy to
+      # game and punish legacy code; this just answers "roughly how much is covered" for a human
+      # to read, same spirit as diff-coverage tooling favors in 2026.
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -d TestResults.xcresult ]; then
+            xcrun xccov view --report --json TestResults.xcresult > coverage.json || true
+            xcrun xccov view --report TestResults.xcresult || true
+          else
+            echo "No TestResults.xcresult produced (test run likely failed before completing)."
+          fi
 
   # Opt-in: only when the commit message carries [ipa], or the workflow is run manually. Runs in
   # parallel with `test` (no `needs:`), so the sideloadable build is ready in ~7–8 min on its own
   # clock instead of racing the test compile for the last minute of a shared timeout.
   ipa:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ipa]')
+    # Same pin as `test` — see the comment there. The .ipa build is the sideload artifact this
+    # developer actually installs, so it can least afford a silently-shifted toolchain.
     runs-on: macos-15
     # The Release compile alone is ~7–8 min; give it real headroom so it's never cut off, while
     # still bounding a genuine hang.
@@ -130,6 +159,11 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.0"
+
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
 
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -174,3 +208,94 @@ jobs:
           path: Offload.ipa
           if-no-files-found: error
           retention-days: 14
+
+  # ---------------------------------------------------------------------------------------------
+  # Everything below is additive and NON-BLOCKING (continue-on-error: true). `test` and `ipa`
+  # above are this developer's only verification path with no local Xcode, so nothing here is
+  # allowed to touch their pass/fail. Each is a signal to read in the log, not a gate.
+  # ---------------------------------------------------------------------------------------------
+
+  # A warning this developer can never see locally must not pass silently forever — but turning
+  # this on inside `test`/`ipa` today would go red immediately on however many warnings already
+  # exist. This job exists to answer "how many, where" first. Promote it by moving these two
+  # flags into `test`'s own build/test invocation and deleting this job, once it runs clean.
+  strict-warnings:
+    runs-on: macos-15
+    timeout-minutes: 16
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .spm-cache
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # `build-for-testing` compiles the app + test targets without running the suite — enough
+      # to surface every warning, at a fraction of the full test job's runtime.
+      - name: Build with warnings as errors
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project Offload.xcodeproj \
+            -scheme Offload \
+            -destination 'generic/platform=iOS Simulator' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -skipPackagePluginValidation \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
+            | xcbeautify
+
+  # `swift format` (with a space) ships inside the Swift 6 toolchain in Xcode 26. `lint --strict`
+  # exits non-zero on any violation — non-blocking for the same reason as `strict-warnings`: an
+  # existing codebase this size will have plenty on day one.
+  swift-format-lint:
+    runs-on: macos-15
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+
+      - name: Show toolchain versions
+        run: swift --version
+
+      - name: swift format lint
+        run: swift format lint --recursive --strict Offload
+
+  # Ruleset lives in .swiftlint.yml — low-noise, bug-catching rules (force unwraps, force try,
+  # etc.), not style bikeshedding. Installed via Homebrew rather than baked into the app build so
+  # it can never affect `test`/`ipa`.
+  swiftlint:
+    runs-on: macos-15
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        run: swiftlint lint --strict

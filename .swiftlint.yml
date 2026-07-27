@@ -1,0 +1,20 @@
+# Low-noise, bug-catching ruleset — not style bikeshedding. This runs as a non-blocking CI job
+# (see .github/workflows/ios.yml's `swiftlint` job); the point is to surface real risk (force
+# unwraps, force try, silent optional-boolean footguns) without nagging about things like line
+# length or trailing whitespace that don't affect correctness.
+opt_in_rules:
+  - force_unwrapping
+  - force_try
+  - fatal_error_message
+  - empty_count
+  - redundant_nil_coalescing
+  - unused_import
+  - discouraged_optional_boolean
+
+disabled_rules:
+  - line_length
+  - trailing_whitespace
+  - todo
+
+excluded:
+  - .build

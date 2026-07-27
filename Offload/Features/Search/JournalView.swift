@@ -75,7 +75,7 @@ struct JournalView: View {
                     .foregroundStyle(Color.Offload.muted)
 
                 if let time = DueDate.parse(capture.createdAt) {
-                    Text(CalendarView.time(time))
+                    Text(TimeFormat.time(time))
                         .font(.Offload.data)
                         .foregroundStyle(Color.Offload.muted)
                 }

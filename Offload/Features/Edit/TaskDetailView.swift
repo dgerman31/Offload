@@ -71,6 +71,7 @@ struct TaskDetailView: View {
                         .symbolEffect(.bounce, value: task.status)
                 }
                 .buttonStyle(.pressable(scale: 0.85))
+                .accessibilityLabel(task.status == "completed" ? "Mark not done" : "Mark done")
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(task.title)

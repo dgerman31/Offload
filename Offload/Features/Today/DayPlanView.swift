@@ -197,7 +197,7 @@ struct DayPlanView: View {
                     .font(.Offload.taskTitle)
                     .foregroundStyle(Color.Offload.text)
                 HStack(spacing: 8) {
-                    Text("\(CalendarView.time(item.start)) – \(CalendarView.time(item.end))")
+                    Text("\(TimeFormat.time(item.start)) – \(TimeFormat.time(item.end))")
                         .font(.Offload.data)
                         .foregroundStyle(tint)
                     Text(DayPlanner.formatted(item.minutes))

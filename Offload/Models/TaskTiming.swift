@@ -37,14 +37,22 @@ enum TaskTiming {
         return Label(text: "Planned for \(day)", kind: .planned)
     }
 
+    /// The phrasing here is deliberately fixed rather than localized, so the formatter is pinned to
+    /// `en_US_POSIX` — held as a stored `Locale` because both helpers below run once per task row
+    /// per render and even a `Locale` lookup adds up on a list.
+    private static let posix = Locale(identifier: "en_US_POSIX")
+
     /// "today 3:00 PM" / "tomorrow 3:00 PM" / "Jul 24, 3:00 PM".
+    ///
+    /// Cached formatter: this is called from inside `body`, once per timing chip per render, and
+    /// `DateFormatter` construction is exactly the allocation `DueDate`'s cache exists to avoid.
     static func clock(_ date: Date, calendar: Calendar = .current) -> String {
-        let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX")
-        if calendar.isDateInToday(date) { df.dateFormat = "'today' h:mm a" }
-        else if calendar.isDateInTomorrow(date) { df.dateFormat = "'tomorrow' h:mm a" }
-        else if calendar.isDateInYesterday(date) { df.dateFormat = "'yesterday' h:mm a" }
-        else { df.dateFormat = "MMM d, h:mm a" }
-        return df.string(from: date)
+        let pattern: String
+        if calendar.isDateInToday(date) { pattern = "'today' h:mm a" }
+        else if calendar.isDateInTomorrow(date) { pattern = "'tomorrow' h:mm a" }
+        else if calendar.isDateInYesterday(date) { pattern = "'yesterday' h:mm a" }
+        else { pattern = "MMM d, h:mm a" }
+        return CachedDateFormat.string(from: date, pattern: pattern, locale: posix)
     }
 
     /// "today" / "tomorrow" / "yesterday" / a weekday within the week / "Jul 24" otherwise.
@@ -52,10 +60,8 @@ enum TaskTiming {
         if calendar.isDateInToday(date) { return "today" }
         if calendar.isDateInTomorrow(date) { return "tomorrow" }
         if calendar.isDateInYesterday(date) { return "yesterday" }
-        let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX")
         let days = abs(calendar.dateComponents([.day], from: calendar.startOfDay(for: Date()),
                                                to: calendar.startOfDay(for: date)).day ?? 99)
-        df.dateFormat = days < 7 ? "EEE" : "MMM d"
-        return df.string(from: date)
+        return CachedDateFormat.string(from: date, pattern: days < 7 ? "EEE" : "MMM d", locale: posix)
     }
 }

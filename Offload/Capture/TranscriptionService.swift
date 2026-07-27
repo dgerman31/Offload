@@ -1,5 +1,6 @@
 @preconcurrency import Speech
 @preconcurrency import AVFoundation
+import Foundation
 
 /// On-device speech-to-text for voice capture (spec §2.1).
 ///
@@ -9,6 +10,12 @@
 /// (`dispatch_assert_queue` / `swift_task_checkIsolatedSwift`) the moment iOS invoked them
 /// off the main thread — which is exactly the crash we hit. Keeping it nonisolated means the
 /// callbacks never claim the main actor; UI updates hop back to main via `onTranscript`.
+///
+/// Because it *isn't* isolated, the session state (`request`, `task`, `isRunning`) is guarded by
+/// `lock` instead. That's not theoretical tidying: `stop()` is genuinely called from two threads —
+/// the recognition callback on a Speech framework thread when a result is final or errors, and the
+/// main actor when the user taps stop — and the two used to race on releasing `request`/`task`,
+/// which is an over-release crash rather than merely stale state.
 final class TranscriptionService: @unchecked Sendable {
 
     enum TranscriptionError: Error { case recognizerUnavailable, engineFailed }
@@ -43,9 +50,22 @@ final class TranscriptionService: @unchecked Sendable {
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private(set) var isRunning = false
+
+    /// Guards the three properties below — and nothing else. Never held across a call that can
+    /// re-enter (`engine.stop()`, `task.cancel()`, which can synchronously deliver the final
+    /// recognition callback, which calls `stop()`); `NSLock` isn't recursive, so that would
+    /// deadlock the mic instead of racing it.
+    private let lock = NSLock()
+    private var request: SFSpeechAudioBufferRecognitionRequest?    // guarded by `lock`
+    private var task: SFSpeechRecognitionTask?                     // guarded by `lock`
+    private var running = false                                    // guarded by `lock`
+
+    /// Whether a recognition session is live right now.
+    var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return running
+    }
 
     /// Ask for speech + microphone permission. Returns true only if both are granted.
     /// (Callbacks fire on a background queue — safe now that we're not main-actor-isolated.)
@@ -73,18 +93,19 @@ final class TranscriptionService: @unchecked Sendable {
         try session.setCategory(.record, mode: .default, options: [.duckOthers])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
 
+        // Everything below works on locals and only publishes into the guarded properties once the
+        // session is actually live, so a failed start can't leave a half-installed session visible
+        // to `stop()`.
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true    // nothing leaves the device (spec §1)
         }
-        self.request = request
 
         let input = engine.inputNode
         input.removeTap(onBus: 0)
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            self.request = nil
             throw TranscriptionError.engineFailed
         }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [request, weak self] buffer, _ in
@@ -101,11 +122,18 @@ final class TranscriptionService: @unchecked Sendable {
             try engine.start()
         } catch {
             input.removeTap(onBus: 0)
-            self.request = nil
             throw TranscriptionError.engineFailed
         }
 
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        // Publish the request and mark the session live *before* creating the recognition task:
+        // that callback can fire — and therefore call `stop()` — before `recognitionTask` even
+        // returns, and it has to find a session it can tear down.
+        lock.lock()
+        self.request = request
+        running = true
+        lock.unlock()
+
+        let recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
             // Nonisolated closure (this type isn't main-actor-isolated), so iOS may call it on
             // any thread without tripping an isolation assertion. onTranscript hops to main itself.
             if let result {
@@ -115,18 +143,36 @@ final class TranscriptionService: @unchecked Sendable {
                 self?.stop()
             }
         }
-        isRunning = true
+
+        lock.lock()
+        if running {
+            self.task = recognition
+            lock.unlock()
+        } else {
+            // A callback already stopped us in the window above. Don't resurrect a dead session:
+            // drop the task rather than storing it over a torn-down state.
+            lock.unlock()
+            recognition.cancel()
+        }
     }
 
+    /// Tear the session down. Idempotent, and safe from any thread: the state is claimed under
+    /// `lock` — so exactly one caller ever owns (and releases) the request and task, however many
+    /// threads call this at once — while the framework teardown itself runs outside the lock,
+    /// since `cancel()` can re-enter through the recognition callback.
     func stop() {
-        // Idempotent + safe to call from any thread.
+        lock.lock()
+        let request = self.request
+        let task = self.task
+        self.request = nil
+        self.task = nil
+        running = false
+        lock.unlock()
+
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
         task?.cancel()
-        request = nil
-        task = nil
-        isRunning = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

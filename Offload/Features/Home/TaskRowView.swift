@@ -12,12 +12,31 @@ struct TaskRowView: View {
     private var isCompleted: Bool { task.status == "completed" }
 
     /// Decode the JSON `context_tags` array for display.
-    private var contextTags: [String] {
-        guard let json = task.contextTags,
-              let data = json.data(using: .utf8),
-              let tags = try? JSONDecoder().decode([String].self, from: data)
-        else { return [] }
-        return tags
+    private var contextTags: [String] { Self.decodedList(task.contextTags) }
+
+    /// The people this task involves, from the same cache — `People.decode` is the definition of
+    /// the format, but calling it here meant a second `JSONDecoder` per row per render.
+    private var people: [String] { Self.decodedList(task.people) }
+
+    /// A decoded JSON string-array, boxed so `NSCache` (which needs a class) can hold it.
+    private final class DecodedList {
+        let values: [String]
+        init(_ values: [String]) { self.values = values }
+    }
+
+    /// Both chip rows above are computed inside `body`, so each was decoding JSON once per row per
+    /// render — a fresh `JSONDecoder` plus a parse for a string that hasn't changed. Cached by the
+    /// raw JSON itself, the same shape as `DueDate`'s formatter cache and for the same reason;
+    /// `NSCache` evicts under pressure, so nothing grows without bound.
+    private nonisolated(unsafe) static let listCache = NSCache<NSString, DecodedList>()
+
+    private static func decodedList(_ json: String?) -> [String] {
+        guard let json, !json.isEmpty else { return [] }
+        let key = json as NSString
+        if let cached = listCache.object(forKey: key) { return cached.values }
+        let decoded = (try? JSONDecoder().decode([String].self, from: Data(json.utf8))) ?? []
+        listCache.setObject(DecodedList(decoded), forKey: key)
+        return decoded
     }
 
     var body: some View {
@@ -85,7 +104,7 @@ struct TaskRowView: View {
                         }
                         // Who this involves — obligations to people are the loops that nag
                         // hardest, so they earn a visible chip.
-                        ForEach(People.decode(task.people), id: \.self) { person in
+                        ForEach(people, id: \.self) { person in
                             Label(person, systemImage: "person.fill")
                                 .font(.caption2).fontWeight(.medium)
                                 .lineLimit(1)

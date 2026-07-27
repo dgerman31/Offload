@@ -421,6 +421,7 @@ struct SearchView: View {
                             }
                             .buttonStyle(.pressable(scale: 0.85))
                             .padding(.leading, 12)
+                            .accessibilityLabel(selected.contains(task.id) ? "Deselect" : "Select")
                         }
                         Group {
                             if selecting {

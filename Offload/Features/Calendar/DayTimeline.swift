@@ -49,49 +49,74 @@ struct DayDensity: Sendable, Equatable {
 /// so every ordering rule here is unit-tested.
 enum DayTimeline {
 
+    /// Every day's timeline at once, keyed by start-of-day — the same single-pass bucketing
+    /// `density` uses, and for the same reason.
+    ///
+    /// The Day tab's pager is a `.page`-style `TabView`, which is **not** lazy: it builds every
+    /// page's body, so asking `items(tasks:events:on:)` for a day inside a page meant re-running
+    /// the whole filter/sort pipeline once per page (61 of them) on every render — and again on
+    /// every task write anywhere in the app, since the task stream is global. Bucketing once and
+    /// looking a day up turns that back into one pass.
+    static func itemsByDay(
+        tasks: [TaskItem],
+        events: [CalendarEvent],
+        calendar: Calendar = .current
+    ) -> [Date: [DayItem]] {
+        // A task we turned into a calendar event would otherwise appear twice — once as the
+        // task, once as the event we created from it. Show the task, since that's the thing
+        // you can actually tick off.
+        let ownEventIds = Set(tasks.compactMap(\.calendarEventId))
+
+        // Events first, then tasks, so each bucket reaches `ordered` in the same order the
+        // day-at-a-time version produced (`dayEvents + dayTasks`) — that decides ties the sort
+        // itself can't.
+        var buckets: [Date: [DayItem]] = [:]
+        for event in events where !ownEventIds.contains(event.id) {
+            buckets[calendar.startOfDay(for: event.start), default: []].append(.event(event))
+        }
+        for task in tasks where task.status != "completed" && !task.deleted {
+            guard let due = DueDate.parse(task.dueDate) else { continue }
+            buckets[calendar.startOfDay(for: due), default: []].append(.task(task))
+        }
+        return buckets.mapValues(ordered)
+    }
+
     /// The ordered timeline for one day: timed entries chronologically, then untimed ones
     /// (all-day events first, then undated tasks). Completed tasks are excluded — the
     /// timeline is about what's ahead.
+    ///
+    /// Deliberately a lookup into `itemsByDay` rather than its own filter pass: two
+    /// implementations of "what belongs on this day" would eventually disagree, and the Day tab
+    /// renders from the bucketed one. For a one-shot caller the cost is the same single pass.
     static func items(
         tasks: [TaskItem],
         events: [CalendarEvent],
         on day: Date,
         calendar: Calendar = .current
     ) -> [DayItem] {
-        // A task we turned into a calendar event would otherwise appear twice — once as the
-        // task, once as the event we created from it. Show the task, since that's the thing
-        // you can actually tick off.
-        let ownEventIds = Set(tasks.compactMap(\.calendarEventId))
-
-        let dayEvents = events
-            .filter { calendar.isDate($0.start, inSameDayAs: day) && !ownEventIds.contains($0.id) }
-            .map { DayItem.event($0) }
-
-        let dayTasks = tasks
-            .filter { $0.status != "completed" && !$0.deleted }
-            .filter { task in
-                guard let due = DueDate.parse(task.dueDate) else { return false }
-                return calendar.isDate(due, inSameDayAs: day)
-            }
-            .map { DayItem.task($0) }
-
-        return ordered(dayEvents + dayTasks)
+        itemsByDay(tasks: tasks, events: events, calendar: calendar)[calendar.startOfDay(for: day)] ?? []
     }
 
     /// Sort timed items chronologically; untimed items keep events ahead of tasks, then sort
     /// by title so the order is stable rather than dependent on input order.
+    ///
+    /// Decorate–sort–undecorate: `DayItem.time` re-parses the task's stored due-date string, and a
+    /// comparator runs O(n log n) times, so each item's time is resolved exactly once here.
     static func ordered(_ items: [DayItem]) -> [DayItem] {
-        items.sorted { a, b in
-            switch (a.time, b.time) {
-            case let (ta?, tb?):
-                if ta != tb { return ta < tb }
-            case (_?, nil): return true       // timed before untimed
-            case (nil, _?): return false
-            case (nil, nil):
-                if a.isEvent != b.isEvent { return a.isEvent }   // all-day events before loose tasks
+        items
+            .map { (item: $0, time: $0.time) }
+            .sorted { a, b in
+                switch (a.time, b.time) {
+                case let (ta?, tb?):
+                    if ta != tb { return ta < tb }
+                case (_?, nil): return true       // timed before untimed
+                case (nil, _?): return false
+                case (nil, nil):
+                    if a.item.isEvent != b.item.isEvent { return a.item.isEvent }   // all-day events before loose tasks
+                }
+                return a.item.title.localizedCaseInsensitiveCompare(b.item.title) == .orderedAscending
             }
-            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
-        }
+            .map(\.item)
     }
 
     /// Per-day counts keyed by start-of-day, for painting the month grid in one pass.

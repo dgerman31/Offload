@@ -9,13 +9,20 @@ import GRDB
 @MainActor
 final class ExtractionService: TaskExtracting {
 
+    /// The value written to `captures.model_source` for work this extractor did. The vocabulary
+    /// (`foundation` | `mlx` | `cloud`) is documented on `Capture.modelSource`.
+    nonisolated static let modelSource = "foundation"
+
     enum ExtractionError: Error, LocalizedError {
         case modelUnavailable
 
         var errorDescription: String? {
             switch self {
+            // Says "next time you open Offload" and not "when it's ready" because that is the
+            // literal trigger: `CaptureRetrySweep` re-attempts failed captures on foreground.
+            // The old wording promised a retry that no code performed.
             case .modelUnavailable:
-                return "On-device AI is unavailable — your words were saved and will be organized when it's ready."
+                return "On-device AI is unavailable — your words are saved, and Offload will try to organize them next time you open it."
             }
         }
     }
@@ -88,8 +95,9 @@ final class ExtractionService: TaskExtracting {
     /// UserDefaults key for the "think longer" toggle exposed in Settings.
     nonisolated static let deliberateModeKey = "offload.deliberateMode"
 
-    /// Extract structured tasks from a raw transcript. Throws `modelUnavailable` if the
-    /// on-device model can't run right now (the caller persists the raw transcript and retries).
+    /// Extract structured tasks from a raw transcript. Throws `modelUnavailable` if the on-device
+    /// model can't run right now — the caller has already persisted the raw transcript, and
+    /// `CaptureRetrySweep` re-attempts it on a later foreground.
     ///
     /// Deliberate mode (spec: trade time for quality on a small model): first let the model
     /// reason about the capture in plain text, then extract in a second turn of the same
@@ -101,16 +109,24 @@ final class ExtractionService: TaskExtracting {
         }
 
         // The on-device fallback offers no chips and no command judgment (the small model has no
-        // budget to spare) — those are Gemini-only. It just returns the structured capture.
+        // budget to spare) — those are Gemini-only. It just returns the structured capture, plus
+        // its own name: this is the one extractor that can say for certain the work stayed on the
+        // device, which is what makes `captures.model_source` mean anything.
         do {
-            return ExtractionResult(capture: try await runExtraction(transcript: transcript, lean: false))
+            return ExtractionResult(
+                capture: try await runExtraction(transcript: transcript, lean: false),
+                modelSource: Self.modelSource
+            )
         } catch {
             // A long capture plus personalization can still overflow the small on-device
             // window. Rather than fail outright — the user's words are saved either way —
             // retry once with the barest possible prompt: no learned examples, no deliberate
             // pass. Better a plainer extraction than none.
             if Self.isContextOverflow(error) {
-                return ExtractionResult(capture: try await runExtraction(transcript: transcript, lean: true))
+                return ExtractionResult(
+                    capture: try await runExtraction(transcript: transcript, lean: true),
+                    modelSource: Self.modelSource
+                )
             }
             throw error
         }

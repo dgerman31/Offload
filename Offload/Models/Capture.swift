@@ -15,6 +15,11 @@ struct Capture: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
     var processingMs: Int?
     var modelSource: String?        // foundation | mlx | cloud
     var metadata: String?
+    /// How many times extraction has been attempted and failed for this capture.
+    /// `CaptureRetrySweep` re-attempts `failed` captures on foreground and stops once this
+    /// reaches its ceiling, so a capture the model simply can't handle is retried a few times
+    /// and then left alone rather than on every launch forever.
+    var retryCount: Int = 0
 
     static let databaseTableName = "captures"
 
@@ -30,6 +35,7 @@ struct Capture: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
         case processingMs = "processing_ms"
         case modelSource = "model_source"
         case metadata
+        case retryCount = "retry_count"
     }
 
     init(
@@ -43,7 +49,8 @@ struct Capture: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
         processedAt: String? = nil,
         processingMs: Int? = nil,
         modelSource: String? = nil,
-        metadata: String? = nil
+        metadata: String? = nil,
+        retryCount: Int = 0
     ) {
         self.id = id
         self.rawInput = rawInput
@@ -56,5 +63,6 @@ struct Capture: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Per
         self.processingMs = processingMs
         self.modelSource = modelSource
         self.metadata = metadata
+        self.retryCount = retryCount
     }
 }

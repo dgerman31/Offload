@@ -34,6 +34,11 @@ struct OffloadApp: App {
                 WakeTracker.recordOpen()
                 Task {
                     await RoutineService.shared.materialize()
+                    // Any capture whose extraction failed last time — usually because the
+                    // on-device model wasn't ready or the network was gone. Both have normally
+                    // changed by the next launch, and until this ran those words were saved but
+                    // invisible. Before the pattern pass, so recovered tasks are in it.
+                    await CaptureRetrySweep.run()
                     await PatternService.shared.refresh()
                     await NotificationSync.shared.refresh()
                 }

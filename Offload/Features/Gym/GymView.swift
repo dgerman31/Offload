@@ -75,6 +75,7 @@ struct GymView: View {
                     Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold))
                 }
                 .buttonStyle(.pressable(scale: 0.85))
+                .accessibilityLabel("Previous week")
 
                 Spacer(minLength: 0)
                 VStack(spacing: 1) {
@@ -94,6 +95,7 @@ struct GymView: View {
                     Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
                 }
                 .buttonStyle(.pressable(scale: 0.85))
+                .accessibilityLabel("Next week")
             }
             .foregroundStyle(Color.Offload.muted)
 
@@ -297,6 +299,7 @@ struct GymView: View {
                     .foregroundStyle(done ? Color.Offload.green : accent)
             }
             .buttonStyle(.pressable(scale: 0.85))
+            .accessibilityLabel(done ? "Mark not done" : "Mark done")
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(session.title)

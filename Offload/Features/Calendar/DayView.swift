@@ -279,7 +279,7 @@ struct DayView: View {
         .contentShape(Rectangle())
         .onTapGesture { open(item) }
         .contextMenu { blockMenu(item) }
-        .reorderable(id: item.id, enabled: isFlexibleTask(item), onDrop: handleDrop)
+        .reorderable(id: item.id, enabled: Self.isFlexibleTask(item), onDrop: handleDrop)
     }
 
     /// Only a flexible (non-anchored) task is a sequence choice — a real event or a pinned

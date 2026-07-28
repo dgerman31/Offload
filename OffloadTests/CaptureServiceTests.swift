@@ -275,8 +275,15 @@ struct CaptureServiceTests {
         let tasks = try await db.dbQueue.read { try TaskItem.fetchAll($0) }
         #expect(tasks.count == 1)
         #expect(tasks.first?.title == "remember the milk")
-        #expect(tasks.first?.dueDate == nil)      // nothing invented
-        #expect(tasks.first?.category == nil)
+        // The placeholder is a real captured task, so it gets a real slot like any other —
+        // landing in "Anytime" is the outcome the user explicitly reported as a bug. Soft and
+        // unpinned, so the timeline can reflow it and a successful retry can replace it outright.
+        let placeholder = try #require(tasks.first)
+        #expect(placeholder.dueDate != nil)
+        #expect(placeholder.dueIsAllDay == false)
+        #expect(placeholder.pinned == false)
+        // Nothing *else* is invented: no model ran, so there's no category to claim.
+        #expect(placeholder.category == nil)
     }
 
     @Test("A successful retry replaces the raw-text placeholder instead of duplicating it")

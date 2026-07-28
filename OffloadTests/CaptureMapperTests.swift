@@ -318,4 +318,60 @@ struct CaptureMapperTests {
         #expect(result.tasks.first?.projectId == nil)
         #expect(result.tasks.first?.contextTags == "[\"phone\"]")
     }
+
+    // MARK: A named project is never silently lost (bug: "projects aren't being created")
+
+    @Test("A project named only in the words is recovered as a suggestion, not silently created")
+    func mentionedProjectBecomesASuggestion() {
+        // The on-device model routinely leaves `suggestedProject` nil, and this phrasing isn't a
+        // command, so nothing used to notice the project at all.
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Draft the opening", category: "Work", priority: "high",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil)
+        let result = CaptureMapper.map(
+            extracted, sourceText: "working on the Jury 3 project, I need to draft the opening")
+
+        #expect(result.project == nil)                            // never guessed into existence
+        #expect(result.suggestedProjectTitle == "Jury 3")         // offered for confirmation
+    }
+
+    @Test("A created project leaves nothing to confirm")
+    func createdProjectCarriesNoSuggestion() {
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Draft the opening", category: "Work", priority: "high",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil, effortMinutes: nil, subtasks: [])],
+            suggestedProject: "Jury 3")
+        let result = CaptureMapper.map(extracted, sourceText: "draft the opening for the Jury 3 project")
+
+        #expect(result.project?.title == "Jury 3")
+        #expect(result.suggestedProjectTitle == nil)
+    }
+
+    @Test("A model-suggested name with nothing to file is offered rather than dropped")
+    func straySuggestedNameIsOffered() {
+        let extracted = ExtractedCapture(summary: nil, tasks: [], suggestedProject: "Stray name")
+        let result = CaptureMapper.map(extracted, sourceText: "hmm")
+        #expect(result.project == nil)                            // still no empty project from noise
+        #expect(result.suggestedProjectTitle == "Stray name")     // but the name survives the trip
+    }
+
+    @Test("mentionedProjectName finds a plainly-named container")
+    func mentionedProjectNameFindsNames() {
+        #expect(CaptureMapper.mentionedProjectName(in: "working on the Jury 3 project") == "Jury 3")
+        #expect(CaptureMapper.mentionedProjectName(in: "for my thesis project I need sources") == "Thesis")
+        #expect(CaptureMapper.mentionedProjectName(in: "add milk to the shopping list") == "Shopping")
+        #expect(CaptureMapper.mentionedProjectName(in: "the kitchen remodel project is stalling") == "Kitchen remodel")
+    }
+
+    @Test("mentionedProjectName refuses filler so no container is named 'New' or 'Same'")
+    func mentionedProjectNameRefusesFiller() {
+        #expect(CaptureMapper.mentionedProjectName(in: "put it in the same project") == nil)
+        #expect(CaptureMapper.mentionedProjectName(in: "start the new list") == nil)
+        // No container noun at all — nothing to infer from.
+        #expect(CaptureMapper.mentionedProjectName(in: "buy milk and call mom") == nil)
+        #expect(CaptureMapper.mentionedProjectName(in: "the meeting ran long") == nil)
+    }
 }

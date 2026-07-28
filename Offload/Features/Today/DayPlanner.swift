@@ -176,6 +176,33 @@ enum DayPlanner {
         }
     }
 
+    /// Everything already sitting on `day`'s clock that this pass is *not* going to move — the
+    /// full busy set, of which `busyBlocks` (anchored commitments only) is a subset.
+    ///
+    /// The rest matters just as much: work blocked on someone else is never a candidate, and only
+    /// `limit` tasks are placed per pass, so a soft time already on the timeline could easily
+    /// belong to neither group. Leaving those out is a double-booking the timeline has no way to
+    /// represent — the planner would drop the twelve tasks it *is* placing straight on top of the
+    /// thirteenth's existing time. Anything being re-placed this pass is excluded, since its old
+    /// time is about to stop existing.
+    static func occupiedBlocks(
+        from tasks: [TaskItem],
+        excluding replacing: Set<String>,
+        on day: Date,
+        calendar: Calendar = .current
+    ) -> [CalendarEvent] {
+        tasks.compactMap { task in
+            guard task.status != "completed", !task.deleted, !task.dueIsAllDay,
+                  !replacing.contains(task.id),
+                  let start = DueDate.parse(task.dueDate),
+                  calendar.isDate(start, inSameDayAs: day) else { return nil }
+            let minutes = task.effortMinutes ?? EnergyBatch.defaultEffort
+            let end = calendar.date(byAdding: .minute, value: minutes, to: start) ?? start
+            return CalendarEvent(id: "task-\(task.id)", title: task.title, start: start,
+                                 end: end, isAllDay: false, location: nil, colorHex: nil)
+        }
+    }
+
     /// Which tasks are candidates for placing: open, not deleted, not blocked on someone else,
     /// and *flexible* — undated, whole-day, or overdue. Anything with a committed time is left
     /// exactly where the user put it. Ordered most-pressing first, so early wins build momentum.
@@ -225,11 +252,6 @@ enum DayPlanner {
         energyProfile: EnergyProfile? = nil,
         preferredOrder: [String]? = nil
     ) -> Plan {
-        // Fixed commitments block time exactly like calendar events — the user's 1pm lunch is
-        // as real as a meeting invite.
-        let blocked = events + busyBlocks(from: tasks, on: day, calendar: calendar)
-        let slots = freeSlots(events: blocked, on: day, now: now, calendar: calendar,
-                              dayStartHour: dayStartHour, dayEndHour: dayEndHour)
         var pool = candidates(from: tasks, on: day, now: now, calendar: calendar)
         // A smart planner can hand us an order that weighs things the greedy sort can't —
         // deadlines, what pairs well, energy. Honour it; anything it didn't rank keeps its place.
@@ -240,6 +262,15 @@ enum DayPlanner {
             pool = ranked + unranked
         }
         let ordered = Array(pool.prefix(limit))
+
+        // Fixed commitments block time exactly like calendar events — the user's 1pm lunch is as
+        // real as a meeting invite. So does any *other* time already on the day's clock that this
+        // pass isn't re-placing: only the tasks in `ordered` are about to be given new times, and
+        // planning on top of the ones that keep theirs is a double-booking.
+        let blocked = events + occupiedBlocks(from: tasks, excluding: Set(ordered.map(\.id)),
+                                              on: day, calendar: calendar)
+        let slots = freeSlots(events: blocked, on: day, now: now, calendar: calendar,
+                              dayStartHour: dayStartHour, dayEndHour: dayEndHour)
 
         var result = Plan()
         result.freeMinutes = slots.reduce(0) { $0 + $1.minutes }

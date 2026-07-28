@@ -16,6 +16,12 @@ struct TaskDetailView: View {
     @State private var focusing = false
     @State private var appeared = false
     @State private var newStep = ""
+    /// The step currently being renamed inline, if any, plus its in-progress text. Kept separate
+    /// from the step's own title so a half-typed edit never round-trips through the database
+    /// before it's committed.
+    @State private var editingStepId: String?
+    @State private var editingStepTitle = ""
+    @FocusState private var focusedStepId: String?
 
     init(task: TaskItem) {
         self.taskId = task.id
@@ -38,6 +44,7 @@ struct TaskDetailView: View {
             .padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
+        .closesSwipeRailsOnScroll()
         .background(Color.Offload.background)
         .navigationTitle("Task")
         .navigationBarTitleDisplayMode(.inline)
@@ -138,38 +145,88 @@ struct TaskDetailView: View {
         }
     }
 
-    /// Only the circle completes a step — the rest of the row isn't a target.
+    /// Only the circle completes a step — the text is a separate target that renames it instead.
     ///
     /// The whole row used to be one `Button`, which meant brushing a step's *text* while reading
     /// or scrolling ticked it off. Completion is destructive-ish (it strikes the step through and
     /// changes the parent's progress), so it should take an aimed tap at the control that
     /// represents it, exactly like the completion circle on every task row elsewhere in the app.
+    /// That fix removed the only way to edit a step's title, though — so tapping the text now
+    /// swaps it for a `TextField`, the same "tap to rename, no separate screen" affordance a
+    /// one-line string deserves. Wired through `.swipeToDelete`'s `onTap` rather than a sibling
+    /// `.onTapGesture`, for the same reason every other row in the app does: two independent
+    /// gesture recognizers on one touch is how a swipe used to also open the row underneath it.
     private var subtaskList: some View {
         VStack(spacing: 10) {
             ForEach(store.subtasks) { sub in
-                HStack(spacing: 11) {
-                    Button {
-                        Task { await TaskActions.toggleComplete(sub) }
-                        Haptics.light()
-                    } label: {
-                        Image(systemName: sub.status == "completed" ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 15))
-                            .foregroundStyle(sub.status == "completed" ? Color.Offload.green : Color.Offload.muted)
-                            .symbolEffect(.bounce, value: sub.status)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.pressable(scale: 0.85))
-                    .accessibilityLabel(sub.status == "completed" ? "Mark “\(sub.title)” not done" : "Mark “\(sub.title)” done")
-
-                    Text(sub.title)
-                        .font(.Offload.body)
-                        .foregroundStyle(sub.status == "completed" ? Color.Offload.muted : Color.Offload.text)
-                        .strikethrough(sub.status == "completed", color: Color.Offload.muted)
-                        .multilineTextAlignment(.leading)
-                    Spacer(minLength: 0)
-                }
+                subtaskRow(sub)
             }
         }
+        // Committing on focus loss (not just submit) is what makes tapping away from a half-typed
+        // rename behave like every other inline-edit field in iOS: it saves, it doesn't discard.
+        .onChange(of: focusedStepId) { oldValue, newValue in
+            guard let oldValue, oldValue != newValue else { return }
+            commitStepEdit(oldValue)
+        }
+    }
+
+    private func subtaskRow(_ sub: TaskItem) -> some View {
+        HStack(spacing: 11) {
+            Button {
+                Task { await TaskActions.toggleComplete(sub) }
+                Haptics.light()
+            } label: {
+                Image(systemName: sub.status == "completed" ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(sub.status == "completed" ? Color.Offload.green : Color.Offload.muted)
+                    .symbolEffect(.bounce, value: sub.status)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.pressable(scale: 0.85))
+            .accessibilityLabel(sub.status == "completed" ? "Mark “\(sub.title)” not done" : "Mark “\(sub.title)” done")
+
+            if editingStepId == sub.id {
+                TextField("Step", text: $editingStepTitle)
+                    .font(.Offload.body)
+                    .foregroundStyle(Color.Offload.text)
+                    .submitLabel(.done)
+                    .focused($focusedStepId, equals: sub.id)
+                    .onSubmit { commitStepEdit(sub.id) }
+                    .accessibilityLabel("Step title")
+            } else {
+                Text(sub.title)
+                    .font(.Offload.body)
+                    .foregroundStyle(sub.status == "completed" ? Color.Offload.muted : Color.Offload.text)
+                    .strikethrough(sub.status == "completed", color: Color.Offload.muted)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 0)
+        }
+        // Swipe to delete a step outright; tapping the row's own text starts the rename instead
+        // of opening anything (a step has nowhere else to go).
+        .swipeToDelete(id: sub.id, onTap: { beginEditingStep(sub) }) {
+            Task { await TaskActions.delete(sub) }
+        }
+    }
+
+    private func beginEditingStep(_ sub: TaskItem) {
+        guard editingStepId != sub.id else { return }
+        editingStepId = sub.id
+        editingStepTitle = sub.title
+        focusedStepId = sub.id
+    }
+
+    /// Synchronous on purpose: the state change (leaving edit mode) has to happen in the same
+    /// call that decides whether to commit, so `onSubmit` and the focus-loss `onChange` above —
+    /// which can both fire for the same step — can't race each other into a double write. The
+    /// second caller's guard simply finds editing already ended and does nothing.
+    private func commitStepEdit(_ stepId: String) {
+        guard editingStepId == stepId else { return }
+        editingStepId = nil
+        let title = editingStepTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty cancels rather than blanking the step — an accidental clear shouldn't erase it.
+        guard !title.isEmpty, let sub = store.subtasks.first(where: { $0.id == stepId }) else { return }
+        Task { await TaskActions.rename(sub, to: title) }
     }
 
     /// Break a task down after the fact — the AI's decomposition is a starting point, not a

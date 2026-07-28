@@ -22,6 +22,12 @@ final class ExtractionService: TaskExtracting {
             // literal trigger: `CaptureRetrySweep` re-attempts failed captures on foreground.
             // The old wording promised a retry that no code performed.
             case .modelUnavailable:
+                // Low Power Mode suspends Apple Intelligence outright, and it is by far the most
+                // common reason a device that worked this morning stops extracting this afternoon.
+                // Naming it is the difference between an actionable message and a shrug.
+                if ProcessInfo.processInfo.isLowPowerModeEnabled {
+                    return "Low Power Mode pauses Apple Intelligence — your words are saved, and Offload will organize them once it's off."
+                }
                 return "On-device AI is unavailable — your words are saved, and Offload will try to organize them next time you open it."
             }
         }
@@ -78,8 +84,10 @@ final class ExtractionService: TaskExtracting {
         \(categories.joined(separator: ", ")).
         - contextTags from: home, work, car, outside, store, gym, phone, computer, meeting, errands.
         - people: names the task involves, exactly as said, else empty.
-        - subtasks only when one task has 2+ genuinely distinct steps. suggestedProject only \
-        for a real multi-task endeavour.
+        - subtasks only when one task has 2+ genuinely distinct steps.
+        - suggestedProject: the named endeavour these tasks belong to. Set it WHENEVER they name \
+        one, in their own words — "the Jury 3 project", "for my thesis", "working on the kitchen \
+        remodel" — not only when they command one. nil for one-off errands.
         - isAppointment = true ONLY if the event already exists AND has a stated time. \
         "Schedule/book/set up a meeting" is arranging one → false.
 

@@ -58,6 +58,22 @@ struct PreparedCapture {
     /// It used to hardcode `"foundation"` for every capture including the ones Gemini did, which
     /// made the column a constant and the "what did the cloud actually do" question unanswerable.
     var modelSource: String?
+    /// A project name that was named but not applied — see `CaptureMapper.Result`. `finalize`
+    /// turns this into `Outcome.suggestedProjectTitle` for the post-capture confirmation.
+    var suggestedProjectTitle: String?
+    /// True when no extractor could run at all (Low Power Mode suspends Apple Intelligence, no
+    /// key/offline for the cloud) and `tasks` is the raw-text fallback rather than a real
+    /// extraction. `finalize` keeps the capture row `failed` in this case so `CaptureRetrySweep`
+    /// still comes back for it, and flags the `Outcome` so the UI can be honest about it.
+    var isUnextracted: Bool = false
+    /// True when this run is `CaptureRetrySweep` re-attempting an existing row. `finalize` uses it
+    /// to retire the placeholder task a previous unextracted attempt left behind, so a successful
+    /// retry replaces the raw-text task instead of duplicating it.
+    var isRetry: Bool = false
+    /// Tasks this capture already owns on disk and that this run keeps as-is — the placeholder a
+    /// still-failing retry reuses rather than re-creating. `finalize` folds these back into
+    /// `captures.extracted_task_ids` so the next sweep can still find them.
+    var carriedTaskIds: [String] = []
 }
 
 /// The end-to-end capture pipeline (spec §2.3). Persists the raw input FIRST so nothing
@@ -87,6 +103,16 @@ final class CaptureService {
         var insertedTaskIds: [String] = []
         /// The clarifying chips to offer for this capture (empty on a confident capture).
         var chips: [ClarifyChip] = []
+        /// A project the capture named but that the tasks were *not* filed under — the prompt for
+        /// "Want to file these under a project called X?". `nil` whenever a project was created and
+        /// the tasks landed in it (nothing to ask), or when nothing named a project at all.
+        /// Answering it is `assignProject(taskIds:title:)`.
+        var suggestedProjectTitle: String?
+        /// True when nothing could extract this capture (Low Power Mode, no key, offline) and
+        /// `taskTitles` is the raw text saved verbatim as one task. The capture is safe and the
+        /// retry sweep will organize it properly later — so the UI should say "saved, I'll organize
+        /// this later", not claim a normal success.
+        var isUnextracted: Bool = false
     }
 
     private let db: AppDatabase
@@ -109,9 +135,16 @@ final class CaptureService {
     // MARK: Prepare (everything up to, but not including, insertion)
 
     /// Persist the raw capture, extract, map, and compute duplicate candidates — but insert
-    /// nothing yet. On extraction failure the raw capture is marked `failed` and the error
-    /// is rethrown (the words are already saved). The returned `PreparedCapture` must be
-    /// handed to `finalize` to actually write anything.
+    /// nothing yet. The returned `PreparedCapture` must be handed to `finalize` to actually
+    /// write anything.
+    ///
+    /// **A capture never fails outright.** When every extractor is unavailable — Low Power Mode
+    /// suspends Apple Intelligence, and the cloud path needs a key and a network — this used to
+    /// mark the row `failed` and rethrow, and the user got an error for words they'd just spoken.
+    /// Now it falls back to one plain task carrying the raw text, leaves the row `failed` so
+    /// `CaptureRetrySweep` still re-attempts it, and flags the result `isUnextracted`. Errors that
+    /// aren't the extractor (a database read) still mark the row failed and rethrow, because those
+    /// are bugs rather than a device state that will pass.
     ///
     /// `retrying` is the existing failed capture row when `CaptureRetrySweep` is re-attempting
     /// one. Passing it reuses that row instead of inserting a second one — otherwise every retry
@@ -139,10 +172,33 @@ final class CaptureService {
             try await db.dbQueue.write { try toSave.insert($0) }
         }
 
+        // 2. Extract (typed output; no parsing). Gemini also returns clarifying chips and its
+        // own command-vs-to-do judgment; the on-device fallback returns neither.
+        let extraction: ExtractionResult
         do {
-            // 2. Extract (typed output; no parsing). Gemini also returns clarifying chips and its
-            // own command-vs-to-do judgment; the on-device fallback returns neither.
-            let extraction = try await extractor.extract(from: rawInput)
+            extraction = try await extractor.extract(from: rawInput)
+        } catch {
+            // Nothing could extract. The words are already on disk — don't hand the user an
+            // error for them. Save the raw text as one plain task now, and leave the row `failed`
+            // (with the attempt counted) so the sweep gets the real structure later.
+            // Error *kind* only — never the capture's text, at any privacy level.
+            Log.capture.error("No extractor available (\(Self.errorKind(error), privacy: .public)) — saving the raw capture as one task for later re-extraction")
+            var failed = initial
+            failed.processingStatus = "failed"
+            failed.retryCount += 1
+            let finalized = failed
+            try? await db.dbQueue.write { try finalized.update($0) }
+            // If a previous attempt already left a placeholder standing, keep *that* task rather
+            // than deleting and re-minting one on every foreground: its id is what the user's
+            // edits, completions and notifications hang off, and a completed placeholder that
+            // couldn't be retired would otherwise get a fresh twin on each sweep.
+            return Self.unextractedFallback(
+                initial: failed, rawInput: rawInput, startedAt: started,
+                isRetry: retrying != nil,
+                carrying: await livingTaskIds(Self.decodeIds(retrying?.extractedTaskIds)))
+        }
+
+        do {
             let mapped = CaptureMapper.map(
                 extraction.capture,
                 sourceText: rawInput,
@@ -152,12 +208,18 @@ final class CaptureService {
             // 2b. Dedup check (spec §3.5): compare new tasks against existing open tasks by
             // embedding similarity. Rather than warn after the fact, surface candidates the
             // UI can block on before insertion.
-            let existing = try await db.dbQueue.read { database in
+            let allOpen = try await db.dbQueue.read { database in
                 try TaskItem
                     .filter(Column("deleted") == false)
                     .filter(Column("status") != "completed")
                     .fetchAll(database)
             }
+            // On a retry, the placeholder task this capture's own failed attempt left behind is
+            // still sitting in `tasks`. It says the same thing as the capture we're re-extracting,
+            // so it would match every new task and turn a recovery into a pile of duplicate
+            // prompts. `finalize` retires it; the dedupe pass must not see it at all.
+            let placeholders = Set(Self.decodeIds(retrying?.extractedTaskIds))
+            let existing = placeholders.isEmpty ? allOpen : allOpen.filter { !placeholders.contains($0.id) }
             let stored = UserDefaults.standard.double(forKey: Self.dedupeThresholdKey)
             let candidates = Self.duplicateCandidates(
                 newTasks: mapped.tasks,
@@ -191,7 +253,9 @@ final class CaptureService {
                 appointmentTaskIds: mapped.appointmentTaskIds,
                 chips: extraction.chips,
                 routines: commitment.routines,
-                modelSource: extraction.modelSource
+                modelSource: extraction.modelSource,
+                suggestedProjectTitle: mapped.suggestedProjectTitle,
+                isRetry: retrying != nil
             )
         } catch {
             // Keep the raw transcript; mark failed and count the attempt, so `CaptureRetrySweep`
@@ -203,6 +267,70 @@ final class CaptureService {
             try? await db.dbQueue.write { try finalized.update($0) }
             throw error
         }
+    }
+
+    // MARK: The never-fail fallback
+
+    /// How much of a raw capture becomes the fallback task's title. Long enough to carry a real
+    /// thought, short enough to read as a task rather than a paragraph.
+    /// `nonisolated` because GRDB hands its write closures off as `@Sendable`, which can't reach
+    /// a main-actor-isolated static.
+    nonisolated static let fallbackTitleLimit = 120
+
+    /// A `PreparedCapture` for a capture nothing could extract: one plain task holding the user's
+    /// own words. No category, no priority reasoning, no dates — inventing structure here would be
+    /// guessing, and the retry sweep is about to do it properly. The capture row stays `failed` so
+    /// the sweep picks it up; `finalize` records this task's id on the row so a later successful
+    /// retry can retire it instead of leaving a duplicate.
+    /// `carrying` is any placeholder from an earlier attempt that's still on disk; when there is
+    /// one, this run adds nothing and simply keeps it.
+    nonisolated static func unextractedFallback(
+        initial: Capture, rawInput: String, startedAt: Date, isRetry: Bool, carrying: [String] = []
+    ) -> PreparedCapture {
+        let title = fallbackTitle(from: rawInput)
+        // A whitespace-only capture has nothing to save; the row still stands as the record.
+        let tasks = (carrying.isEmpty && !title.isEmpty)
+            ? [TaskItem(title: title, category: nil, priority: "medium")]
+            : []
+        return PreparedCapture(
+            initial: initial,
+            startedAt: startedAt,
+            project: nil,
+            tasks: tasks,
+            candidates: [],
+            existingById: [:],
+            isUnextracted: true,
+            isRetry: isRetry,
+            carriedTaskIds: carrying
+        )
+    }
+
+    /// Which of these task ids still exist and aren't deleted. Best-effort: on a read failure the
+    /// caller treats them as gone, which costs at most one extra placeholder.
+    private func livingTaskIds(_ ids: [String]) async -> [String] {
+        guard !ids.isEmpty else { return [] }
+        let found = (try? await db.dbQueue.read { database in
+            try TaskItem
+                .filter(ids.contains(Column("id")))
+                .filter(Column("deleted") == false)
+                .fetchAll(database)
+                .map(\.id)
+        }) ?? []
+        return found
+    }
+
+    /// The raw capture as a one-line title: whitespace collapsed, trimmed, and truncated on a word
+    /// boundary when it runs long. Verbatim otherwise — these are the user's words, not a summary.
+    nonisolated static func fallbackTitle(from rawInput: String) -> String {
+        let collapsed = rawInput.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard collapsed.count > fallbackTitleLimit else { return collapsed }
+        let clipped = collapsed.prefix(fallbackTitleLimit)
+        // Prefer a word boundary, but not one so early it throws away most of the thought.
+        if let lastSpace = clipped.lastIndex(of: " "),
+           clipped.distance(from: clipped.startIndex, to: lastSpace) > fallbackTitleLimit / 2 {
+            return clipped[..<lastSpace].trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return clipped.trimmingCharacters(in: .whitespaces) + "…"
     }
 
     // MARK: Finalize (apply resolutions, then insert)
@@ -263,21 +391,28 @@ final class CaptureService {
         let backfillUpdates = Array(backfills.values)
         // Feature D: routines from commitment-shaped captures.
         let newRoutines = prepared.routines
+        // A retry that finally extracted properly must replace the raw-text placeholder its own
+        // failed attempt saved, not sit next to it. Only this capture's own recorded tasks, and
+        // only ones the user hasn't already completed — if they acted on it, it was real work and
+        // deleting it under them would be worse than a near-duplicate. A retry that *also* failed
+        // retires nothing: `prepare` already handed the placeholder back as `carriedTaskIds`.
+        let retiredPlaceholderIds = (prepared.isRetry && !prepared.isUnextracted)
+            ? Self.decodeIds(prepared.initial.extractedTaskIds)
+            : []
         try await db.dbQueue.write { database in
+            for id in retiredPlaceholderIds {
+                guard var stale = try TaskItem.fetchOne(database, key: id),
+                      !stale.deleted, stale.status != "completed" else { continue }
+                stale.deleted = true
+                try stale.update(database)
+            }
             // Reuse a project of the same name instead of minting a second one: capturing "more
             // for the thesis" twice belongs in one project, not two identical rows. The tasks the
             // mapper already pointed at the new project get re-pointed at the surviving one.
             var reusedProjectId: String?
             if insertProject, let project {
-                let match = try Project
-                    .filter(Column("deleted") == false)
-                    .fetchAll(database)
-                    .first { $0.title.caseInsensitiveCompare(project.title) == .orderedSame }
-                if let match {
-                    reusedProjectId = match.id
-                } else {
-                    try project.insert(database)
-                }
+                let surviving = try Self.findOrCreateProject(titled: project.title, in: database, preferring: project)
+                if surviving.id != project.id { reusedProjectId = surviving.id }
             }
             for fitted in fittedTasks {
                 var task = fitted
@@ -292,14 +427,27 @@ final class CaptureService {
 
         // 4. Finalize the capture with instrumentation (spec §9).
         var done = prepared.initial
-        done.processingStatus = "done"
-        done.processedAt = ISO8601DateFormatter().string(from: Date())
         done.processingMs = Int(Date().timeIntervalSince(prepared.startedAt) * 1000)
-        // What actually ran, not a guess: `nil` only when an extractor didn't say, in which case
-        // the on-device path is the honest default (it's the one that can't report failure to
-        // reach the cloud).
-        done.modelSource = prepared.modelSource ?? ExtractionService.modelSource
-        done.extractedTaskIds = Self.encodeIds(finalTasks.map(\.id))
+        // Always record which tasks this capture currently owns — what this run inserted, plus any
+        // placeholder it carried forward. On the unextracted path that's exactly what the next
+        // retry needs in order to retire it instead of duplicating it.
+        done.extractedTaskIds = Self.encodeIds(prepared.carriedTaskIds + finalTasks.map(\.id))
+        if prepared.isUnextracted {
+            // Deliberately NOT "done": the user has their words as a task, but the structured
+            // extraction hasn't happened yet, and `CaptureRetrySweep` only revisits `failed` rows
+            // under `maxAttempts`. `prepare` already counted this attempt, so the sweep's
+            // bookkeeping still converges — it just now has a task standing in until it succeeds.
+            done.processingStatus = "failed"
+            // No model ran, so claiming one did would make `model_source` a lie.
+            done.modelSource = nil
+        } else {
+            done.processingStatus = "done"
+            done.processedAt = ISO8601DateFormatter().string(from: Date())
+            // What actually ran, not a guess: `nil` only when an extractor didn't say, in which
+            // case the on-device path is the honest default (it's the one that can't report
+            // failure to reach the cloud).
+            done.modelSource = prepared.modelSource ?? ExtractionService.modelSource
+        }
         let finalized = done
         try await db.dbQueue.write { try finalized.update($0) }
 
@@ -312,8 +460,26 @@ final class CaptureService {
             projectTitle: insertProject ? project?.title : nil,
             similarWarnings: warnings,
             insertedTaskIds: finalTasks.map(\.id),
-            chips: chips
+            chips: chips,
+            suggestedProjectTitle: Self.projectToConfirm(
+                created: insertProject, named: project?.title,
+                suggested: prepared.suggestedProjectTitle, savedTaskCount: finalTasks.count),
+            isUnextracted: prepared.isUnextracted
         )
+    }
+
+    /// What (if anything) to ask the user about after a capture: "Want to file these under a
+    /// project called X?".
+    ///
+    /// Nothing to ask when the project was created — the tasks are already in it — and nothing to
+    /// ask when no task survived, since there'd be nothing to file. What's left is the two ways a
+    /// named project quietly went nowhere: the container was skipped because dedup resolution took
+    /// all its tasks, or the words named a project no extractor turned into one.
+    nonisolated static func projectToConfirm(
+        created: Bool, named: String?, suggested: String?, savedTaskCount: Int
+    ) -> String? {
+        guard savedTaskCount > 0, !created else { return nil }
+        return named ?? suggested
     }
 
     // MARK: Chips — apply a tapped refinement to the just-saved tasks (no round-trip)
@@ -325,7 +491,8 @@ final class CaptureService {
     func applyChip(_ chip: ClarifyChip, toTaskIds ids: [String], now: Date = Date()) async {
         guard !ids.isEmpty else { return }
         if case let .assignProject(name) = chip.action {
-            await assignProject(named: name, toTaskIds: ids)
+            // Best-effort: a chip is a convenience, so a failed write is logged, not surfaced.
+            try? await assignProject(taskIds: ids, title: name)
             return
         }
         try? await db.dbQueue.write { database in
@@ -337,27 +504,67 @@ final class CaptureService {
         }
     }
 
-    /// Find-or-create a project by title (case-insensitive) and link the tasks to it. Reusing an
-    /// existing container by name means tapping "Add to Groceries" twice doesn't spawn duplicates.
-    private func assignProject(named name: String, toTaskIds ids: [String]) async {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    // MARK: Filing tasks under a project
+
+    /// Find-or-create a project titled `title` (matched case-insensitively) and file the given
+    /// tasks under it, in one transaction.
+    ///
+    /// This is the answer to `Outcome.suggestedProjectTitle` — the post-capture "Want to file these
+    /// under X?" — and the same call the `assign_project` chip makes. Reusing an existing container
+    /// by name is the whole point: confirming "Thesis" twice, or once from a chip and once from the
+    /// prompt, must land in one project, not three identically-named ones. Idempotent, so a double
+    /// tap does no harm.
+    ///
+    /// Throws rather than swallowing, so a caller showing a confirmation can tell the user it
+    /// didn't take; `applyChip` keeps its best-effort behavior by ignoring the error.
+    func assignProject(taskIds: [String], title: String) async throws {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        try? await db.dbQueue.write { database in
-            let existing = try Project
-                .filter(Column("deleted") == false)
-                .fetchAll(database)
-                .first { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }
-            let project: Project
-            if let existing { project = existing } else {
-                project = Project(title: trimmed)
-                try project.insert(database)
+        do {
+            try await db.dbQueue.write { database in
+                let project = try Self.findOrCreateProject(titled: trimmed, in: database)
+                for id in taskIds {
+                    guard var task = try TaskItem.fetchOne(database, key: id) else { continue }
+                    task.projectId = project.id
+                    try task.update(database)
+                }
             }
-            for id in ids {
-                guard var task = try TaskItem.fetchOne(database, key: id) else { continue }
-                task.projectId = project.id
-                try task.update(database)
-            }
+        } catch {
+            // Counts and the error kind only. Not `localizedDescription`: a GRDB error carries the
+            // failing SQL and its bound arguments, which here would be the user's own project
+            // title and task text — exactly what must never reach the log, at any privacy level.
+            Log.database.error("Filing \(taskIds.count, privacy: .public) task(s) under a project failed: \(Self.errorKind(error), privacy: .public)")
+            throw error
         }
+    }
+
+    /// An error reduced to something safe to log: the SQLite result code, or the error's type name.
+    /// Never its description — see the call site.
+    private nonisolated static func errorKind(_ error: Error) -> String {
+        if let dbError = error as? DatabaseError { return "sqlite \(dbError.resultCode.rawValue)" }
+        return String(describing: type(of: error))
+    }
+
+    /// The single find-or-create rule, shared by `finalize`'s insert and `assignProject` so the two
+    /// can't drift into different ideas of what "same project" means. Matching is case-insensitive
+    /// over live (non-deleted) projects.
+    ///
+    /// `preferring` lets `finalize` insert the exact `Project` the mapper built — same id — so the
+    /// tasks already pointing at it need no re-pointing; everyone else gets a fresh row.
+    /// `nonisolated` because GRDB's write closure is `@Sendable`.
+    private nonisolated static func findOrCreateProject(
+        titled title: String, in database: Database, preferring candidate: Project? = nil
+    ) throws -> Project {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let match = try Project
+            .filter(Column("deleted") == false)
+            .fetchAll(database)
+            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return match
+        }
+        let project = candidate ?? Project(title: trimmed)
+        try project.insert(database)
+        return project
     }
 
     // MARK: Convenience (no-UI path: keep both, as before)
@@ -442,9 +649,17 @@ final class CaptureService {
         return result
     }
 
-    private static func encodeIds(_ ids: [String]) -> String? {
+    private nonisolated static func encodeIds(_ ids: [String]) -> String? {
         guard let data = try? JSONEncoder().encode(ids) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// The inverse of `encodeIds`, for reading back which tasks a previous attempt at this capture
+    /// saved. Tolerant by design: a null or malformed column is simply "none".
+    nonisolated static func decodeIds(_ json: String?) -> [String] {
+        guard let json, let data = json.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return ids
     }
 
     // MARK: Similarity

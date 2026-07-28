@@ -5,8 +5,10 @@ import SwiftUI
 protocol DayGridEntry: Identifiable where ID == String {
     var start: Date { get }
     var end: Date { get }
-    /// Any task can be dragged to any slot, including a Gym-linked or otherwise pinned one —
-    /// only a real calendar event (not under this app's control to reschedule) can't be.
+    /// Whether this entry is a sequence choice rather than a commitment — only a flexible
+    /// (non-anchored) task is. A real calendar event, a pinned task, and a Gym-linked task are
+    /// all commitments and so aren't a drag source (or a drop target: `enabled` gates both ends
+    /// of `.reorderable`).
     var isDraggable: Bool { get }
 }
 
@@ -14,25 +16,30 @@ protocol DayGridEntry: Identifiable where ID == String {
 /// ones carry a printed label) across the app's day-start/end window, with each entry positioned
 /// and sized by its actual time instead of stacked in a list.
 ///
-/// **Rescheduling is native drag-and-drop** — `.draggable` on each block, one `.dropDestination`
-/// covering the whole canvas — rather than a hand-built `LongPressGesture.sequenced(before:)`.
-/// The earlier hand-built version is what made this screen hard to scroll: a long-press-then-drag
-/// gesture attached to a row inside a `ScrollView` competes with that scroll view for the touch,
-/// and attaching it `.simultaneous`ly makes that worse rather than better. Native drag has no such
-/// problem — the system owns the lift, so scrolling, tapping, and the context menu all keep
-/// working untouched.
+/// **Reordering is row-onto-row**, the same mechanism as the wake-up "plan my day" sheet
+/// (`DayPlanView`) and the Day tab's own "Anytime" list: dragging one flexible block onto another
+/// via the shared `.reorderable(id:enabled:onDrop:)` modifier re-sequences them, and the caller
+/// re-derives every block's time from the new order through `DayPlanner.plan(preferredOrder:)` —
+/// it does not resolve to whatever arbitrary point the block happened to be dropped at. That's
+/// deliberate: a drop-anywhere-on-the-canvas model let a task land seconds away from a wildly
+/// different time than intended, whereas row-onto-row only ever expresses "before/after this
+/// other task," which is what a reorder actually means.
 ///
-/// Dropping anywhere on the canvas works, not just onto another block: `.dropDestination` reports
-/// the drop's `location`, so an arbitrary point on a continuous surface resolves to a time through
-/// the same y-to-minute math the gridlines use, snapped to the nearest 15 minutes.
+/// Native long-press-and-drag (`.draggable`/`.dropDestination`, wrapped by `ReorderableRow`)
+/// rather than a hand-built `LongPressGesture.sequenced(before:)` — the earlier hand-built version
+/// is what made this screen hard to scroll: a long-press-then-drag gesture attached to a row
+/// inside a `ScrollView` competes with that scroll view for the touch, and attaching it
+/// `.simultaneous`ly makes that worse rather than better. Native drag has no such problem — the
+/// system owns the lift, so scrolling, tapping, and the context menu all keep working untouched.
 struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     var entries: [Entry]
     var dayStartHour: Int
     var dayEndHour: Int
     var day: Date
     var calendar: Calendar = .current
-    /// Called with the snapped `Date` a dragged entry was dropped at.
-    var onReschedule: (Entry, Date) -> Void
+    /// Dragged-onto-target callback, same shape `ReorderableRow` expects — the caller re-derives
+    /// times from the new order rather than being handed a dropped time.
+    var onReorder: (_ draggedID: String, _ targetID: String) -> Void
     @ViewBuilder var rowContent: (Entry) -> RowContent
 
     /// Taller than a typical calendar app's default zoom, deliberately — more vertical room per
@@ -43,10 +50,6 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     /// A block never renders shorter than this, so even a 15-minute task stays legible.
     private static var minimumBlockHeight: CGFloat { 32 }
     private static var gutterWidth: CGFloat { 54 }
-    /// Every dropped time lands on one of :00 / :15 / :30 / :45.
-    static var snapMinutes: Int { 15 }
-
-    @State private var isTargeted = false
 
     private var windowStart: Date {
         calendar.date(bySettingHour: dayStartHour, minute: 0, second: 0, of: day) ?? day
@@ -105,14 +108,6 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: totalHeight, alignment: .topLeading)
-            // A quiet wash while a block is held over the canvas, so it reads as a real drop
-            // surface rather than the drag having nowhere to land.
-            .background(isTargeted ? Color.Offload.indigo.opacity(0.06) : .clear)
-            .dropDestination(for: String.self) { ids, location in
-                drop(ids: ids, at: location)
-            } isTargeted: { targeted in
-                isTargeted = targeted
-            }
         }
         .frame(height: totalHeight)
     }
@@ -127,26 +122,10 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     private func block(for entry: Entry) -> some View {
         let top = y(for: entry.start)
         let height = max(Self.minimumBlockHeight, y(for: entry.end) - y(for: entry.start))
-        let content = rowContent(entry)
+        rowContent(entry)
             .frame(height: height, alignment: .top)
             .offset(y: top)
             .animation(Motion.snappy, value: top)
-        if entry.isDraggable {
-            content.draggable(entry.id)
-        } else {
-            content
-        }
-    }
-
-    /// Resolve a drop point on the canvas to a snapped time and hand it back. Returns whether the
-    /// drop was one of ours — `false` lets the system play its "didn't take" animation rather than
-    /// silently swallowing an unrelated drag.
-    private func drop(ids: [String], at location: CGPoint) -> Bool {
-        guard let id = ids.first, let entry = entries.first(where: { $0.id == id }) else { return false }
-        let snapped = DayPlanner.nearestMultiple(Int(location.y / pointsPerMinute), of: Self.snapMinutes)
-        let clamped = min(max(0, snapped), totalMinutes)
-        guard let target = calendar.date(byAdding: .minute, value: clamped, to: windowStart) else { return false }
-        onReschedule(entry, target)
-        return true
+            .reorderable(id: entry.id, enabled: entry.isDraggable, onDrop: onReorder)
     }
 }

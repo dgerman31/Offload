@@ -550,10 +550,29 @@ struct HomeView: View {
     // MARK: Projects entry point
 
     /// Projects left the tab bar, and Pinned already gives one-tap access to the ones that
-    /// matter most — so this is just a small, out-of-the-way link to the full list, not a card
-    /// competing with Pinned for attention.
+    /// matter most — so this is just a small, out-of-the-way pair of links, not a card competing
+    /// with Pinned for attention. "On your list" above is a curated running list, not everything —
+    /// this is where "show me literally all my tasks" lives, one tap away like Projects.
     private var projectsLink: some View {
-        HStack {
+        HStack(spacing: 10) {
+            NavigationLink {
+                AllTasksView()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "checklist")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("All tasks")
+                        .font(.Offload.manrope(13, .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(Color.Offload.indigo)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Color.Offload.indigo.opacity(0.10), in: .capsule)
+            }
+            .buttonStyle(.pressable(scale: 0.96))
+
             NavigationLink {
                 ProjectsView()
             } label: {

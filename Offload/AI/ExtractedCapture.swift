@@ -13,7 +13,13 @@ struct ExtractedCapture {
 
     var tasks: [ExtractedTask]
 
-    @Guide(description: "Project name if these tasks form one multi-step endeavour, else nil")
+    /// Deliberately permissive: the old wording ("if these tasks form one multi-step endeavour")
+    /// asked the model to make a judgement about the *shape* of the work, which a small on-device
+    /// model almost never answered yes to — so a capture that plainly said "the Jury 3 project"
+    /// produced no project at all. Naming something the user named is a much easier question than
+    /// classifying an endeavour, and a wrong guess is cheap now: an unapplied name becomes a
+    /// "file this under X?" offer on the success screen rather than a silently created project.
+    @Guide(description: "A project/list the user named or referred to (\"the Jury 3 project\", \"for my thesis\"), else nil")
     var suggestedProject: String?
 }
 

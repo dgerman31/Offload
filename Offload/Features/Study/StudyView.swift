@@ -324,9 +324,10 @@ struct StudyView: View {
         optimisticallyAdded.insert(title)
     }
 
-    /// Schedule a freshly built study task exactly like `AddTaskSheet.add()` does: give it a
-    /// real slot in today's open time right away (the same `AutoFit` pipeline, same past-cutoff
-    /// roll-to-tomorrow behavior), rather than letting it sit unplaced.
+    /// Schedule a freshly built study task exactly like `AddTaskSheet.add()` does: give it a real
+    /// slot in the open time of the day it belongs to (the same `AutoFit` pipeline, same
+    /// past-cutoff roll-to-tomorrow behavior), rather than letting it sit unplaced. Study tasks
+    /// are built undated, so in practice that's today, or tomorrow after the day's cutoff.
     private func add(_ task: TaskItem) async {
         let existing = (try? await AppDatabase.shared.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)

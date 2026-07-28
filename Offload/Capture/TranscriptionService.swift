@@ -28,6 +28,13 @@ final class TranscriptionService: @unchecked Sendable {
     /// thread — hop to the main actor before touching UI state.
     var onLevel: (@Sendable (Double) -> Void)?
 
+    /// Invoked (off the main actor) when the session ends **on its own** with a real error —
+    /// the recognizer failing partway through, most commonly because Low Power Mode has made
+    /// on-device recognition unavailable. This is what lets a caller learn the mic died mid-
+    /// stream even though nothing called `stop()` — without it, `isListening`-style state on
+    /// the caller side never finds out and the UI looks live over a dead session.
+    var onSessionEnded: (@Sendable (Error) -> Void)?
+
     /// RMS of the buffer mapped onto a rough 0…1 scale. Returns nil for non-float formats
     /// rather than guessing.
     nonisolated static func normalizedLevel(_ buffer: AVAudioPCMBuffer) -> Double? {
@@ -139,7 +146,9 @@ final class TranscriptionService: @unchecked Sendable {
             if let result {
                 self?.onTranscript?(result.bestTranscription.formattedString)
             }
-            if error != nil || (result?.isFinal ?? false) {
+            if let error {
+                self?.recognitionEnded(error: error)
+            } else if result?.isFinal ?? false {
                 self?.stop()
             }
         }
@@ -174,5 +183,20 @@ final class TranscriptionService: @unchecked Sendable {
         request?.endAudio()
         task?.cancel()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Called only from inside the recognition callback, only when it hands back a real error.
+    /// Tears down exactly like `stop()` (it just calls it) — the one addition is deciding
+    /// whether to tell `onSessionEnded`. `isRunning` is read *before* that teardown because an
+    /// explicit external `stop()` (the user tapping "Type instead", say) already flips `running`
+    /// to false synchronously; the framework still calls this closure afterward, asynchronously,
+    /// with a "cancelled" error. Without this check that trailing, expected call would get
+    /// reported as a surprise failure right after the user calmly ended the session themselves.
+    private func recognitionEnded(error: Error) {
+        let wasRunning = isRunning
+        stop()
+        if wasRunning {
+            onSessionEnded?(error)
+        }
     }
 }

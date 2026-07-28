@@ -204,11 +204,12 @@ struct AddTaskSheet: View {
             pinned: hasDueDate && hasTime
         )
 
-        // The same auto-fit a captured task already gets: undated work, or work you scheduled
-        // for today without picking a specific time, gets a real slot in today's open time right
-        // away — instead of sitting unplaced until something else happens to plan the day. A
-        // future day or a specific chosen time is left exactly as you set it (AutoFit only ever
-        // touches today's flexible work).
+        // The same auto-fit a captured task already gets: work without a chosen time gets a real
+        // slot in the open time of whichever day it belongs to, instead of sitting unplaced until
+        // something else happens to plan the day. Picking a future day no longer means "leave it
+        // whole-day" — it means "find it a time on *that* day"; landing in an undated "Anytime"
+        // pile was the outcome being complained about. A time you chose yourself is still left
+        // exactly as you set it.
         let existing = (try? await AppDatabase.shared.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
         }) ?? []

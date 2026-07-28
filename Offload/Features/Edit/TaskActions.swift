@@ -143,6 +143,17 @@ enum TaskActions {
         }
     }
 
+    /// Rename a task or step in place. Steps are edited inline on the detail screen rather than
+    /// through the full editor — a one-line string doesn't need a whole form — so this is the
+    /// only path that mutates just the title.
+    static func rename(_ item: TaskItem, to title: String, db: AppDatabase = .shared) async {
+        guard item.title != title else { return }
+        var updated = item
+        updated.title = title
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+    }
+
     /// Change category in one gesture — same one-tap path as priority.
     static func setCategory(_ item: TaskItem, _ category: String, db: AppDatabase = .shared) async {
         guard item.category != category else { return }

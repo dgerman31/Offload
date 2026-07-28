@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// Drives the capture screen. Increment 4a covers the typed path end to end; voice
@@ -32,6 +33,26 @@ final class CaptureViewModel {
     var errorBanner: String?
     /// Live mic level, 0…1, for the waveform.
     var inputLevel: Double = 0
+
+    /// Bumped whenever voice ends and the caller should fall back to the keyboard. A failed
+    /// `beginAutoListen` already handles this via its return value, but a session that starts
+    /// fine and then dies mid-stream (a recognizer error arriving on a background thread, well
+    /// after `start()` returned) has no other way to tell the view — the view observes this and
+    /// refocuses the text field each time it changes, so a dying mic always lands you somewhere
+    /// usable instead of stuck on a dead mic screen.
+    var focusTextFieldRequest = 0
+
+    /// A project the model proposed for this capture's tasks but didn't file them under —
+    /// offered, not forced, on the success screen. `nil` means there's nothing to offer, or the
+    /// offer already got an answer (accept/decline both clear it, so it never re-asks).
+    var suggestedProjectTitle: String?
+    /// Set once `acceptSuggestedProject()` succeeds, so the offer card can swap to a brief
+    /// confirmation instead of just vanishing.
+    var assignedProjectConfirmation: String?
+    /// True when this capture was saved as raw text because no AI extractor was available (e.g.
+    /// Low Power Mode blocking on-device AI) — the success screen reads honestly ("saved, not
+    /// yet organized") instead of claiming a normal, fully-organized success.
+    var isUnextracted = false
 
     /// Per-candidate resolutions gathered during the `reviewingDuplicates` phase, keyed by
     /// candidate id. Insertion waits until this covers every candidate.
@@ -88,7 +109,8 @@ final class CaptureViewModel {
     private func startListening() async {
         errorBanner = nil
         guard await transcription.requestAuthorization() else {
-            errorBanner = "Microphone or speech access is off. You can still type your thought."
+            errorBanner = "Microphone or speech access is off — you can still type below."
+            focusTextFieldRequest += 1
             return
         }
         // The callback now fires off the main actor — hop back before touching UI state.
@@ -102,14 +124,46 @@ final class CaptureViewModel {
         transcription.onLevel = { [weak self] level in
             Task { @MainActor in self?.inputLevel = level }
         }
+        // Fires (off the main actor) if the session dies on its own after a clean start — a
+        // recognizer error, most commonly Low Power Mode making on-device recognition
+        // unavailable. Without this, `isListening` never learns the mic already died and the
+        // screen looks live over a dead session.
+        transcription.onSessionEnded = { [weak self] error in
+            Task { @MainActor in self?.handleUnexpectedVoiceEnd(error) }
+        }
         do {
             try transcription.start()
             isListening = true
             Haptics.light()
         } catch {
             isListening = false
-            errorBanner = "Couldn't start the microphone. You can still type your thought."
+            Log.capture.error("voice start failed: \(error.localizedDescription, privacy: .public)")
+            errorBanner = voiceUnavailableMessage()
+            focusTextFieldRequest += 1
         }
+    }
+
+    /// The mic started, then died on its own — most commonly a recognizer error caused by Low
+    /// Power Mode. Whatever was transcribed so far stays in `text` untouched; we just stop
+    /// pretending the session is live and point the user at the keyboard, which always works.
+    private func handleUnexpectedVoiceEnd(_ error: Error) {
+        guard isListening else { return }
+        isListening = false
+        inputLevel = 0
+        Log.capture.error("voice session ended mid-capture: \(error.localizedDescription, privacy: .public)")
+        errorBanner = voiceUnavailableMessage()
+        focusTextFieldRequest += 1
+    }
+
+    /// One calm, actionable reason voice isn't working right now — never phrased as a failure,
+    /// since the text field beneath it always works regardless. Names Low Power Mode
+    /// specifically when that's the actual cause: it's the one thing here the user can fix
+    /// themselves, unlike "no signal" or "model still warming up".
+    private func voiceUnavailableMessage() -> String {
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            return "Voice is off while Low Power Mode is on — turn it off to dictate, or just type below."
+        }
+        return "Voice isn't available right now — type below instead."
     }
 
     /// Stop the mic WITHOUT submitting — backs the "Type instead" control so an auto-record
@@ -158,8 +212,37 @@ final class CaptureViewModel {
         chips = outcome.chips
         chipTargetIds = outcome.insertedTaskIds
         resolvedChipGroups = []
+        suggestedProjectTitle = outcome.suggestedProjectTitle
+        assignedProjectConfirmation = nil
+        isUnextracted = outcome.isUnextracted
         phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
                       project: outcome.projectTitle, similar: outcome.similarWarnings)
+    }
+
+    // MARK: Post-capture project offer
+
+    /// Accept the model's project suggestion: file the just-saved tasks under it (creating the
+    /// project if it doesn't exist yet, matched case-insensitively so tapping this twice can't
+    /// spawn a duplicate). Never blocks dismissing the sheet — the capture already succeeded
+    /// either way, so a failure here is quiet rather than alarming; the tasks stay right where
+    /// they already landed.
+    func acceptSuggestedProject() async {
+        guard let title = suggestedProjectTitle, !chipTargetIds.isEmpty else { return }
+        suggestedProjectTitle = nil
+        do {
+            try await service.assignProject(taskIds: chipTargetIds, title: title)
+            Haptics.success()
+            assignedProjectConfirmation = title
+        } catch {
+            Log.capture.error("assignProject failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Decline the offer — quiet, no confirmation, no re-asking. It only reappears on the next
+    /// capture that earns one.
+    func declineSuggestedProject() {
+        suggestedProjectTitle = nil
+        Haptics.light()
     }
 
     /// True while there are refinement chips left to offer — the success screen holds (doesn't
@@ -221,5 +304,8 @@ final class CaptureViewModel {
         chips = []
         chipTargetIds = []
         resolvedChipGroups = []
+        suggestedProjectTitle = nil
+        assignedProjectConfirmation = nil
+        isUnextracted = false
     }
 }

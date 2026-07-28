@@ -5,10 +5,12 @@ import SwiftUI
 /// Two independent swipes, per the redesign: the week strip on top pages **week by week**
 /// (Sun–Sat), and the agenda body pages **day by day**. Selecting a day in the strip moves the
 /// body; swiping the body moves the strip. Real events and timed tasks render on a real
-/// time-grid (`DayTimeGrid`) positioned and sized by their actual clock time, with any task —
-/// including a Gym-linked or pinned one — draggable to any 15-minute slot; all-day and undated
-/// work sits in an "Anytime" group below. Everything is theme-aware — the palette adapts
-/// light/dark.
+/// time-grid (`DayTimeGrid`) positioned and sized by their actual clock time. Reordering is
+/// row-onto-row — drag a flexible task block onto another and times re-derive from the new
+/// order — the same mechanism the wake-up "plan my day" sheet (`DayPlanView`) uses; a real
+/// event, a pinned task, or a Gym-linked one is a commitment, not a sequence choice, so it isn't
+/// a drag source. All-day and undated work sits in an "Anytime" group below, reordered the same
+/// way. Everything is theme-aware — the palette adapts light/dark.
 struct DayView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var store = TaskStore()
@@ -161,11 +163,7 @@ struct DayView: View {
                         dayStartHour: DayPlanner.storedDayStartHour(),
                         dayEndHour: DayPlanner.storedDayEndHour(),
                         day: day,
-                        onReschedule: { entry, newStart in
-                            guard case let .task(task) = entry.item else { return }
-                            didReorder.toggle()
-                            Task { await store.reschedule(task, to: newStart) }
-                        },
+                        onReorder: handleDrop,
                         rowContent: gridBlockContent
                     )
                 }
@@ -207,12 +205,13 @@ struct DayView: View {
     /// old free-flowing agenda card. Left border carries the category accent.
     ///
     /// Interaction here is deliberately all-native and pan-free: a plain tap opens it, a native
-    /// `.draggable` lift (owned by `DayTimeGrid`) reschedules it, and a long press opens the
-    /// context menu — which is where Delete lives on this screen. There is no hand-rolled
-    /// horizontal swipe, for two compounding reasons: a custom pan gesture on a row inside a
-    /// `ScrollView` fights that scroll view for the touch (this screen was the worst offender —
-    /// it was nearly unscrollable wherever a block sat under your finger), and a horizontal swipe
-    /// here would *also* fight the day pager, whose whole job is horizontal.
+    /// row-onto-row drag (`.reorderable`, owned by `DayTimeGrid`) re-sequences flexible tasks and
+    /// re-derives their times from the new order, and a long press opens the context menu — which
+    /// is where Delete lives on this screen. There is no hand-rolled horizontal swipe, for two
+    /// compounding reasons: a custom pan gesture on a row inside a `ScrollView` fights that scroll
+    /// view for the touch (this screen was the worst offender — it was nearly unscrollable
+    /// wherever a block sat under your finger), and a horizontal swipe here would *also* fight
+    /// the day pager, whose whole job is horizontal.
     private func gridBlockContent(_ entry: TimedEntry) -> some View {
         let accent = self.accent(entry.item)
         return HStack(spacing: 8) {
@@ -284,8 +283,10 @@ struct DayView: View {
     }
 
     /// Only a flexible (non-anchored) task is a sequence choice — a real event or a pinned
-    /// commitment stays exactly where it is.
-    private func isFlexibleTask(_ item: DayItem) -> Bool {
+    /// commitment stays exactly where it is. `static` (no `self` needed) so the nested
+    /// `TimedEntry` below — which has no `DayView` instance of its own — can share this exact
+    /// rule for the time-grid rather than duplicating it.
+    private static func isFlexibleTask(_ item: DayItem) -> Bool {
         guard case let .task(task) = item else { return false }
         return !task.isAnchored
     }
@@ -303,9 +304,12 @@ struct DayView: View {
     // MARK: Drag-to-reorder
 
     /// Drop `draggedID` right before `targetID` within the day's flexible tasks, then re-run the
-    /// planner with that order and persist whatever times actually changed. Native long-press-
-    /// and-drag (`.draggable`/`.dropDestination`) rather than a hand-built gesture — it already
-    /// knows how to not fight scrolling or tapping, which a raw `DragGesture` doesn't for free.
+    /// planner with that order and persist whatever times actually changed. Shared by both the
+    /// timed grid (`DayTimeGrid`'s blocks) and the untimed "Anytime" list below — one ordering,
+    /// one handler, same as `DayPlanView`'s `reorder(draggedID:ontoID:)`. Native long-press-
+    /// and-drag (`.draggable`/`.dropDestination`, via `.reorderable`) rather than a hand-built
+    /// gesture — it already knows how to not fight scrolling or tapping, which a raw
+    /// `DragGesture` doesn't for free.
     private func handleDrop(draggedID: String, ontoID targetID: String) {
         var order = flexibleTasksForSelectedDay.map(\.id)
         guard let fromIndex = order.firstIndex(of: draggedID) else { return }
@@ -332,18 +336,16 @@ struct DayView: View {
     // MARK: Timing helpers
 
     /// A timed entry with a resolved start/end, ready to render as a grid block. Conforms to
-    /// `DayGridEntry` so `DayTimeGrid` can position, size, and drag it. Any task — including a
-    /// Gym-linked or otherwise pinned one — is draggable; only a real calendar event isn't
-    /// (rescheduling one of those would need writing back to EventKit, a different feature).
+    /// `DayGridEntry` so `DayTimeGrid` can position, size, and (if flexible) drag it. Only a
+    /// flexible (non-anchored) task is a sequence choice — a real calendar event, a pinned task,
+    /// and a Gym-linked task are all commitments, not something dragging onto another block
+    /// should re-time. Same `isFlexibleTask` rule the untimed "Anytime" list uses.
     private struct TimedEntry: Identifiable, DayGridEntry {
         let item: DayItem
         let start: Date
         let end: Date
         var id: String { item.id }
-        var isDraggable: Bool {
-            if case .task = item { return true }
-            return false
-        }
+        var isDraggable: Bool { DayView.isFlexibleTask(item) }
     }
 
     /// The clock span of an item, or nil if it's all-day / undated.

@@ -43,6 +43,11 @@ struct CaptureView: View {
                     fieldFocused = true
                 }
             }
+            // A mic that dies mid-session (recognizer error arriving after a clean start) has
+            // no other way to reach the view — `beginAutoListen`'s return value only covers a
+            // mic that never came up at all. This covers the rest: every voice failure ends
+            // with a usable, focused text field, never a dead mic screen.
+            .onChange(of: vm.focusTextFieldRequest) { _, _ in fieldFocused = true }
         }
     }
 
@@ -247,36 +252,47 @@ struct CaptureView: View {
 
     private func successView(added: Int, titles: [String], project: String?, similar: [String]) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(Color.Offload.teal)
-            // "Create a project" with nothing else made a container, not tasks — say so.
-            Text(headline(added: added, project: project))
-                .font(.Offload.section)
-                .foregroundStyle(Color.Offload.text)
-            if let project, added > 0 {
-                Text("Project “\(project)”")
-                    .font(.Offload.body)
-                    .foregroundStyle(Color.Offload.muted)
-            }
-            // Show what the AI actually understood — instant feedback on the extraction.
-            if !titles.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(titles, id: \.self) { title in
-                        Label(title, systemImage: "circle")
-                            .font(.Offload.body)
-                            .foregroundStyle(Color.Offload.text)
-                            .labelStyle(.titleAndIcon)
-                    }
+            if vm.isUnextracted {
+                unextractedHeader
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(Color.Offload.teal)
+                // "Create a project" with nothing else made a container, not tasks — say so.
+                Text(headline(added: added, project: project))
+                    .font(.Offload.section)
+                    .foregroundStyle(Color.Offload.text)
+                if let project, added > 0 {
+                    Text("Project “\(project)”")
+                        .font(.Offload.body)
+                        .foregroundStyle(Color.Offload.muted)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .background(Color.Offload.surface, in: .rect(cornerRadius: 12))
-            }
-            // Quick-tap refinements (only when the model flagged real ambiguity). A confident
-            // capture shows none and saves with zero taps — exactly like before.
-            if !vm.chips.isEmpty {
-                chipRow
+                // Show what the AI actually understood — instant feedback on the extraction.
+                if !titles.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(titles, id: \.self) { title in
+                            Label(title, systemImage: "circle")
+                                .font(.Offload.body)
+                                .foregroundStyle(Color.Offload.text)
+                                .labelStyle(.titleAndIcon)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(Color.Offload.surface, in: .rect(cornerRadius: 12))
+                }
+                // Quick-tap refinements (only when the model flagged real ambiguity). A confident
+                // capture shows none and saves with zero taps — exactly like before.
+                if !vm.chips.isEmpty {
+                    chipRow
+                }
+                // The post-capture "file this under a project?" offer — an offer, not an
+                // interrogation, since the capture already succeeded either way.
+                if let suggestion = vm.suggestedProjectTitle {
+                    projectOfferCard(title: suggestion)
+                } else if let confirmed = vm.assignedProjectConfirmation {
+                    projectAssignedConfirmation(title: confirmed)
+                }
             }
             // Dedup surface (spec §3.5): similar existing tasks — informed, never silent.
             if !similar.isEmpty {
@@ -298,15 +314,93 @@ struct CaptureView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 40)
+        .animation(Motion.standard, value: vm.suggestedProjectTitle)
+        .animation(Motion.standard, value: vm.assignedProjectConfirmation)
         // Auto-dismiss timing scales with how much there is to read; stay longer on warnings.
-        // With refinement chips present we DON'T auto-dismiss — the user needs time to tap — so
-        // the sheet waits for an explicit Done. Tapping every chip lets the timer resume.
-        .task(id: vm.chips.count) {
-            guard !vm.hasChips else { return }
-            let seconds = min(5.0, 1.6 + Double(titles.count) * 0.5 + Double(similar.count) * 1.0)
+        // With refinement chips OR the project offer present we DON'T auto-dismiss — the user
+        // needs time to tap — so the sheet waits for an explicit Done. Answering either one lets
+        // the timer resume, and the unextracted state gets extra time since there's more to read.
+        .task(id: "\(vm.chips.count)-\(vm.suggestedProjectTitle ?? "")") {
+            guard !vm.hasChips, vm.suggestedProjectTitle == nil else { return }
+            let seconds = vm.isUnextracted
+                ? 4.5
+                : min(5.0, 1.6 + Double(titles.count) * 0.5 + Double(similar.count) * 1.0)
             try? await Task.sleep(for: .seconds(seconds))
             finish()
         }
+    }
+
+    /// Extraction wasn't available for this capture (e.g. Low Power Mode blocking on-device AI),
+    /// so it was saved as raw text rather than organized. Neither a normal success — nothing's
+    /// actually organized yet — nor an error — nothing failed, the words are safe. Its own honest
+    /// middle state: the existing foreground retry sweep will organize it properly later.
+    private var unextractedHeader: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "tray.full.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.Offload.indigo)
+            Text("Saved — I'll sort it out soon")
+                .font(.Offload.section)
+                .foregroundStyle(Color.Offload.text)
+            Text("Your words are safe as you wrote them. As soon as AI's available again, this turns into proper tasks on its own.")
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.muted)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    /// The post-capture "file this under a project?" offer (spec: captures naming real projects
+    /// weren't landing under them). Same visual family as `chipRow`: a muted eyebrow label, then
+    /// tappable capsules — a suggestion to weigh, not a decision the app is blocking on.
+    private func projectOfferCard(title: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Sounds like a project", systemImage: "folder.badge.plus")
+                .font(.caption).fontWeight(.semibold)
+                .foregroundStyle(Color.Offload.muted)
+            Text("File this under “\(title)”?")
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.text)
+            HStack(spacing: 8) {
+                Button {
+                    Task { await vm.acceptSuggestedProject() }
+                } label: {
+                    Text("File it there")
+                        .font(.caption).fontWeight(.semibold)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Color.Offload.indigo, in: .capsule)
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.pressable)
+                .accessibilityLabel("File this under \(title)")
+
+                Button {
+                    vm.declineSuggestedProject()
+                } label: {
+                    Text("Not now")
+                        .font(.caption).fontWeight(.semibold)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Color.Offload.surface, in: .capsule)
+                        .foregroundStyle(Color.Offload.muted)
+                        .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: 1))
+                }
+                .buttonStyle(.pressable)
+                .accessibilityLabel("Don't file this under \(title)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.Offload.indigo.opacity(0.08), in: .rect(cornerRadius: 14, style: .continuous))
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    /// Brief, non-blocking confirmation once the offer above is accepted.
+    private func projectAssignedConfirmation(title: String) -> some View {
+        Label("Filed under “\(title)”", systemImage: "checkmark.circle.fill")
+            .font(.caption).fontWeight(.semibold)
+            .foregroundStyle(Color.Offload.teal)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+            .transition(.opacity)
     }
 
     /// A single wrapping row of tappable refinement pills. Each tap patches the just-saved

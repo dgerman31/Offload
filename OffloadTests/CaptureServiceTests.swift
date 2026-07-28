@@ -247,19 +247,241 @@ struct CaptureServiceTests {
         #expect(capture?.extractedTaskIds != nil)
     }
 
-    @Test("Failure keeps the raw capture, marks it failed, and persists no tasks")
-    func failure() async throws {
+    // MARK: Bug B — a capture never fails outright (Low Power Mode kills Apple Intelligence)
+
+    @Test("An extractor that throws still saves the raw words as one task the sweep will retry")
+    func unavailableExtractorStillSavesATask() async throws {
         let db = try AppDatabase.makeInMemory()
         let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
 
-        await #expect(throws: BoomError.self) {
-            _ = try await service.process(rawInput: "remember the milk", inputType: "text")
-        }
+        // Previously this threw and the user saw an error for words they'd just spoken.
+        let outcome = try await service.process(rawInput: "remember the milk", inputType: "text")
+        #expect(outcome.isUnextracted)
+        #expect(outcome.addedTasks == 1)
+        #expect(outcome.taskTitles == ["remember the milk"])
 
-        let capture = try await db.dbQueue.read { try Capture.fetchAll($0).first }
+        let capture = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
+        #expect(capture.rawInput == "remember the milk")
+        // The whole point: still `failed` and still under the ceiling, so `CaptureRetrySweep`
+        // picks it up on the next foreground and gets the real structured extraction.
+        #expect(capture.processingStatus == "failed")
+        #expect(capture.retryCount == 1)
+        #expect(capture.retryCount < CaptureRetrySweep.maxAttempts)
+        // No model ran, so the column mustn't claim one did.
+        #expect(capture.modelSource == nil)
+        // The placeholder's id is recorded, which is what lets a later retry retire it.
+        #expect(CaptureService.decodeIds(capture.extractedTaskIds).count == 1)
+
+        let tasks = try await db.dbQueue.read { try TaskItem.fetchAll($0) }
+        #expect(tasks.count == 1)
+        #expect(tasks.first?.title == "remember the milk")
+        #expect(tasks.first?.dueDate == nil)      // nothing invented
+        #expect(tasks.first?.category == nil)
+    }
+
+    @Test("A successful retry replaces the raw-text placeholder instead of duplicating it")
+    func retryReplacesPlaceholder() async throws {
+        let db = try AppDatabase.makeInMemory()
+        // 1. Extraction unavailable — the raw words land as one plain task.
+        let failing = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
+        _ = try await failing.process(rawInput: "remember the milk", inputType: "text")
+        let failedRow = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
+
+        // 2. The sweep comes back once the model is available again.
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil,
+                                  effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil)
+        let working = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)), embedder: NullEmbedder())
+        let outcome = try await working.process(rawInput: "remember the milk", inputType: "text", retrying: failedRow)
+
+        #expect(!outcome.isUnextracted)
+        #expect(outcome.addedTasks == 1)
+
+        // Exactly one live task — the structured one. The placeholder was retired, not left behind.
+        let live = try await db.dbQueue.read {
+            try TaskItem.filter(Column("deleted") == false).fetchAll($0)
+        }
+        #expect(live.count == 1)
+        #expect(live.first?.title == "Buy milk")
+
+        // And one capture row, now genuinely done.
+        let captures = try await db.dbQueue.read { try Capture.fetchAll($0) }
+        #expect(captures.count == 1)
+        #expect(captures.first?.processingStatus == "done")
+        #expect(captures.first?.modelSource == "foundation")
+    }
+
+    @Test("A retry that fails again reuses the placeholder instead of piling up duplicates")
+    func repeatedFallbackKeepsOnePlaceholder() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let failing = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
+        _ = try await failing.process(rawInput: "remember the milk", inputType: "text")
+        let first = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
+        let placeholderIds = CaptureService.decodeIds(first.extractedTaskIds)
+        #expect(placeholderIds.count == 1)
+
+        // The sweep comes back and the model is still unavailable.
+        let outcome = try await failing.process(rawInput: "remember the milk", inputType: "text", retrying: first)
+        #expect(outcome.isUnextracted)
+        #expect(outcome.addedTasks == 0)        // nothing new — the original task still stands
+
+        let live = try await db.dbQueue.read {
+            try TaskItem.filter(Column("deleted") == false).fetchAll($0)
+        }
+        #expect(live.count == 1)
+        #expect(live.first?.id == placeholderIds.first)   // same row, so any user edit survives
+
+        let row = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
+        #expect(row.retryCount == 2)                      // the sweep's ceiling still converges
+        #expect(CaptureService.decodeIds(row.extractedTaskIds) == placeholderIds)
+    }
+
+    @Test("A blank capture nothing could extract still records the row without inventing a task")
+    func unavailableExtractorOnBlankInput() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
+
+        let outcome = try await service.process(rawInput: "   ", inputType: "text")
+        #expect(outcome.isUnextracted)
+        #expect(outcome.addedTasks == 0)
         let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
-        #expect(capture?.processingStatus == "failed")
-        #expect(capture?.rawInput == "remember the milk")
         #expect(taskCount == 0)
+    }
+
+    @Test("A long raw capture is truncated into a readable fallback title")
+    func fallbackTitleTruncates() {
+        let short = CaptureService.fallbackTitle(from: "  buy   milk\nand eggs ")
+        #expect(short == "buy milk and eggs")            // whitespace collapsed, kept verbatim
+
+        let long = String(repeating: "word ", count: 60)
+        let title = CaptureService.fallbackTitle(from: long)
+        #expect(title.count <= CaptureService.fallbackTitleLimit + 1)   // +1 for the ellipsis
+        #expect(title.hasSuffix("…"))
+    }
+
+    // MARK: Bug A — a named project is either created or offered for confirmation
+
+    @Test("A capture naming a project the model didn't pick up is offered as a suggestion")
+    func namedProjectSurfacesAsSuggestion() async throws {
+        let db = try AppDatabase.makeInMemory()
+        // The on-device path: real tasks, but `suggestedProject` left nil — the exact shape of
+        // the bug ("projects aren't created from a capture that names one").
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Draft the opening", category: "Work", priority: "high",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil,
+                                  effortMinutes: nil, subtasks: [])],
+            suggestedProject: nil)
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)), embedder: NullEmbedder())
+
+        let outcome = try await service.process(
+            rawInput: "working on the Jury 3 project, I need to draft the opening", inputType: "text")
+
+        // Nothing was silently created…
+        #expect(outcome.projectTitle == nil)
+        let projectCount = try await db.dbQueue.read { try Project.fetchCount($0) }
+        #expect(projectCount == 0)
+        // …but the name is surfaced for the user to confirm.
+        #expect(outcome.suggestedProjectTitle == "Jury 3")
+        #expect(outcome.insertedTaskIds.count == 1)
+    }
+
+    @Test("A project that WAS created and filed leaves nothing to confirm")
+    func createdProjectSuppressesTheSuggestion() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Draft the opening", category: "Work", priority: "high",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil,
+                                  effortMinutes: nil, subtasks: [])],
+            suggestedProject: "Jury 3")
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)), embedder: NullEmbedder())
+
+        let outcome = try await service.process(rawInput: "draft the opening for Jury 3", inputType: "text")
+        #expect(outcome.projectTitle == "Jury 3")
+        #expect(outcome.suggestedProjectTitle == nil)   // already filed — nothing to ask
+    }
+
+    @Test("assignProject creates the project and files the tasks under it")
+    func assignProjectCreates() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let task = TaskItem(title: "Draft the opening", category: "Work", priority: "high")
+        try await db.dbQueue.write { try task.insert($0) }
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
+
+        try await service.assignProject(taskIds: [task.id], title: "Jury 3")
+
+        let projects = try await db.dbQueue.read { try Project.fetchAll($0) }
+        #expect(projects.count == 1)
+        #expect(projects.first?.title == "Jury 3")
+        let saved = try await db.dbQueue.read { try TaskItem.fetchOne($0, key: task.id) }
+        #expect(saved?.projectId == projects.first?.id)
+    }
+
+    @Test("assignProject matches an existing project case-insensitively instead of duplicating it")
+    func assignProjectReusesCaseInsensitively() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let existing = Project(title: "Jury 3")
+        let task = TaskItem(title: "Pull the exhibits", category: "Work", priority: "medium")
+        try await db.dbQueue.write { database in
+            try existing.insert(database)
+            try task.insert(database)
+        }
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
+
+        // Different casing and stray whitespace — still the same project.
+        try await service.assignProject(taskIds: [task.id], title: "  jury 3  ")
+
+        let projects = try await db.dbQueue.read { try Project.fetchAll($0) }
+        #expect(projects.count == 1)                    // reused, not duplicated
+        #expect(projects.first?.title == "Jury 3")      // the original title/casing survives
+        let saved = try await db.dbQueue.read { try TaskItem.fetchOne($0, key: task.id) }
+        #expect(saved?.projectId == existing.id)
+    }
+
+    @Test("assignProject is idempotent — filing the same tasks twice makes one project")
+    func assignProjectIdempotent() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let task = TaskItem(title: "Pull the exhibits", category: "Work", priority: "medium")
+        try await db.dbQueue.write { try task.insert($0) }
+        let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
+
+        try await service.assignProject(taskIds: [task.id], title: "Jury 3")
+        try await service.assignProject(taskIds: [task.id], title: "Jury 3")
+
+        let projectCount = try await db.dbQueue.read { try Project.fetchCount($0) }
+        #expect(projectCount == 1)
+    }
+
+    @Test("A capture whose tasks were all deduped away creates no project and asks nothing")
+    func dedupedAwayProjectIsNotOffered() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let existing = TaskItem(title: "Buy milk", category: "Personal", priority: "medium", status: "open")
+        try await db.dbQueue.write { try existing.insert($0) }
+
+        let extracted = ExtractedCapture(
+            summary: nil,
+            tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
+                                  contextTags: [], dueDate: nil, recurrenceRule: nil,
+                                  effortMinutes: nil, subtasks: [])],
+            suggestedProject: "Groceries")
+        let service = CaptureService(db: db,
+                                     extractor: FakeExtractor(result: .success(extracted)),
+                                     embedder: StubEmbedder(table: ["Buy milk": [1, 0]]))
+
+        let prepared = try await service.prepare(rawInput: "buy milk for groceries", inputType: "text")
+        let candidate = try #require(prepared.candidates.first)
+        let outcome = try await service.finalize(prepared, resolutions: [candidate.id: .skip])
+
+        // Every task was skipped, so no container was created…
+        #expect(outcome.addedTasks == 0)
+        #expect(outcome.projectTitle == nil)
+        let projectCount = try await db.dbQueue.read { try Project.fetchCount($0) }
+        #expect(projectCount == 0)
+        // …and with nothing left to file, there's nothing to ask about either.
+        #expect(outcome.suggestedProjectTitle == nil)
     }
 }

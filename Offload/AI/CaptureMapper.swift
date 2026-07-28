@@ -28,6 +28,12 @@ enum CaptureMapper {
         /// Ids of tasks the model classified as real calendar appointments *and* that carry a
         /// due date — the ones the capture pipeline turns into EventKit events (spec §3.3 write).
         var appointmentTaskIds: Set<String> = []
+        /// A project name that was *named but not applied*: either the model suggested one the
+        /// mapper declined to auto-create, or the raw words plainly refer to a project ("the Jury 3
+        /// project") that no extractor turned into a container. Always `nil` when `project` is
+        /// non-nil — there's nothing to ask about once the tasks are already filed. The capture
+        /// pipeline surfaces this so the UI can offer it rather than silently guessing.
+        var suggestedProjectTitle: String?
     }
 
     /// Build a `Project` and the `TaskItem`s, linked to it. `now` grounds the due-date priority
@@ -69,6 +75,19 @@ enum CaptureMapper {
             guard containerCommand || !extracted.tasks.isEmpty else { return nil }
             return Project(title: name)
         }()
+
+        // The user's actual complaint: "projects aren't created from a capture that specifically
+        // includes project names." The on-device model very rarely fills `suggestedProject` (it's
+        // a small model with a crowded window), and the command regex only fires on an imperative
+        // "create a project called X" — so "working on the Jury 3 project, I need to draft the
+        // opening" produced tasks and no container, with nothing anywhere saying why.
+        //
+        // Rather than guess and silently create one from a regex (a wrong project is worse than
+        // none), recover the name and hand it up as a *suggestion* the UI can confirm. Only when
+        // nothing was actually created — once tasks are filed, there is nothing to ask about.
+        let suggestion: String? = project == nil
+            ? (projectName ?? sourceText.flatMap { mentionedProjectName(in: $0) })
+            : nil
 
         var tasks: [TaskItem] = []
         var appointmentTaskIds: Set<String> = []
@@ -125,7 +144,8 @@ enum CaptureMapper {
                 ))
             }
         }
-        return Result(project: project, tasks: tasks, appointmentTaskIds: appointmentTaskIds)
+        return Result(project: project, tasks: tasks, appointmentTaskIds: appointmentTaskIds,
+                      suggestedProjectTitle: suggestion)
     }
 
     /// Minimal subtask cleanup. The restraint ("only decompose when there are genuinely distinct
@@ -281,6 +301,42 @@ enum CaptureMapper {
             return name.prefix(1).uppercased() + name.dropFirst()
         }
         return nil
+    }
+
+    /// Words that are a grammatical filler rather than a name, so "the same project" or "the new
+    /// list" never becomes a container called "Same" or "New".
+    private static let nonNames: Set<String> = [
+        "new", "same", "whole", "next", "last", "first", "second", "third", "other", "another",
+        "todo", "to do", "task", "tasks", "big", "little", "main", "only", "entire", "current",
+        "that", "this", "these", "those", "usual", "one"
+    ]
+
+    /// Recover a project name the user plainly *referred to* without commanding one: "the Jury 3
+    /// project", "my thesis project", "the shopping list". Deliberately narrow — it needs the
+    /// container noun ("project"/"list") right there in the words, because this feeds a suggestion
+    /// the user confirms, and a suggestion that's wrong half the time is worse than none.
+    ///
+    /// Returns the name only (no trailing "project"), title-cased on the first letter to match how
+    /// `containerName` and the model spell one.
+    static func mentionedProjectName(in text: String) -> String? {
+        // (the|my|our|your) <up to four name words> (project|list)
+        let word = "[\\p{L}\\p{N}][\\p{L}\\p{N}'’-]*"
+        let pattern = "\\b(?:the|my|our|your)\\s+(\(word)(?:\\s+\(word)){0,3})\\s+(?:project|list)\\b"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        else { return nil }
+        let ns = text as NSString
+        guard let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+              match.numberOfRanges > 1
+        else { return nil }
+
+        var name = ns.substring(with: match.range(at: 1))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Trim leading filler so "the new kitchen project" suggests "Kitchen", not "New kitchen".
+        while let head = name.split(separator: " ").first, nonNames.contains(head.lowercased()) {
+            name = String(name.dropFirst(head.count)).trimmingCharacters(in: .whitespaces)
+        }
+        guard name.count >= 2, name.count <= 60, !nonNames.contains(name.lowercased()) else { return nil }
+        return name.prefix(1).uppercased() + name.dropFirst()
     }
 
     /// Hours nobody means to be working. A derived time landing here is a bug, not a plan — so a

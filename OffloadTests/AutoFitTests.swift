@@ -2,14 +2,39 @@ import Testing
 import Foundation
 @testable import Offload
 
-/// Feature C: loose undated captures get a soft "today" slot; stated-time and structural tasks
-/// (subtasks, project tasks) are left alone.
+/// Feature C: a capture always comes out of auto-fit holding a real clock time on the day it
+/// belongs to — never "Anytime", and never on top of something else. Stated times and structural
+/// tasks (subtasks) are left alone.
 struct AutoFitTests {
     private var cal: Calendar {
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
     }
-    private func at(_ hour: Int) -> Date {
-        cal.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: hour))!
+    private func at(_ hour: Int, _ minute: Int = 0, day: Int = 20) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 7, day: day, hour: hour, minute: minute))!
+    }
+    /// A due-date string carrying its own timezone, so a test never depends on the machine's.
+    private func stamp(_ date: Date) -> String { DueDate.canonicalString(from: date) }
+
+    /// The [start, start + effort) interval each result actually occupies on the clock.
+    private func intervals(_ tasks: [TaskItem]) -> [(title: String, start: Date, end: Date)] {
+        tasks.compactMap { (task: TaskItem) -> (title: String, start: Date, end: Date)? in
+            guard !task.dueIsAllDay, let start = DueDate.parse(task.dueDate) else { return nil }
+            let effort = task.effortMinutes ?? AutoFit.defaultEffortMinutes
+            let end = cal.date(byAdding: .minute, value: effort, to: start)!
+            return (title: task.title, start: start, end: end)
+        }
+    }
+
+    /// Every pair of occupied intervals must be disjoint — half-open, so back-to-back is fine.
+    private func expectNoOverlap(_ tasks: [TaskItem]) {
+        let blocks = intervals(tasks)
+        for i in blocks.indices {
+            for j in blocks.indices where j > i {
+                let (a, b) = (blocks[i], blocks[j])
+                #expect(!(a.start < b.end && b.start < a.end),
+                        "\(a.title) [\(a.start) – \(a.end)) overlaps \(b.title) [\(b.start) – \(b.end))")
+            }
+        }
     }
 
     @Test("A loose undated capture lands on today, soft and movable")
@@ -53,12 +78,122 @@ struct AutoFitTests {
         #expect(DueDate.parse(out.dueDate).map { cal.component(.hour, from: $0) >= 11 } == true)
     }
 
-    @Test("A task dated for another day is not dragged into today")
+    // MARK: Every capture gets a real time — on its OWN day
+
+    @Test("A task dated for another day stays on that day, and is given a real time on it")
     func leavesOtherDays() {
         let now = at(9)
-        let tomorrow = TaskItem(title: "Dentist", dueDate: "2026-07-21T00:00", dueIsAllDay: true)
+        let tomorrow = TaskItem(title: "Dentist", dueDate: stamp(at(0, day: 21)), dueIsAllDay: true)
         let out = AutoFit.fitIntoToday(new: [tomorrow], existing: [], now: now, calendar: cal)[0]
-        #expect(out.dueDate == tomorrow.dueDate)   // untouched
+        let due = DueDate.parse(out.dueDate)
+        #expect(due.map { cal.isDate($0, inSameDayAs: now) } == false)          // not dragged into today
+        #expect(due.map { cal.isDate($0, inSameDayAs: at(0, day: 21)) } == true) // still tomorrow
+        #expect(out.dueIsAllDay == false)                                        // no longer "Anytime"
+    }
+
+    /// The bug the user reported as "tasks are still being added to anytime": the old rule only
+    /// ever planned *today*, so anything the model dated for a future day kept its whole-day
+    /// stamp forever and surfaced under "Anytime".
+    @Test("A capture dated for a future day gets a real clock time on that day, not Anytime")
+    func futureDayAllDayGetsARealTime() {
+        let now = at(9)
+        let thursday = at(0, day: 23)
+        let stamped = TaskItem(title: "Dentist follow-up", dueDate: stamp(thursday),
+                               effortMinutes: 45, dueIsAllDay: true)
+        let t = AutoFit.fitIntoToday(new: [stamped], existing: [], now: now, calendar: cal)[0]
+
+        #expect(t.dueIsAllDay == false)
+        let due = DueDate.parse(t.dueDate)
+        #expect(due != nil)
+        #expect(due.map { cal.isDate($0, inSameDayAs: thursday) } == true)   // its own day, not today
+        #expect(due.map { cal.component(.hour, from: $0) == 9 } == true)     // first thing in the window
+        #expect(due.map { cal.component(.minute, from: $0) % 15 == 0 } == true)
+        #expect(t.pinned == false)                                           // soft: still movable
+    }
+
+    @Test("A stated clock time on a future day is left exactly where it is")
+    func leavesFutureStatedTimes() {
+        let now = at(9)
+        let appointment = TaskItem(title: "Dentist", dueDate: stamp(at(14, day: 22)),
+                                   effortMinutes: 60, pinned: true)
+        let out = AutoFit.fitIntoToday(new: [appointment], existing: [], now: now, calendar: cal)[0]
+        #expect(out.dueDate == appointment.dueDate)
+        #expect(out.pinned == true)
+    }
+
+    // MARK: Nothing is ever double-booked
+
+    /// The regression the user actually reported: "tasks are being scheduled overlapping times
+    /// that shouldn't be possible." A capture's own stated-time task is a real commitment even
+    /// though it isn't a target — leaving it out of the busy set put its untimed siblings on top
+    /// of it, because it wasn't in the database yet either.
+    @Test("No two tasks from one capture ever occupy the same time")
+    func captureNeverDoubleBooksItself() {
+        let now = at(9)
+        let lecture = TaskItem(title: "Cardio lecture", dueDate: stamp(at(11)),
+                               effortMinutes: 60, pinned: true)   // a real, stated 11:00–12:00
+        let out = AutoFit.fitIntoToday(
+            new: [lecture,
+                  TaskItem(title: "Read the chapter", effortMinutes: 90),
+                  TaskItem(title: "Email advisor", effortMinutes: 20),
+                  TaskItem(title: "Rewrite notes", effortMinutes: 30),
+                  TaskItem(title: "Flashcards", effortMinutes: 45)],
+            existing: [], now: now, calendar: cal)
+
+        expectNoOverlap(out)
+        #expect(out.count == 5)
+        #expect(out.allSatisfy { $0.dueIsAllDay == false })
+        #expect(out.allSatisfy { DueDate.parse($0.dueDate) != nil })
+        // The stated time is untouched — it's a commitment, not a suggestion.
+        let stated = out.first { $0.title == "Cardio lecture" }
+        #expect(stated?.dueDate == lecture.dueDate)
+        #expect(stated?.pinned == true)
+        // And every placed start is still on a clean quarter-hour.
+        #expect(out.allSatisfy { task in
+            DueDate.parse(task.dueDate).map { cal.component(.minute, from: $0) % 15 == 0 } == true
+        })
+    }
+
+    @Test("Work rolling off a packed day doesn't land on the next day's own captures")
+    func rolloverDoesNotCollideWithTheNextDaysWork() {
+        let now = at(9)
+        // Today is booked solid, so today's capture has to roll forward to tomorrow — where
+        // tomorrow's own capture is also being placed in the same call.
+        let conference = TaskItem(title: "Conference", dueDate: stamp(at(9)), effortMinutes: 13 * 60)
+        let forToday = TaskItem(title: "Email advisor", dueDate: stamp(at(0)),
+                                effortMinutes: 60, dueIsAllDay: true)
+        let forTomorrow = TaskItem(title: "Order reagents", dueDate: stamp(at(0, day: 21)),
+                                   effortMinutes: 60, dueIsAllDay: true)
+        let out = AutoFit.fitIntoToday(new: [forToday, forTomorrow], existing: [conference],
+                                       now: now, calendar: cal)
+
+        expectNoOverlap(out)
+        #expect(out.allSatisfy { $0.dueIsAllDay == false })
+        // Both ended up on tomorrow, one after the other rather than stacked at 9:00.
+        #expect(out.allSatisfy { task in
+            DueDate.parse(task.dueDate).map { cal.isDate($0, inSameDayAs: at(0, day: 21)) } == true
+        })
+        let starts = out.compactMap { DueDate.parse($0.dueDate) }
+        #expect(Set(starts).count == 2)
+    }
+
+    @Test("Odd-length tasks still land on quarter-hour marks, one after another")
+    func placementsStayOnQuarterHours() {
+        let now = at(9)
+        let out = AutoFit.fitIntoToday(
+            new: [TaskItem(title: "A", effortMinutes: 37),
+                  TaskItem(title: "B", effortMinutes: 23),
+                  TaskItem(title: "C", effortMinutes: 52),
+                  TaskItem(title: "D", effortMinutes: 8)],
+            existing: [], now: now, calendar: cal)
+
+        expectNoOverlap(out)
+        for task in out {
+            let start = DueDate.parse(task.dueDate)
+            #expect(start != nil)
+            let minute = start.map { cal.component(.minute, from: $0) } ?? -1
+            #expect(minute % 15 == 0, "\(task.title) started at :\(minute), not a quarter-hour")
+        }
     }
 
     // MARK: Past the day's cutoff — roll to tomorrow instead of "Anytime" today
@@ -127,6 +262,32 @@ struct AutoFitTests {
         #expect(out.allSatisfy { task in
             DueDate.parse(task.dueDate).map { !cal.isDate($0, inSameDayAs: now) } == true
         })
+        expectNoOverlap(out)
+    }
+
+    /// The last resort, exercised directly: even when *every* day the search can reach is full,
+    /// the task comes back with a real clock time rather than a whole-day "Anytime" intention.
+    @Test("A task that fits nowhere at all still gets a real time, never Anytime")
+    func neverFallsBackToAnytime() {
+        let now = at(9)
+        // Twenty consecutive days booked solid from the start of the window past the cutoff —
+        // more than the fourteen the search will roll through.
+        let wall = (0..<20).map { offset -> TaskItem in
+            let start = cal.date(byAdding: .day, value: offset, to: at(9))!
+            return TaskItem(title: "Conference \(offset)", dueDate: stamp(start),
+                            effortMinutes: 13 * 60)
+        }
+        let capture = TaskItem(title: "Read the chapter", effortMinutes: 60)
+        let t = AutoFit.fitIntoToday(new: [capture], existing: wall, now: now, calendar: cal,
+                                     cutoffHour: DayPlanner.defaultDayEndHour)[0]
+
+        #expect(t.dueIsAllDay == false)              // never "Anytime", however full the calendar
+        let due = DueDate.parse(t.dueDate)
+        #expect(due != nil)
+        #expect(due.map { cal.component(.minute, from: $0) % 15 == 0 } == true)
+        // And even the last-resort placement steps clear of the wall rather than sitting inside it.
+        let wallEnd = cal.date(byAdding: .minute, value: 13 * 60, to: at(9))!
+        #expect(due.map { $0 < at(9) || $0 >= wallEnd } == true)
     }
 
     @Test("A task belonging to a project is scheduled like any other, not left unplanned")

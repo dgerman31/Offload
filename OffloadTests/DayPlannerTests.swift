@@ -208,6 +208,45 @@ struct DayPlannerTests {
         #expect(plan.unplaced.map(\.title) == ["Big job"])
     }
 
+    /// The other half of "tasks are being scheduled overlapping times that shouldn't be
+    /// possible": the planner only ever blocked out *anchored* commitments, so anything holding a
+    /// soft time that this pass wasn't going to re-place — blocked work, or anything past the
+    /// batch limit — was invisible, and got planned straight over.
+    @Test("Work already on the clock that the planner won't move is never double-booked")
+    func plannerNeverDoubleBooksWorkItWontMove() {
+        // Blocked on someone else, so it's never a candidate — but it still owns 13:00–14:00.
+        var waiting = TaskItem(title: "Sarah's review", dueDate: iso(13), effortMinutes: 60)
+        waiting.status = "waiting"
+        let deepWork = TaskItem(title: "Deep work", priority: "high", effortMinutes: 120)
+
+        let plan = DayPlanner.plan(tasks: [waiting, deepWork], events: [], on: date(9), now: date(12),
+                                   calendar: utcCalendar, dayStartHour: 9, dayEndHour: 18)
+
+        #expect(plan.scheduled.map(\.task.title) == ["Deep work"])
+        #expect(plan.scheduled[0].start == date(14))   // after the block, not on top of it
+        for scheduled in plan.scheduled {
+            #expect(!(scheduled.start < date(14) && scheduled.end > date(13)),
+                    "\(scheduled.task.title) was planned over Sarah's review")
+        }
+    }
+
+    @Test("A task past the batch limit keeps its time, and the planner works around it")
+    func plannerWorksAroundTasksBeyondTheBatchLimit() {
+        // A soft, unpinned time: the planner *would* reflow it, but not in a batch of one — so
+        // for this pass it's as fixed as a meeting. (This is the Day tab's drag-reorder, which
+        // re-plans the top slice of a much longer list.)
+        let alreadyPlaced = TaskItem(title: "Read the chapter", priority: "low",
+                                     dueDate: iso(13), effortMinutes: 60)
+        let urgent = TaskItem(title: "Urgent", priority: "high", effortMinutes: 120)
+
+        let plan = DayPlanner.plan(tasks: [alreadyPlaced, urgent], events: [], on: date(9),
+                                   now: date(12), calendar: utcCalendar,
+                                   dayStartHour: 9, dayEndHour: 18, limit: 1)
+
+        #expect(plan.scheduled.map(\.task.title) == ["Urgent"])
+        #expect(plan.scheduled[0].start == date(14))
+    }
+
     @Test("Tasks with no effort estimate get the default block")
     func defaultEffort() {
         let tasks = [TaskItem(title: "Unknown length")]

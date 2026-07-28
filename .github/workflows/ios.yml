@@ -20,7 +20,18 @@ on:
         default: true
 
 concurrency:
-  group: ios-${{ github.ref }}
+  # Keyed by commit, not by branch. Grouping by `github.ref` with `cancel-in-progress` meant a
+  # follow-up push killed the still-running verification of the commit before it — which sounds
+  # like a saving right up until you notice that the earlier commit is a *different* fix whose
+  # test result you still needed. It bit three times in one session: `ipa` (the shorter job)
+  # finished and `test` was cancelled minutes from the end, leaving the branch with a green
+  # build and no idea whether the suite passed.
+  #
+  # Per-commit groups let each push verify itself to completion and never cancel a sibling. The
+  # cost is more concurrent runners; macOS minutes are free on a public repo, so that's not a
+  # real cost here. Re-pushing the *same* SHA still collapses onto one run, which is the only
+  # case where cancelling was ever the right call.
+  group: ios-${{ github.sha }}
   cancel-in-progress: true
 
 env:

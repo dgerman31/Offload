@@ -49,6 +49,14 @@ final class CaptureViewModel {
     /// Set once `acceptSuggestedProject()` succeeds, so the offer card can swap to a brief
     /// confirmation instead of just vanishing.
     var assignedProjectConfirmation: String?
+    /// An existing project these tasks were filed into under a different spelling than the one
+    /// spoken ("jury three" → "Jury 3"). Shown as a statement with an undo, not a question —
+    /// the match was confident enough to act on, but quietly rewriting someone's own words into
+    /// a name they didn't use is the kind of helpfulness that reads as a bug.
+    var mergedProjectTitle: String?
+    /// What this capture actually called the project, so undoing the merge can file the tasks
+    /// under that name instead.
+    private var capturedProjectName: String?
     /// True when this capture was saved as raw text because no AI extractor was available (e.g.
     /// Low Power Mode blocking on-device AI) — the success screen reads honestly ("saved, not
     /// yet organized") instead of claiming a normal, fully-organized success.
@@ -214,6 +222,8 @@ final class CaptureViewModel {
         resolvedChipGroups = []
         suggestedProjectTitle = outcome.suggestedProjectTitle
         assignedProjectConfirmation = nil
+        mergedProjectTitle = outcome.filedUnderExistingProject
+        capturedProjectName = outcome.capturedProjectName
         isUnextracted = outcome.isUnextracted
         phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
                       project: outcome.projectTitle, similar: outcome.similarWarnings)
@@ -234,7 +244,25 @@ final class CaptureViewModel {
             Haptics.success()
             assignedProjectConfirmation = title
         } catch {
-            Log.capture.error("assignProject failed: \(error.localizedDescription, privacy: .public)")
+            // The error kind only. A GRDB error's description carries the failing SQL *and* its
+            // bound arguments — here the user's own project title — which must never reach the
+            // log at any privacy level.
+            Log.capture.error("assignProject failed: \(CaptureService.errorKind(error), privacy: .public)")
+        }
+    }
+
+    /// Undo an automatic project merge: put these tasks in a project named the way the capture
+    /// actually said it. `matchExisting: false` matters — the whole point is to *not* resolve the
+    /// spoken name back into the project it was just separated from.
+    func undoProjectMerge() async {
+        guard let name = capturedProjectName, !chipTargetIds.isEmpty else { return }
+        mergedProjectTitle = nil
+        capturedProjectName = nil
+        do {
+            try await service.assignProject(taskIds: chipTargetIds, title: name, matchExisting: false)
+            Haptics.light()
+        } catch {
+            Log.capture.error("Undoing a project merge failed: \(CaptureService.errorKind(error), privacy: .public)")
         }
     }
 
@@ -306,6 +334,8 @@ final class CaptureViewModel {
         resolvedChipGroups = []
         suggestedProjectTitle = nil
         assignedProjectConfirmation = nil
+        mergedProjectTitle = nil
+        capturedProjectName = nil
         isUnextracted = false
     }
 }

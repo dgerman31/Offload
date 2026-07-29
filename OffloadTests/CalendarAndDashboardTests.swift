@@ -65,6 +65,28 @@ struct CalendarAndDashboardTests {
         #expect(items.isEmpty)
     }
 
+    @Test("A step gets no row of its own — it belongs inside its parent's block")
+    func timelineHidesSteps() {
+        let parent = TaskItem(title: "Enter REDCap data", dueDate: iso(18, 9), effortMinutes: 240)
+        let step = TaskItem(title: "Pull the export", parentTaskId: parent.id, dueDate: iso(18, 14))
+
+        let items = DayTimeline.items(tasks: [parent, step], events: [], on: date(18), calendar: utcCalendar)
+        #expect(items.map(\.title) == ["Enter REDCap data"])
+        // …and it's available to draw *inside* that block.
+        #expect(DayTimeline.stepsByParent([parent, step])[parent.id]?.map(\.title) == ["Pull the export"])
+    }
+
+    @Test("A step whose parent is gone is promoted rather than lost")
+    func timelinePromotesOrphanedSteps() {
+        var parent = TaskItem(title: "Enter REDCap data", dueDate: iso(18, 9))
+        parent.status = "completed"
+        let orphan = TaskItem(title: "Pull the export", parentTaskId: parent.id, dueDate: iso(18, 14))
+
+        let items = DayTimeline.items(tasks: [parent, orphan], events: [], on: date(18), calendar: utcCalendar)
+        #expect(items.map(\.title) == ["Pull the export"])
+        #expect(DayTimeline.stepsByParent([parent, orphan]).isEmpty)
+    }
+
     @Test("Density counts tasks and events per day and flags high priority")
     func density() {
         let tasks = [

@@ -167,7 +167,44 @@ enum CaptureMapper {
             guard seen.insert(norm).inserted else { continue }   // collapse duplicates
             kept.append(title)
         }
+        // A *single* surviving step that says the parent's errand back in different words isn't a
+        // decomposition — it's one task padded into two, and it's what the user hit: "Enter REDCap
+        // data" (4h) with one step, "Put REDCap data in" (15 min). The containment check above
+        // can't see it, because neither string contains the other. Deliberately limited to the
+        // lone-step case: two or more steps sharing the parent's noun ("Pack for the trip" →
+        // "Pack chargers", "Pack toiletries") is normal, useful decomposition, and the prompt
+        // already tells the model a single-step task needs no steps at all.
+        if kept.count == 1, restatesParent(kept[0], parent: parentTitle) { return [] }
         return kept
+    }
+
+    /// Grammatical filler that carries no errand — stripped before comparing two titles for
+    /// meaning, so "Put REDCap data **in the** spreadsheet" isn't held apart from "Enter REDCap
+    /// data" by words neither of them is about.
+    private static let restatementStopWords: Set<String> = [
+        "a", "an", "the", "to", "for", "of", "in", "on", "at", "with", "and", "or", "my", "our",
+        "your", "it", "its", "this", "that", "these", "those", "into", "from", "up", "out",
+        "about", "all", "some", "any", "then", "so", "is", "are", "be"
+    ]
+
+    /// The words a title is actually *about*: its tokens minus the leading action verb and minus
+    /// filler. "Enter REDCap data" and "Putting REDCap data in" both reduce to `{redcap, data}`,
+    /// which is exactly the signal — the same errand, said twice.
+    static func contentWords(_ title: String) -> Set<String> {
+        var tokens = normalizedForComparison(title).split(separator: " ").map(String.init)
+        if tokens.count > 1 { tokens.removeFirst() }   // the action verb, which always differs
+        return Set(tokens.filter { !restatementStopWords.contains($0) && $0.count > 1 })
+    }
+
+    /// Does `step` restate `parent`? True when most of either title's content is the other's —
+    /// asymmetric on purpose, since a restatement can be either shorter ("REDCap data") or longer
+    /// ("Put the REDCap data in the spreadsheet") than what it restates.
+    static func restatesParent(_ step: String, parent: String) -> Bool {
+        let parentWords = contentWords(parent)
+        let stepWords = contentWords(step)
+        guard !parentWords.isEmpty, !stepWords.isEmpty else { return false }
+        let shared = Double(parentWords.intersection(stepWords).count)
+        return shared / Double(parentWords.count) >= 0.6 || shared / Double(stepWords.count) >= 0.6
     }
 
     /// Lowercased, alphanumerics-and-spaces-only, whitespace-collapsed form for the restraint

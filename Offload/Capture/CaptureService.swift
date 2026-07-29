@@ -113,6 +113,13 @@ final class CaptureService {
         /// retry sweep will organize it properly later — so the UI should say "saved, I'll organize
         /// this later", not claim a normal success.
         var isUnextracted: Bool = false
+        /// An existing project these tasks were filed into under a *different* spelling than the
+        /// one spoken ("jury three" → "Jury 3"). The success screen reports it and offers an undo;
+        /// `nil` when nothing matched, or when the name was already spelled that way.
+        var filedUnderExistingProject: String?
+        /// What this capture actually called the project — kept only so undoing the merge above
+        /// can put the tasks in a project named the way the user said it.
+        var capturedProjectName: String?
     }
 
     private let db: AppDatabase
@@ -380,7 +387,9 @@ final class CaptureService {
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
         }) ?? []
         let fittedTasks = AutoFit.fitIntoToday(new: finalTasks, existing: existingTasks,
-                                                cutoffHour: DayPlanner.storedDayEndHour())
+                                                startHour: DayPlanner.storedDayStartHour(),
+                                                cutoffHour: DayPlanner.storedDayEndHour(),
+                                                protected: ProtectedTime.stored())
 
         // 3. Persist surviving project + tasks and any merge backfills in one transaction.
         let project = prepared.project
@@ -399,21 +408,32 @@ final class CaptureService {
         let retiredPlaceholderIds = (prepared.isRetry && !prepared.isUnextracted)
             ? Self.decodeIds(prepared.initial.extractedTaskIds)
             : []
-        try await db.dbQueue.write { database in
+        // Captured before the write: the closure is `@Sendable`, so it can't reach back into this
+        // `@MainActor` service for its embedder.
+        let embedder = self.embedder
+        // The transaction *returns* what it learned about the project rather than writing out to
+        // a captured `var`, for the same reason every other write here hands over immutable
+        // copies — a `@Sendable` closure has no way to mutate main-actor state.
+        let projectOutcome = try await db.dbQueue.write { database -> ProjectResolution? in
             for id in retiredPlaceholderIds {
                 guard var stale = try TaskItem.fetchOne(database, key: id),
                       !stale.deleted, stale.status != "completed" else { continue }
                 stale.deleted = true
                 try stale.update(database)
             }
-            // Reuse a project of the same name instead of minting a second one: capturing "more
-            // for the thesis" twice belongs in one project, not two identical rows. The tasks the
-            // mapper already pointed at the new project get re-pointed at the surviving one.
-            var reusedProjectId: String?
+            // Reuse the project the user already has instead of minting a near-duplicate beside
+            // it: capturing "more for the thesis" twice belongs in one project, and so does
+            // "jury three" after "Jury 3". The tasks the mapper pointed at the new project get
+            // re-pointed at the surviving one.
+            var resolution: ProjectResolution?
             if insertProject, let project {
-                let surviving = try Self.findOrCreateProject(titled: project.title, in: database, preferring: project)
-                if surviving.id != project.id { reusedProjectId = surviving.id }
+                resolution = try Self.findOrCreateProject(titled: project.title, in: database,
+                                                          preferring: project, embedder: embedder)
             }
+            let reusedProjectId: String? = {
+                guard let surviving = resolution?.project.id, surviving != project?.id else { return nil }
+                return surviving
+            }()
             for fitted in fittedTasks {
                 var task = fitted
                 if let reusedProjectId, task.projectId == project?.id {
@@ -423,6 +443,7 @@ final class CaptureService {
             }
             for updated in backfillUpdates { try updated.update(database) }
             for routine in newRoutines { try routine.insert(database) }
+            return resolution
         }
 
         // 4. Finalize the capture with instrumentation (spec §9).
@@ -454,17 +475,26 @@ final class CaptureService {
         // Chips only make sense when there's a task to refine. A capture that produced a
         // container-only command, or whose tasks were all deduped away, gets none.
         let chips = finalTasks.isEmpty ? [] : prepared.chips
+        // A merely *related* existing project is never merged into silently — it becomes the same
+        // "file these under X?" offer a named-but-uncreated project already produces, so one card
+        // and one code path answer both questions.
+        let suggestion = projectOutcome?.possibleDuplicateTitle ?? Self.projectToConfirm(
+            created: insertProject, named: project?.title,
+            suggested: prepared.suggestedProjectTitle, savedTaskCount: finalTasks.count)
+
         return Outcome(
             addedTasks: finalTasks.count,
             taskTitles: finalTasks.map(\.title),
-            projectTitle: insertProject ? project?.title : nil,
+            // The surviving project's name, which is the one the tasks are actually in — saying
+            // "jury three" back after filing into "Jury 3" would be a small lie.
+            projectTitle: insertProject ? (projectOutcome?.project.title ?? project?.title) : nil,
             similarWarnings: warnings,
             insertedTaskIds: finalTasks.map(\.id),
             chips: chips,
-            suggestedProjectTitle: Self.projectToConfirm(
-                created: insertProject, named: project?.title,
-                suggested: prepared.suggestedProjectTitle, savedTaskCount: finalTasks.count),
-            isUnextracted: prepared.isUnextracted
+            suggestedProjectTitle: suggestion,
+            isUnextracted: prepared.isUnextracted,
+            filedUnderExistingProject: projectOutcome?.mergedIntoTitle,
+            capturedProjectName: projectOutcome?.mergedIntoTitle == nil ? nil : project?.title
         )
     }
 
@@ -517,12 +547,24 @@ final class CaptureService {
     ///
     /// Throws rather than swallowing, so a caller showing a confirmation can tell the user it
     /// didn't take; `applyChip` keeps its best-effort behavior by ignoring the error.
-    func assignProject(taskIds: [String], title: String) async throws {
+    /// `matchExisting: false` skips the fuzzy tiers and files under a project spelled exactly as
+    /// asked — what undoing an automatic merge means. Without it, undo would resolve the spoken
+    /// name straight back into the project it was just separated from.
+    func assignProject(taskIds: [String], title: String, matchExisting: Bool = true) async throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do {
             try await db.dbQueue.write { database in
-                let project = try Self.findOrCreateProject(titled: trimmed, in: database)
+                let project: Project
+                if matchExisting {
+                    project = try Self.findOrCreateProject(titled: trimmed, in: database).project
+                } else if let same = try Project.filter(Column("deleted") == false).fetchAll(database)
+                    .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                    project = same
+                } else {
+                    project = Project(title: trimmed)
+                    try project.insert(database)
+                }
                 for id in taskIds {
                     guard var task = try TaskItem.fetchOne(database, key: id) else { continue }
                     task.projectId = project.id
@@ -539,8 +581,10 @@ final class CaptureService {
     }
 
     /// An error reduced to something safe to log: the SQLite result code, or the error's type name.
-    /// Never its description — see the call site.
-    private nonisolated static func errorKind(_ error: Error) -> String {
+    /// Never its description — see the call site. Internal rather than private so callers outside
+    /// this file (`CaptureViewModel`, which surfaces the same project-filing failures) can log
+    /// safely instead of reaching for `localizedDescription`.
+    nonisolated static func errorKind(_ error: Error) -> String {
         if let dbError = error as? DatabaseError { return "sqlite \(dbError.resultCode.rawValue)" }
         return String(describing: type(of: error))
     }
@@ -552,19 +596,44 @@ final class CaptureService {
     /// `preferring` lets `finalize` insert the exact `Project` the mapper built — same id — so the
     /// tasks already pointing at it need no re-pointing; everyone else gets a fresh row.
     /// `nonisolated` because GRDB's write closure is `@Sendable`.
+    /// Resolve `title` to a project, reusing an existing one when it's the same project said
+    /// differently rather than minting a near-duplicate beside it.
+    ///
+    /// The old rule here was `caseInsensitiveCompare`, which meant "Jury 3", "jury3", "Jury-3"
+    /// and "jury three" were four projects holding slices of one piece of work — the normal
+    /// outcome for spoken capture, since dictation spells numbers out and drops punctuation.
+    /// `ProjectMatcher` grades the match instead: exact and close matches are reused (a close one
+    /// reports itself so the user can undo), while a merely *related* name creates what they
+    /// actually said and leaves the merge as a question.
+    ///
+    /// `embedder` is optional — without one only the deterministic tiers run, which is what the
+    /// chip and confirmation paths want (the user already named the project explicitly there).
     private nonisolated static func findOrCreateProject(
-        titled title: String, in database: Database, preferring candidate: Project? = nil
-    ) throws -> Project {
+        titled title: String, in database: Database, preferring candidate: Project? = nil,
+        embedder: (any TextEmbedding)? = nil
+    ) throws -> ProjectResolution {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let match = try Project
-            .filter(Column("deleted") == false)
-            .fetchAll(database)
-            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
-            return match
+        let existing = try Project.filter(Column("deleted") == false).fetchAll(database)
+
+        if let match = ProjectMatcher.best(for: trimmed, among: existing, embedder: embedder) {
+            switch match.confidence {
+            case .exact:
+                return ProjectResolution(project: match.project)
+            case .close:
+                // Same project, different spelling. Say so — silently absorbing someone's words
+                // into a name they didn't use is the kind of "helpful" that reads as a bug.
+                return ProjectResolution(project: match.project, mergedIntoTitle: match.project.title)
+            case .related:
+                let project = candidate ?? Project(title: trimmed)
+                try project.insert(database)
+                return ProjectResolution(project: project,
+                                         possibleDuplicateTitle: match.project.title)
+            }
         }
+
         let project = candidate ?? Project(title: trimmed)
         try project.insert(database)
-        return project
+        return ProjectResolution(project: project)
     }
 
     // MARK: Convenience (no-UI path: keep both, as before)
@@ -729,4 +798,21 @@ final class CaptureService {
         }
         return warnings
     }
+}
+
+/// What resolving a spoken project name against the existing ones produced.
+///
+/// File-scope rather than nested inside `CaptureService`, because it is returned *out of* a
+/// GRDB write closure — which is `@Sendable`, so the value has to be `Sendable` with no
+/// dependence on how global-actor isolation does or doesn't reach a type nested in a
+/// `@MainActor` class.
+struct ProjectResolution: Sendable {
+    let project: Project
+    /// The existing project's title, when a *differently spelled* name was matched into it
+    /// ("jury three" → "Jury 3"). This is what the UI reports as "Filed under X" and what an
+    /// undo separates again. `nil` when the name was new, or already spelled the same way.
+    var mergedIntoTitle: String?
+    /// An existing project that reads like the same thing but wasn't certain enough to file
+    /// into. The capture still creates what the user said; the UI asks about merging.
+    var possibleDuplicateTitle: String?
 }

@@ -374,4 +374,47 @@ struct CaptureMapperTests {
         #expect(CaptureMapper.mentionedProjectName(in: "buy milk and call mom") == nil)
         #expect(CaptureMapper.mentionedProjectName(in: "the meeting ran long") == nil)
     }
+
+    // MARK: Steps that only restate the parent
+
+    @Test("A lone step that reworks the parent's own words is dropped")
+    func loneRestatementDropped() {
+        // The reported case: "Enter REDCap data" (4h) came back with one step, "Put REDCap data
+        // in" (15 min) — one errand padded into two, which the containment check can't see
+        // because neither string contains the other.
+        #expect(CaptureMapper.cleanSubtasks(parentTitle: "Enter REDCap data",
+                                            subtasks: ["Put REDCap data in"]).isEmpty)
+        #expect(CaptureMapper.cleanSubtasks(parentTitle: "Call the pharmacy",
+                                            subtasks: ["Ring the pharmacy"]).isEmpty)
+    }
+
+    @Test("Real decomposition survives, even when steps share the parent's subject")
+    func realStepsSurvive() {
+        // Two or more steps sharing the parent's noun is normal, useful breakdown — the drop
+        // rule is deliberately limited to the lone-step case.
+        let packing = CaptureMapper.cleanSubtasks(
+            parentTitle: "Pack for the trip",
+            subtasks: ["Pack chargers", "Pack toiletries", "Pack running shoes"])
+        #expect(packing.count == 3)
+
+        let store = CaptureMapper.cleanSubtasks(
+            parentTitle: "Go to the store",
+            subtasks: ["Buy milk", "Buy eggs"])
+        #expect(store.count == 2)
+
+        // A single step that's genuinely a *part* of the parent, not a restatement of it.
+        let single = CaptureMapper.cleanSubtasks(parentTitle: "Plan the wedding",
+                                                 subtasks: ["Book the photographer"])
+        #expect(single == ["Book the photographer"])
+    }
+
+    @Test("restatesParent compares what the titles are about, not their verbs")
+    func restatementComparison() {
+        #expect(CaptureMapper.restatesParent("Put REDCap data in", parent: "Enter REDCap data"))
+        #expect(CaptureMapper.restatesParent("Submit the grant application",
+                                             parent: "Send the grant application"))
+        #expect(CaptureMapper.restatesParent("Buy milk", parent: "Go to the store") == false)
+        // Nothing left to compare once verbs and filler are stripped.
+        #expect(CaptureMapper.restatesParent("Go", parent: "Leave") == false)
+    }
 }

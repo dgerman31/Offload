@@ -150,12 +150,30 @@ enum DayPlanner {
 
     // MARK: Planning
 
+    /// Ids of tasks that are a *step* of a still-open parent. These are invisible to every part
+    /// of planning: they aren't candidates (their parent's block is the work), and they don't
+    /// block time either (their parent's block already covers it). A step that somehow carries a
+    /// stale time of its own — every capture made before steps stopped being scheduled has some —
+    /// would otherwise keep reserving 15 minutes of a day it has no business occupying.
+    ///
+    /// An orphan is deliberately absent: a step whose parent is completed or deleted is real work
+    /// with nothing left to carry it, so it goes back to being an ordinary task.
+    static func stepIds(in tasks: [TaskItem]) -> Set<String> {
+        let living = Set(tasks.filter { $0.status != "completed" && !$0.deleted }.map(\.id))
+        return Set(tasks.compactMap { task -> String? in
+            guard let parent = task.parentTaskId, living.contains(parent) else { return nil }
+            return task.id
+        })
+    }
+
     /// Tasks the user already committed to a specific time today. These are NOT candidates —
     /// they're constraints. Moving someone's 1pm lunch to 9am because it happened to be
     /// "unscheduled work due today" is exactly the wrong behaviour: fixed commitments get
     /// blocked out first, and flexible work fills in around them.
     static func fixedCommitments(from tasks: [TaskItem], on day: Date, calendar: Calendar = .current) -> [TaskItem] {
-        tasks.filter { task in
+        let steps = stepIds(in: tasks)
+        return tasks.filter { task in
+            guard !steps.contains(task.id) else { return false }
             // Only *anchored* times are constraints. A soft planner-placed time is re-placeable,
             // so re-planning reflows it rather than building around a guess.
             guard task.status != "completed", !task.deleted, task.isAnchored,
@@ -191,9 +209,10 @@ enum DayPlanner {
         on day: Date,
         calendar: Calendar = .current
     ) -> [CalendarEvent] {
-        tasks.compactMap { task in
+        let steps = stepIds(in: tasks)
+        return tasks.compactMap { task in
             guard task.status != "completed", !task.deleted, !task.dueIsAllDay,
-                  !replacing.contains(task.id),
+                  !replacing.contains(task.id), !steps.contains(task.id),
                   let start = DueDate.parse(task.dueDate),
                   calendar.isDate(start, inSameDayAs: day) else { return nil }
             let minutes = task.effortMinutes ?? EnergyBatch.defaultEffort
@@ -216,9 +235,17 @@ enum DayPlanner {
         }
         let startOfDay = calendar.startOfDay(for: day)
 
+        // A step whose parent is still open is never a candidate: it's part of that parent's one
+        // block (`StepLayout` divides it), not a piece of work with a place of its own. Without
+        // this, planning a day gave a 4-hour "Enter REDCap data" its block *and* handed each of
+        // its steps a separate 15-minute slot elsewhere in the day — `AutoFit.needsPlanning` had
+        // excluded steps since it was written, and this was the same rule never applied here.
+        let steps = stepIds(in: tasks)
+
         return tasks
             // "waiting" is blocked on someone else — scheduling time for it would be a lie.
             .filter { $0.status != "completed" && $0.status != "waiting" && !$0.deleted }
+            .filter { !steps.contains($0.id) }
             .filter { task in
                 guard let due = DueDate.parse(task.dueDate) else { return true }   // undated
                 if due < startOfDay { return true }                                // overdue
@@ -250,7 +277,8 @@ enum DayPlanner {
         dayEndHour: Int = defaultDayEndHour,
         limit: Int = 12,
         energyProfile: EnergyProfile? = nil,
-        preferredOrder: [String]? = nil
+        preferredOrder: [String]? = nil,
+        protected: [ProtectedBlock] = []
     ) -> Plan {
         var pool = candidates(from: tasks, on: day, now: now, calendar: calendar)
         // A smart planner can hand us an order that weighs things the greedy sort can't —
@@ -267,8 +295,12 @@ enum DayPlanner {
         // real as a meeting invite. So does any *other* time already on the day's clock that this
         // pass isn't re-placing: only the tasks in `ordered` are about to be given new times, and
         // planning on top of the ones that keep theirs is a double-booking.
-        let blocked = events + occupiedBlocks(from: tasks, excluding: Set(ordered.map(\.id)),
-                                              on: day, calendar: calendar)
+        // Protected time joins the busy set rather than getting its own concept: free time is
+        // already "the waking window minus events", so hours you've reserved for studying or the
+        // gym are simply more of what the planner must schedule around.
+        let blocked = events
+            + occupiedBlocks(from: tasks, excluding: Set(ordered.map(\.id)), on: day, calendar: calendar)
+            + ProtectedTime.busyBlocks(on: day, blocks: protected, calendar: calendar)
         let slots = freeSlots(events: blocked, on: day, now: now, calendar: calendar,
                               dayStartHour: dayStartHour, dayEndHour: dayEndHour)
 

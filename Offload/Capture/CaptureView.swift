@@ -292,6 +292,8 @@ struct CaptureView: View {
                     projectOfferCard(title: suggestion)
                 } else if let confirmed = vm.assignedProjectConfirmation {
                     projectAssignedConfirmation(title: confirmed)
+                } else if let merged = vm.mergedProjectTitle {
+                    projectMergedCard(title: merged)
                 }
             }
             // Dedup surface (spec §3.5): similar existing tasks — informed, never silent.
@@ -316,12 +318,14 @@ struct CaptureView: View {
         .padding(.top, 40)
         .animation(Motion.standard, value: vm.suggestedProjectTitle)
         .animation(Motion.standard, value: vm.assignedProjectConfirmation)
+        .animation(Motion.standard, value: vm.mergedProjectTitle)
         // Auto-dismiss timing scales with how much there is to read; stay longer on warnings.
-        // With refinement chips OR the project offer present we DON'T auto-dismiss — the user
-        // needs time to tap — so the sheet waits for an explicit Done. Answering either one lets
-        // the timer resume, and the unextracted state gets extra time since there's more to read.
-        .task(id: "\(vm.chips.count)-\(vm.suggestedProjectTitle ?? "")") {
-            guard !vm.hasChips, vm.suggestedProjectTitle == nil else { return }
+        // With refinement chips, the project offer, OR an automatic project merge present we
+        // DON'T auto-dismiss — each one needs a tap the user can only give if the sheet is still
+        // there, and an undo that vanishes on a timer is no undo at all. Answering any of them
+        // lets the timer resume; the unextracted state gets extra time, since there's more to read.
+        .task(id: "\(vm.chips.count)-\(vm.suggestedProjectTitle ?? "")-\(vm.mergedProjectTitle ?? "")") {
+            guard !vm.hasChips, vm.suggestedProjectTitle == nil, vm.mergedProjectTitle == nil else { return }
             let seconds = vm.isUnextracted
                 ? 4.5
                 : min(5.0, 1.6 + Double(titles.count) * 0.5 + Double(similar.count) * 1.0)
@@ -347,6 +351,38 @@ struct CaptureView: View {
                 .foregroundStyle(Color.Offload.muted)
                 .multilineTextAlignment(.center)
         }
+    }
+
+    /// A confident name match that already happened — "you said jury three, these went into Jury
+    /// 3." A statement rather than a question, because asking about every obvious match would put
+    /// a tap on most captures; the undo is what keeps it honest when the match is wrong.
+    private func projectMergedCard(title: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.Offload.indigo)
+            Text("Filed under “\(title)”")
+                .font(.Offload.body)
+                .foregroundStyle(Color.Offload.text)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button {
+                Task { await vm.undoProjectMerge() }
+            } label: {
+                Text("Undo")
+                    .font(.caption).fontWeight(.semibold)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Color.Offload.surface, in: .capsule)
+                    .foregroundStyle(Color.Offload.indigo)
+                    .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: 1))
+            }
+            .buttonStyle(.pressable)
+            .accessibilityLabel("Undo filing these under \(title)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.Offload.indigo.opacity(0.08), in: .rect(cornerRadius: 14, style: .continuous))
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     /// The post-capture "file this under a project?" offer (spec: captures naming real projects

@@ -186,6 +186,28 @@ final class TaskStore {
         await NotificationSync.shared.refresh()
     }
 
+    /// Persist a task dragged to a specific time on the Day tab's grid.
+    ///
+    /// One row, no re-plan: the user pointed at a time, so that task goes there and nothing else
+    /// on the day is touched. That's the whole difference from `applyReorder` below, which
+    /// re-derives every time on the day from a new *order* — right for a list, wrong for a grid,
+    /// where it meant blocks nobody dragged jumped around after each drop.
+    ///
+    /// The new time pins. A time chosen by hand is a commitment everywhere else in the app
+    /// (`AddTaskSheet` says so in as many words), and leaving a dragged block soft would let the
+    /// next "Plan my day" quietly undo the drag. The block stays draggable afterwards — `DayView`
+    /// gates dragging on ownership, not on whether something is pinned — so pinning costs nothing.
+    func moveTask(_ task: TaskItem, to start: Date) async {
+        var updated = task
+        updated.dueDate = DueDate.canonicalString(from: start)
+        updated.dueIsAllDay = false
+        updated.pinned = true
+        updated.dueDateConfidence = 1.0
+        await writeAll([updated], describing: "move")
+        Haptics.light()
+        await NotificationSync.shared.refresh()
+    }
+
     /// Persist a manual reorder of a day's flexible (non-anchored) tasks: re-run the deterministic
     /// planner for that day with the dragged order as `preferredOrder`, then write back only the
     /// tasks whose time actually changed — same "touch only what moved" discipline as
@@ -203,7 +225,11 @@ final class TaskStore {
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
         }) ?? []
         let plan = DayPlanner.plan(tasks: current, events: events, on: day, now: now,
-                                   calendar: calendar, preferredOrder: orderedIds)
+                                   calendar: calendar,
+                                   dayStartHour: DayPlanner.storedDayStartHour(),
+                                   dayEndHour: DayPlanner.storedDayEndHour(),
+                                   preferredOrder: orderedIds,
+                                   protected: ProtectedTime.stored())
         let originalById = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
         var moved: [TaskItem] = []
         for scheduled in plan.scheduled {

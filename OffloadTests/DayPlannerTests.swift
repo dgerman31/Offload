@@ -164,6 +164,44 @@ struct DayPlannerTests {
         #expect(picked.map(\.title) == ["Overdue", "High today", "Low undated"])   // tomorrow excluded
     }
 
+    // MARK: Steps are their parent's time, not their own
+
+    @Test("A step of an open task is never scheduled separately")
+    func stepsAreNotCandidates() {
+        // The reported bug: "Enter REDCap data" (4h) got its block *and* each of its steps got a
+        // separate 15-minute slot elsewhere in the day. `AutoFit` had always excluded steps; this
+        // is the same rule finally applied here.
+        let parent = TaskItem(title: "Enter REDCap data", effortMinutes: 240)
+        let step = TaskItem(title: "Put REDCap data in", parentTaskId: parent.id)
+        let picked = DayPlanner.candidates(from: [parent, step], on: date(9), now: date(8),
+                                           calendar: utcCalendar)
+        #expect(picked.map(\.title) == ["Enter REDCap data"])
+    }
+
+    @Test("A step whose parent is finished becomes an ordinary task again")
+    func orphanedStepsAreCandidates() {
+        var parent = TaskItem(title: "Enter REDCap data")
+        parent.status = "completed"
+        let orphan = TaskItem(title: "Upload to the drive", parentTaskId: parent.id)
+        let picked = DayPlanner.candidates(from: [parent, orphan], on: date(9), now: date(8),
+                                           calendar: utcCalendar)
+        #expect(picked.map(\.title) == ["Upload to the drive"])
+    }
+
+    @Test("A step holding a stale time doesn't block the day it has no claim on")
+    func stepsDoNotOccupyTime() {
+        // Every capture made before steps stopped being scheduled left steps carrying real times.
+        // Those must stop reserving space, or the day stays as full as the bug made it.
+        let parent = TaskItem(title: "Enter REDCap data", dueDate: iso(9), effortMinutes: 240)
+        var step = TaskItem(title: "Pull the export", parentTaskId: parent.id, dueDate: iso(14))
+        step.pinned = true
+        let blocks = DayPlanner.occupiedBlocks(from: [parent, step], excluding: [],
+                                               on: date(9), calendar: utcCalendar)
+        #expect(blocks.map(\.title) == ["Enter REDCap data"])
+        #expect(DayPlanner.busyBlocks(from: [parent, step], on: date(9), calendar: utcCalendar).isEmpty)
+        #expect(DayPlanner.stepIds(in: [parent, step]) == [step.id])
+    }
+
     @Test("A pinned time today is a constraint, not a candidate")
     func committedTaskExcluded() {
         // A pinned time is a commitment the planner must leave alone; a soft time would reflow.

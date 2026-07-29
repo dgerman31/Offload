@@ -74,11 +74,34 @@ enum DayTimeline {
         for event in events where !ownEventIds.contains(event.id) {
             buckets[calendar.startOfDay(for: event.start), default: []].append(.event(event))
         }
+        // A step gets no row of its own: it belongs *inside* its parent's block (see
+        // `StepLayout`), not beside it, where one piece of work reads as several unrelated ones.
+        // The exception is an orphan — a step whose parent is finished or gone — which is
+        // promoted rather than lost, the same rule `HomeGrouping.rootsOnly` applies.
+        let livingIds = Set(tasks.filter { $0.status != "completed" && !$0.deleted }.map(\.id))
         for task in tasks where task.status != "completed" && !task.deleted {
+            if let parent = task.parentTaskId, livingIds.contains(parent) { continue }
             guard let due = DueDate.parse(task.dueDate) else { continue }
             buckets[calendar.startOfDay(for: due), default: []].append(.task(task))
         }
         return buckets.mapValues(ordered)
+    }
+
+    /// Steps grouped under their parent's id — what the grid needs to draw a parent's block
+    /// subdivided. The "living parent" test is deliberately the same one `itemsByDay` uses, so a
+    /// step is either a slice or a row and never both or neither: a step whose parent is finished
+    /// has no block to sit inside, and `itemsByDay` has already promoted it to a row of its own.
+    ///
+    /// A step's *own* completion doesn't exclude it — a finished step keeps its share of the span
+    /// and renders struck through, which is what makes the block read as progress.
+    static func stepsByParent(_ tasks: [TaskItem]) -> [String: [TaskItem]] {
+        let livingIds = Set(tasks.filter { $0.status != "completed" && !$0.deleted }.map(\.id))
+        var result: [String: [TaskItem]] = [:]
+        for task in tasks where !task.deleted {
+            guard let parent = task.parentTaskId, livingIds.contains(parent) else { continue }
+            result[parent, default: []].append(task)
+        }
+        return result
     }
 
     /// The ordered timeline for one day: timed entries chronologically, then untimed ones
@@ -127,7 +150,11 @@ enum DayTimeline {
     ) -> [Date: DayDensity] {
         var result: [Date: DayDensity] = [:]
 
+        // Same rule as `itemsByDay`: a step is part of its parent's block, so counting it would
+        // paint a day busier than it reads.
+        let livingIds = Set(tasks.filter { $0.status != "completed" && !$0.deleted }.map(\.id))
         for task in tasks where task.status != "completed" && !task.deleted {
+            if let parent = task.parentTaskId, livingIds.contains(parent) { continue }
             guard let due = DueDate.parse(task.dueDate) else { continue }
             let key = calendar.startOfDay(for: due)
             var entry = result[key] ?? DayDensity()

@@ -24,17 +24,22 @@ enum FocusLiveActivity {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
-    /// The activity this process started, if any. Held rather than looked up each time so an
-    /// update can't accidentally address a different one.
-    private static var current: Activity<FocusActivityAttributes>?
-
+    /// The running activity is deliberately **not** held in a stored property, and that isn't
+    /// tidiness — it's a correctness requirement under Swift 6.
+    ///
+    /// An `Activity` parked in main-actor state and then passed into `await activity.update(…)`
+    /// is *sent* across an isolation boundary, which the compiler rejects outright ("sending
+    /// 'activity' risks causing data races"). Looking it up inside the same function keeps it in
+    /// one isolation region, so nothing is ever sent. It also happens to be more robust: after a
+    /// relaunch the app finds the activity already on screen instead of stranding it and starting
+    /// a second one, with no re-adoption step to remember.
     static func start(taskTitle: String, accentHex: UInt32, session: FocusTimer.Session?) async {
         guard let session, isAvailable else { return }
         await end()   // never two at once
 
         let attributes = FocusActivityAttributes(taskTitle: taskTitle, accentHex: accentHex)
         do {
-            current = try Activity.request(
+            _ = try Activity.request(
                 attributes: attributes,
                 content: ActivityContent(state: state(from: session), staleDate: session.endsAt.addingTimeInterval(3600)),
                 pushType: nil   // the countdown ticks locally; there is nothing to push
@@ -48,25 +53,20 @@ enum FocusLiveActivity {
     }
 
     static func update(session: FocusTimer.Session?) async {
-        guard let activity = current else { return }
         guard let session else { return await end() }
-        await activity.update(ActivityContent(state: state(from: session),
-                                              staleDate: session.endsAt.addingTimeInterval(3600)))
+        let content = ActivityContent(state: state(from: session),
+                                      staleDate: session.endsAt.addingTimeInterval(3600))
+        for activity in Activity<FocusActivityAttributes>.activities {
+            await activity.update(content)
+        }
     }
 
     static func end() async {
-        // Also sweep any activity left behind by a previous launch — the app can be killed while
+        // Sweeps any activity left behind by a previous launch too — the app can be killed while
         // one is live, and a stale timer on the Lock Screen is worse than none.
         for activity in Activity<FocusActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
-        current = nil
-    }
-
-    /// Adopt an activity that survived a relaunch, so the app is updating the one already on
-    /// screen instead of stranding it and starting a second.
-    static func adoptExisting() {
-        current = Activity<FocusActivityAttributes>.activities.first
     }
 
     private static func state(from session: FocusTimer.Session) -> FocusActivityAttributes.ContentState {

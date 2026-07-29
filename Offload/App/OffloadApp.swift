@@ -59,7 +59,6 @@ struct OffloadApp: App {
                 // rather than watch it happen a second after they look at it.
                 FocusTimer.shared.restore()
                 FocusTimer.shared.applicationBecameActive()
-                FocusLiveActivity.adoptExisting()
                 // Learn when the day started, then lay down today's routine sessions before
                 // anything reads the schedule.
                 WakeTracker.recordOpen()

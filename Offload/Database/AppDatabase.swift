@@ -273,6 +273,28 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "ALTER TABLE captures ADD COLUMN retry_count INTEGER DEFAULT 0;")
         }
 
+        // Focus history: what a task was estimated to take against what it actually took. The
+        // app has run timers against model estimates since focus sessions existed and kept only a
+        // running minute total in `UserDefaults`, so the comparison — the one signal that could
+        // make estimates personal — was discarded every time. See `TaskSession`.
+        migrator.registerMigration("v10_task_sessions") { db in
+            try db.execute(sql: """
+                CREATE TABLE task_sessions (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    task_id TEXT NOT NULL,
+                    category TEXT,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT NOT NULL,
+                    planned_minutes INTEGER NOT NULL,
+                    actual_minutes INTEGER NOT NULL,
+                    ran_to_completion INTEGER NOT NULL DEFAULT 0
+                );
+                """)
+            // Reads are "this task's history" and "everything, newest first" — one index each.
+            try db.execute(sql: "CREATE INDEX idx_task_sessions_task ON task_sessions(task_id);")
+            try db.execute(sql: "CREATE INDEX idx_task_sessions_started ON task_sessions(started_at);")
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

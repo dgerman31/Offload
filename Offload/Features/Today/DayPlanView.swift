@@ -115,7 +115,8 @@ struct DayPlanView: View {
             tasks: tasks, events: events, on: day, now: Date(),
             dayStartHour: start, dayEndHour: dayEndHour,
             energyProfile: EnergyProfile(rawValue: energyRaw),
-            preferredOrder: order
+            preferredOrder: order,
+            protected: ProtectedTime.stored()
         )
         withAnimation(Motion.standard) { plan = recomputed }
         Haptics.light()

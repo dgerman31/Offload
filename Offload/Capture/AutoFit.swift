@@ -47,12 +47,21 @@ enum AutoFit {
     /// Anything that doesn't fit the day being searched carries over to the next one, up to
     /// `maxDaysAhead`; a task that somehow fits nowhere in all that time still comes back with
     /// the earliest open moment on its own day rather than a whole-day "Anytime" intention.
+    /// `startHour` is the other half of the same preference — "my day starts at". It used to be
+    /// absent, so every search here ran against `DayPlanner.defaultDayStartHour` (9am) no matter
+    /// what the user had set: someone whose day begins at 6 got nothing placed before 9, and three
+    /// hours of their morning were invisible to auto-fit.
+    ///
+    /// `protected` is the week's reserved time — study, gym, meals. Empty by default so the pure
+    /// tests stay pure; real call sites pass `ProtectedTime.stored()`.
     static func fitIntoToday(
         new: [TaskItem],
         existing: [TaskItem],
         now: Date = Date(),
         calendar: Calendar = .current,
-        cutoffHour: Int = DayPlanner.defaultDayEndHour
+        startHour: Int = DayPlanner.defaultDayStartHour,
+        cutoffHour: Int = DayPlanner.defaultDayEndHour,
+        protected: [ProtectedBlock] = []
     ) -> [TaskItem] {
         let targets = new.filter { needsPlanning($0) }
         guard !targets.isEmpty else { return new }
@@ -98,8 +107,12 @@ enum AutoFit {
             var daysSearched = 0
 
             while !remaining.isEmpty, daysSearched < maxDaysAhead {
+                // Protected time is expanded per day, since which blocks apply depends on the
+                // weekday — Tuesday's gym hour isn't Wednesday's.
+                let dayBlocked = blocked + ProtectedTime.busyBlocks(on: day, blocks: protected,
+                                                                    calendar: calendar)
                 let outcome = fill(day: day, with: remaining, now: now, calendar: calendar,
-                                   cutoffHour: cutoffHour, blocked: blocked)
+                                   startHour: startHour, cutoffHour: cutoffHour, blocked: dayBlocked)
                 for placement in outcome.placed { commit(placement.task, at: placement.start) }
                 remaining = outcome.didNotFit
                 daysSearched += 1
@@ -110,8 +123,11 @@ enum AutoFit {
             // explicitly doesn't want, so take the earliest open moment on the day this task
             // belongs to instead — a real time they can drag beats no time at all.
             for task in remaining {
-                let start = earliestOpenMoment(on: startDay, now: now, calendar: calendar,
-                                               cutoffHour: cutoffHour, blocked: blocked)
+                let start = earliestOpenMoment(
+                    on: startDay, now: now, calendar: calendar,
+                    startHour: startHour, cutoffHour: cutoffHour,
+                    blocked: blocked + ProtectedTime.busyBlocks(on: startDay, blocks: protected,
+                                                               calendar: calendar))
                 commit(task, at: start)
             }
         }
@@ -139,13 +155,15 @@ enum AutoFit {
         with tasks: [TaskItem],
         now: Date,
         calendar: Calendar,
+        startHour: Int,
         cutoffHour: Int,
         blocked: [CalendarEvent]
     ) -> (placed: [(task: TaskItem, start: Date)], didNotFit: [TaskItem]) {
         // A future day has nothing yet to skip past; today, the search still starts now.
         let searchFrom = calendar.isDate(day, inSameDayAs: now) ? now : day
         let slots = DayPlanner.freeSlots(events: blocked, on: day, now: searchFrom,
-                                         calendar: calendar, dayEndHour: cutoffHour)
+                                         calendar: calendar, dayStartHour: startHour,
+                                         dayEndHour: cutoffHour)
         var cursors = slots.map(\.start)
         var placed: [(task: TaskItem, start: Date)] = []
         var didNotFit: [TaskItem] = []
@@ -182,16 +200,18 @@ enum AutoFit {
         on day: Date,
         now: Date,
         calendar: Calendar,
+        startHour: Int,
         cutoffHour: Int,
         blocked: [CalendarEvent]
     ) -> Date {
         let searchFrom = calendar.isDate(day, inSameDayAs: now) ? now : day
         if let first = DayPlanner.freeSlots(events: blocked, on: day, now: searchFrom,
-                                            calendar: calendar, dayEndHour: cutoffHour).first {
+                                            calendar: calendar, dayStartHour: startHour,
+                                            dayEndHour: cutoffHour).first {
             return first.start
         }
 
-        let windowStart = calendar.date(bySettingHour: DayPlanner.defaultDayStartHour,
+        let windowStart = calendar.date(bySettingHour: startHour,
                                         minute: 0, second: 0, of: day) ?? day
         let earliest = calendar.isDate(day, inSameDayAs: now) ? max(windowStart, now) : windowStart
         var candidate = DayPlanner.roundUpToQuarterHour(earliest, calendar: calendar)

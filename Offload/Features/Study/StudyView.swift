@@ -333,7 +333,9 @@ struct StudyView: View {
             try TaskItem.filter(Column("deleted") == false).fetchAll(database)
         }) ?? []
         let fitted = AutoFit.fitIntoToday(new: [task], existing: existing,
-                                          cutoffHour: DayPlanner.storedDayEndHour()).first ?? task
+                                          startHour: DayPlanner.storedDayStartHour(),
+                                          cutoffHour: DayPlanner.storedDayEndHour(),
+                                          protected: ProtectedTime.stored()).first ?? task
         await TaskActions.create(fitted)
     }
 

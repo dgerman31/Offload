@@ -59,7 +59,8 @@ enum SmartPlanner {
         let plan = DayPlanner.plan(
             tasks: tasks, events: events, on: day, now: now,
             dayStartHour: dayStartHour, dayEndHour: dayEndHour,
-            energyProfile: energyProfile, preferredOrder: order
+            energyProfile: energyProfile, preferredOrder: order,
+            protected: ProtectedTime.stored()
         )
         return Result(plan: plan, rationale: rationale, usedAI: usedAI)
     }

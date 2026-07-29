@@ -17,6 +17,8 @@ struct RootView: View {
         @Bindable var capture = capture
         @Bindable var nav = nav
 
+        @Bindable var timer = FocusTimer.shared
+
         Group {
             if onboarded {
                 TabView(selection: $nav.selectedTab) {
@@ -27,6 +29,13 @@ struct RootView: View {
                     Tab("Settings", systemImage: "slider.horizontal.3", value: RootTab.settings) { SettingsView() }
                 }
                 .tint(Color.Offload.indigo)
+                // Above the tab bar, over whatever tab you're on. A running timer that's only
+                // visible on the screen that started it is indistinguishable from one that
+                // stopped — and this one keeps running everywhere, so it has to show everywhere.
+                .safeAreaInset(edge: .bottom) {
+                    FocusMiniBar()
+                        .animation(Motion.standard, value: FocusTimer.shared.session?.taskId)
+                }
             } else {
                 OnboardingView()
                     .transition(.opacity)
@@ -34,6 +43,13 @@ struct RootView: View {
         }
         .sheet(isPresented: $capture.isCapturing) {
             CaptureView()
+        }
+        // Presented from the root rather than from each screen that can start a session. The
+        // timer outlives every view now, so the thing that shows it has to sit above them all —
+        // four separate `.fullScreenCover`s (Home, Day, All tasks, task detail) each owning their
+        // own copy is exactly how the old one ended up with a different session per screen.
+        .fullScreenCover(isPresented: $timer.isExpanded) {
+            FocusSessionView()
         }
     }
 }

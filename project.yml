@@ -26,8 +26,14 @@ targets:
     platform: iOS
     sources:
       - path: Offload
+      # Compiled into the app *and* the widget extension — the Live Activity's state type has to
+      # exist identically on both sides of ActivityKit. Sharing the file is how xcodegen expresses
+      # that; there is no framework target and no App Group involved (a free Apple ID can't have
+      # one, and a Live Activity doesn't need one).
+      - path: Shared
     dependencies:
       - package: GRDB
+      - target: OffloadWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danielgerman.offload
@@ -37,6 +43,22 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"   # iPhone
     # Swift Package dependencies are added in later increments (e.g. GRDB).
+
+  # The Lock Screen / Dynamic Island timer. A widget extension is the only way to render a Live
+  # Activity — the app itself can start and update one, but the *views* must live in an extension.
+  # Bundle id has to be the app's with a suffix, or the system won't associate the two.
+  OffloadWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: OffloadWidgets
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danielgerman.offload.widgets
+        INFOPLIST_FILE: OffloadWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
 
   OffloadTests:
     type: bundle.unit-test

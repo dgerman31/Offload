@@ -16,6 +16,9 @@ struct SettingsView: View {
     @AppStorage(EnergyProfile.storageKey) private var energyRaw = EnergyProfile.morning.rawValue
     @AppStorage(DayPlanner.dayStartHourKey) private var dayStartHour = DayPlanner.defaultDayStartHour
     @AppStorage(DayPlanner.dayEndHourKey) private var dayEndHour = DayPlanner.defaultDayEndHour
+    @AppStorage(FocusTimer.focusMinutesKey) private var focusMinutes = FocusTimer.defaultFocusMinutes
+    @AppStorage(FocusTimer.shortBreakMinutesKey) private var shortBreakMinutes = FocusTimer.defaultShortBreakMinutes
+    @AppStorage(FocusTimer.longBreakMinutesKey) private var longBreakMinutes = FocusTimer.defaultLongBreakMinutes
     @State private var notificationsDenied = false
 
     /// "8 AM" / "9 PM" for the reminder-time pickers.
@@ -118,10 +121,31 @@ struct SettingsView: View {
                     Picker("Day ends", selection: $dayEndHour) {
                         ForEach(15...23, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
                     }
+                    NavigationLink {
+                        MyWeekView()
+                    } label: {
+                        Label("My week", systemImage: "calendar.badge.clock")
+                    }
                 } header: {
                     Text("Scheduling")
                 } footer: {
-                    Text("A capture or task with no specific time gets slotted into whatever's open before \(Self.hourLabel(dayEndHour)). Past that, it schedules into tomorrow instead of sitting unscheduled today.")
+                    Text("A capture or task with no specific time gets slotted into whatever's open before \(Self.hourLabel(dayEndHour)). Past that, it schedules into tomorrow instead of sitting unscheduled today. “My week” is where you reserve the hours it must leave alone.")
+                }
+
+                Section {
+                    Picker("Focus block", selection: $focusMinutes) {
+                        ForEach([15, 20, 25, 30, 45, 50, 60], id: \.self) { Text("\($0) min").tag($0) }
+                    }
+                    Picker("Break", selection: $shortBreakMinutes) {
+                        ForEach([3, 5, 10, 15], id: \.self) { Text("\($0) min").tag($0) }
+                    }
+                    Picker("Long break", selection: $longBreakMinutes) {
+                        ForEach([10, 15, 20, 30], id: \.self) { Text("\($0) min").tag($0) }
+                    }
+                } header: {
+                    Text("Focus timer")
+                } footer: {
+                    Text("A long break after every \(FocusTimer.blocksPerLongBreak) blocks. The timer keeps running when you leave the app or lock the phone, and shows on the Lock Screen — a block's length is how long you work in one sitting, not how long the whole task takes.")
                 }
 
                 Section {
@@ -228,10 +252,15 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(erasing)
+                    NavigationLink {
+                        DiagnosticsView()
+                    } label: {
+                        Label("Diagnostics", systemImage: "stethoscope")
+                    }
                 } header: {
                     Text("Data")
                 } footer: {
-                    Text("Export writes one readable JSON file you own — no lock-in. Erase permanently deletes every task, project, and capture on this iPhone and can't be undone.")
+                    Text("Export writes one readable JSON file you own — no lock-in. Erase permanently deletes every task, project, and capture on this iPhone and can't be undone. Diagnostics shows what the app has been doing this launch, for when something didn't work and you want to know why.")
                 }
             }
             .navigationTitle("Settings")

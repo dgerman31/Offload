@@ -11,8 +11,8 @@ struct InsightsView: View {
     @State private var insight: String?
     @State private var generating = false
     @State private var appeared = false
-    @AppStorage(FocusSession.totalMinutesKey) private var focusMinutes = 0
-    @AppStorage(FocusSession.sessionCountKey) private var focusSessions = 0
+    @AppStorage(FocusTimer.totalMinutesKey) private var focusMinutes = 0
+    @AppStorage(FocusTimer.sessionCountKey) private var focusSessions = 0
 
     private var load: MentalLoad {
         MentalLoad.compute(tasks: store.allTasks, now: Date())

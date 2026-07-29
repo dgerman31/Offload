@@ -10,7 +10,6 @@ import SwiftUI
 struct AllTasksView: View {
     @State private var store = TaskStore()
     @State private var editing: TaskItem?
-    @State private var focusTask: TaskItem?
     @State private var appeared = false
 
     /// Recomputed from whatever the shared task stream last delivered — no ticking clock here.
@@ -73,9 +72,6 @@ struct AllTasksView: View {
         .sheet(item: $editing) { task in
             NavigationStack { TaskDetailView(task: task) }
         }
-        .fullScreenCover(item: $focusTask) { task in
-            FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
-        }
     }
 
     private func sectionCard(_ section: TaskSection) -> some View {
@@ -103,7 +99,7 @@ struct AllTasksView: View {
         TaskRowView(task: row.task, indented: row.indented, onEdit: nil) {
             Task { await store.toggleComplete(row.task) }
         }
-        .contextMenu { TaskContextMenu(task: row.task, onFocus: { focusTask = $0 }, onEdit: openTask) }
+        .contextMenu { TaskContextMenu(task: row.task, onFocus: { FocusTimer.shared.start(task: $0) }, onEdit: openTask) }
         .swipeToDelete(id: row.task.id, onTap: { openTask(row.task) }) {
             Task { await store.delete(row.task) }
         }

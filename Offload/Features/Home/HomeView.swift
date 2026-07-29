@@ -23,7 +23,6 @@ struct HomeView: View {
     @State private var justPlannedDay = false
     @State private var activeRitual: RitualView.Mode?
     @State private var pendingReschedule: TaskItem?
-    @State private var focusTask: TaskItem?
     /// Which tasks currently have their steps folded open. Held here rather than per-row so the
     /// state survives the list re-sorting under you as things get ticked off.
     @State private var expandedTaskIDs: Set<String> = []
@@ -234,9 +233,6 @@ struct HomeView: View {
             }
             .sheet(item: $activeRitual) { mode in
                 RitualView(mode: mode, tasks: store.allTasks, events: store.rangeEvents)
-            }
-            .fullScreenCover(item: $focusTask) { task in
-                FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
             }
             // Scoped to just the overlay, not the whole screen: this used to sit on the
             // NavigationStack itself, which meant *every* change to `store.undo` put the entire
@@ -665,7 +661,7 @@ struct HomeView: View {
     /// never depends on which screen you found it on.
     @ViewBuilder
     private func taskMenu(_ task: TaskItem) -> some View {
-        TaskContextMenu(task: task, onFocus: { focusTask = $0 }, onEdit: openTask)
+        TaskContextMenu(task: task, onFocus: { FocusTimer.shared.start(task: $0) }, onEdit: openTask)
     }
 
     private func card<Content: View>(

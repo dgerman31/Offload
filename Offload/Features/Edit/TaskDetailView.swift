@@ -13,7 +13,6 @@ struct TaskDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var store: TaskDetailStore
     @State private var editing = false
-    @State private var focusing = false
     @State private var appeared = false
     @State private var newStep = ""
     /// The step currently being renamed inline, if any, plus its in-progress text. Kept separate
@@ -57,9 +56,6 @@ struct TaskDetailView: View {
         .task { withAnimation(Motion.settle) { appeared = true } }
         .sheet(isPresented: $editing) {
             NavigationStack { TaskEditView(task: task) }
-        }
-        .fullScreenCover(isPresented: $focusing) {
-            FocusSessionView(task: task, minutes: task.effortMinutes ?? 25)
         }
     }
 
@@ -354,7 +350,7 @@ struct TaskDetailView: View {
 
     private var actionsCard: some View {
         VStack(spacing: 10) {
-            Button { focusing = true } label: {
+            Button { FocusTimer.shared.start(task: task) } label: {
                 Label("Focus \(task.effortMinutes ?? 25) min", systemImage: "timer")
                     .font(.Offload.taskTitle)
                     .frame(maxWidth: .infinity)

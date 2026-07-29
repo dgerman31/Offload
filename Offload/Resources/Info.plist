@@ -37,6 +37,14 @@
 		<string>com.danielgerman.offload.synthesis</string>
 	</array>
 
+	<!-- The focus timer's Lock Screen / Dynamic Island countdown. Needs no entitlement and no
+	     paid account — just this flag and a widget extension to draw it. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<!-- Lets a running session's Live Activity update without re-arming it after a relaunch. -->
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
+
 	<!-- Permission strings. Shown to the user the first time each capability is used. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Offload uses the microphone so you can speak a thought and have it captured as tasks. Audio is transcribed on-device and never leaves your phone.</string>

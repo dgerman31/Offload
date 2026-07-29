@@ -59,6 +59,26 @@ extension Color.Offload {
     static func tint(for category: String?) -> Color {
         accent(for: category).opacity(0.12)
     }
+
+    /// The same accent as a raw hex, for surfaces that can't reach this extension.
+    ///
+    /// The Live Activity is one: it's compiled into the widget extension, a separate target with
+    /// no access to the app's design system, and `Color` isn't `Codable` so it can't travel in
+    /// the activity's state either. The dark-mode value, because a Lock Screen widget is always
+    /// rendered on a dark backing.
+    static func accentHex(for category: String?) -> UInt32 {
+        switch category ?? "Other" {
+        case "Work":     return 0x7C97F5
+        case "Personal": return 0xF2799A
+        case "Health":   return 0x35C99B
+        case "Finance":  return 0xE8B85A
+        case "Projects": return 0x9E86F0
+        case "Ideas":    return 0x45C2D8
+        case "Habits":   return 0x5FAEE5
+        case "Study":    return 0x818CF8
+        default:         return 0x9AA0AA
+        }
+    }
 }
 
 /// Applies the user's appearance preference to a whole view tree.

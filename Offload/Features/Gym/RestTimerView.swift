@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A between-sets countdown — tap a set's rest time to start it, watch it count down, and get a
 /// haptic the instant it hits zero. Deliberately tiny (a sheet, not a full screen): unlike
-/// `FocusSession`, resting isn't the point of the workout, just a pause inside it, so this should
+/// `FocusTimer`, resting isn't the point of the workout, just a pause inside it, so this should
 /// stay out of the way and dismiss itself the moment it's done being useful.
 @MainActor
 @Observable

@@ -25,13 +25,16 @@ struct TaskStoreTests {
         #expect(reopened?.completedAt == nil)
     }
 
-    @Test("rollToToday moves a task to today, all-day, unpinned")
-    func rollToTodayMovesAndUnpins() async throws {
+    @Test("rollToToday brings whole-day work to today and leaves it whole-day")
+    func rollToTodayKeepsWholeDayWholeDay() async throws {
         let db = try AppDatabase.makeInMemory()
         let cal = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }()
         let old = cal.date(from: DateComponents(year: 2026, month: 7, day: 18))!
-        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 20))!
-        let task = TaskItem(title: "Old chapter", dueDate: ISO8601DateFormatter().string(from: old), pinned: true)
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 11))!
+        // No hour of its own, so there's nothing to preserve.
+        let task = TaskItem(title: "Old chapter",
+                            dueDate: ISO8601DateFormatter().string(from: old),
+                            dueIsAllDay: true)
         try await db.dbQueue.write { try task.insert($0) }
 
         let store = TaskStore(db: db)
@@ -41,6 +44,29 @@ struct TaskStoreTests {
         #expect(reloaded.map { cal.isDate(DueDate.parse($0.dueDate)!, inSameDayAs: now) } == true)
         #expect(reloaded?.dueIsAllDay == true)
         #expect(reloaded?.pinned == false)
+    }
+
+    @Test("rollToToday keeps the hour a timed task was pinned at")
+    func rollToTodayKeepsItsHour() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let cal = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }()
+        // The 6am ritual, missed two days ago. This used to come back as an undated "Anytime"
+        // item — throwing away the one thing that made it happen first.
+        let old = cal.date(from: DateComponents(year: 2026, month: 7, day: 18, hour: 6))!
+        let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 5))!
+        let task = TaskItem(title: "Anki: today's cards",
+                            dueDate: ISO8601DateFormatter().string(from: old),
+                            pinned: true)
+        try await db.dbQueue.write { try task.insert($0) }
+
+        let store = TaskStore(db: db)
+        await store.rollToToday(task, now: now, calendar: cal)
+
+        let reloaded = try await db.dbQueue.read { try TaskItem.fetchOne($0, key: task.id) }
+        let landed = reloaded.flatMap { DueDate.parse($0.dueDate) }
+        #expect(landed == cal.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 6))!)
+        #expect(reloaded?.dueIsAllDay == false)
+        #expect(reloaded?.pinned == true)      // still "I chose this hour"
     }
 
     // MARK: Drag-to-reorder (Day tab)

@@ -52,10 +52,19 @@ jobs:
     # explicitly, so the image version buys nothing here, and this is the only path to a working
     # build. Not the place to spend a label that hasn't been proven on this repo.
     runs-on: macos-15
-    # A normal run is ~8–11 min (simulator cold boot + package resolution + the test suite
-    # itself, which has grown over time) — 16 gives that real headroom without letting a
-    # genuine hang run away.
-    timeout-minutes: 16
+    # Raised from 16 after a run took 16m34s and was killed mid-suite. A timed-out job reports as
+    # `cancelled`, which reads exactly like the concurrency-cancellation bug this workflow already
+    # fixed once — so the number mattering here is worth stating: 16 left only ~5 min of headroom
+    # over a run that was already ~8–11 min, and the suite has kept growing (it gained ~50 cases
+    # in one batch). Note the cost is *not* the second target: the `ipa` job does a full Release
+    # compile of both app and widget extension in under three minutes. It's the Debug compile plus
+    # the suite itself.
+    #
+    # 30 is deliberately generous rather than incremental — being killed at the finish line costs
+    # a full re-run and, worse, produces a green `ipa` beside a "cancelled" test job, which is the
+    # one outcome that looks like verification without being it. macOS minutes are free on a
+    # public repo, so the only thing a tighter bound buys is catching a hang sooner.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

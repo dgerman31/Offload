@@ -57,7 +57,8 @@ final class GroceryStore {
     func toggle(_ item: GroceryItem) async {
         var updated = item
         updated.bought.toggle()
-        try? await db.dbQueue.write { try updated.update($0) }
+        let toSave = updated          // immutable copy for the @Sendable write closure
+        try? await db.dbQueue.write { try toSave.update($0) }
         Haptics.light()
     }
 

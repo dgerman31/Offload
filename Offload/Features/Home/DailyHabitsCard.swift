@@ -98,7 +98,10 @@ final class HabitStore {
     func delete(_ habit: Habit) async {
         var gone = habit
         gone.deleted = true
-        try? await db.dbQueue.write { try gone.update($0) }
+        // An immutable copy, not the `var`: GRDB's async `write` closure is `@Sendable` and can't
+        // capture mutable state. Same convention as every other write in the app.
+        let toSave = gone
+        try? await db.dbQueue.write { try toSave.update($0) }
     }
 
     func seedDefaults() async {

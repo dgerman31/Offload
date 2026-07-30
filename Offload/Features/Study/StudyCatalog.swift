@@ -254,10 +254,17 @@ enum StudyResource: String, CaseIterable, Identifiable {
 
 enum StudyCatalog {
     static let category = "Study"
-    private static let secondsPerAnkiCard = 15
 
+    /// Minutes for a catalog node's cards.
+    ///
+    /// This used to be `count × 15s`, i.e. the time it would take if every card were right first
+    /// try. Every card under a catalog node is one you haven't seen, so the right model is the
+    /// *new-card* one: Anki's learning steps need two consecutive correct answers and an "Again"
+    /// resets the streak, so a 30% again rate means about 3.5 answers per card rather than 2. The
+    /// old figure wasn't slightly low — a 64-card subtopic read as 16 minutes and is really closer
+    /// to 55. See `AnkiLoad`.
     static func ankiMinutes(forCards count: Int) -> Int {
-        max(1, (count * secondsPerAnkiCard) / 60)
+        max(1, AnkiLoad.minutesForNewCards(count, settings: AnkiLoad.stored()))
     }
 
     /// The exact, deterministic title Study always builds — also how the tab tells which nodes

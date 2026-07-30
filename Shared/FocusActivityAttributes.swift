@@ -53,9 +53,12 @@ struct FocusActivityAttributes: ActivityAttributes {
             }
         }
 
+        /// Kept to symbols that have existed for many releases. An `Image(systemName:)` with a
+        /// name the device doesn't know renders as nothing at all — which on a Lock Screen widget
+        /// is indistinguishable from the whole feature being broken.
         var symbol: String {
             switch self {
-            case .focus:      return "target"
+            case .focus:      return "timer"
             case .shortBreak: return "cup.and.saucer.fill"
             case .longBreak:  return "figure.walk"
             }

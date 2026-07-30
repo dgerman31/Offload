@@ -13,42 +13,38 @@ enum DayGridMetrics {
     /// exactly the height of a block's title/time header, so the shortest possible block is one
     /// full header and nothing is ever squeezed.
     static let minimumBlockHeight: CGFloat = 34
-
-    /// Dropped times land on one of these marks.
+    /// Dragged times land on one of these marks.
     static let snapMinutes = 15
+
+    static var pointsPerMinute: CGFloat { hourHeight / 60 }
 
     /// The rendered height of a block covering `minutes`.
     static func height(forMinutes minutes: Double) -> CGFloat {
         max(minimumBlockHeight, CGFloat(minutes) * hourHeight / 60)
     }
 
-    /// How many minutes into the day's window a block dropped at `dropY` should start.
+    /// Snap a free-dragged vertical distance to a whole number of minutes on the grid, clamped so
+    /// the block stays inside the day's window.
     ///
-    /// Three things happen here, and each one is a bug if it's missing. The system centers a drag
-    /// preview under the finger, so the release point is the block's *middle* — subtracting half
-    /// its duration is what makes it land where it looks like it will, instead of half its own
-    /// length late. The result snaps to a quarter-hour, so times stay readable rather than
-    /// landing on 11:07. And it's clamped, so a block can't be dropped off either end of the
-    /// window or hang past the end of the day.
-    ///
-    /// Pure and unit-tested — the alternative is verifying drag arithmetic by dragging.
-    static func snappedStartMinutes(
-        dropY: CGFloat,
+    /// Pure, so the arithmetic that decides where a drag lands is tested rather than dragged.
+    static func snappedOffsetMinutes(
+        rawOffset: CGFloat,
+        minutesFromWindowStart: Double,
         durationMinutes: Double,
         windowMinutes: Int,
         snap: Int = snapMinutes
-    ) -> Double {
-        let minutesAtFinger = Double(dropY / (hourHeight / 60))
-        let rawStart = minutesAtFinger - durationMinutes / 2
+    ) -> Int {
         let step = Double(max(1, snap))
-        let snapped = (rawStart / step).rounded() * step
-        let latestStart = max(0, Double(windowMinutes) - durationMinutes)
-        return min(max(0, snapped), latestStart)
+        let rawMinutes = Double(rawOffset / pointsPerMinute)
+        let snapped = (rawMinutes / step).rounded() * step
+        // Can't go earlier than the top of the window, and can't hang off the bottom.
+        let lowest = -minutesFromWindowStart
+        let highest = Double(windowMinutes) - durationMinutes - minutesFromWindowStart
+        return Int(min(max(snapped, lowest), max(lowest, highest)))
     }
 }
 
-/// What `DayTimeGrid` needs from an entry to position, size, and (maybe) move it. `ID == String`
-/// because a drag carries the entry's id across as its transferable payload.
+/// What `DayTimeGrid` needs from an entry to position, size, and (maybe) move it.
 protocol DayGridEntry: Identifiable where ID == String {
     var start: Date { get }
     var end: Date { get }
@@ -60,48 +56,58 @@ protocol DayGridEntry: Identifiable where ID == String {
 
 /// A real time-grid for one day's timed items: gridlines every 30 minutes (only the on-the-hour
 /// ones carry a printed label) across the app's day-start/end window, with each entry positioned
-/// and sized by its actual time instead of stacked in a list.
+/// and sized by its actual time.
 ///
-/// **Dragging moves a block to a time.** Pick up a block, drop it anywhere on the canvas, and it
-/// lands on the nearest quarter-hour to where you let go — the direct manipulation a time grid
-/// implies. Nothing else on the day reflows: the one task you moved is the only one that changes.
+/// **Press and hold a block, then drag it to a new time.** The block itself moves with your
+/// finger at full size, a dashed line shows where it will land, the target time reads out on the
+/// block, and you feel a tick each time you cross a quarter-hour. Release and it springs into
+/// place. Only that task moves; nothing else on the day reflows.
 ///
-/// This replaced a row-onto-row reorder (drag block A *onto* block B to re-sequence them, then
-/// re-derive every time from the new order). That model failed on this screen for two compounding
-/// reasons. Geometrically, blocks are the only drop targets and a day is mostly empty space at
-/// 100 points per hour, so the large majority of the canvas silently rejected every drop —
-/// "doesn't work at all" was an accurate description. And semantically, one drop re-planned the
-/// whole day, so blocks the user hadn't touched jumped to new times. Reordering is the right verb
-/// for a *list*, which is why the wake-up sheet and the "Anytime" section below still use it; it
-/// was never the right verb for a grid with real coordinates.
+/// ### Why this is a hand-built gesture
 ///
-/// Drag-and-drop is the system's own (`.draggable` / `.dropDestination`), not a hand-built
-/// `LongPressGesture.sequenced(before: DragGesture())`. That matters here more than usual: this
-/// grid lives inside a `ScrollView` inside a paging `TabView`, and a hand-built gesture has to
-/// win a fight against both — the earlier one did, which is what made the screen nearly
-/// unscrollable. It also has to fight `.contextMenu`, which is where Delete lives on this screen.
-/// The system arbitrates all four for free: pan to scroll, swipe to page, lift-and-hold for the
-/// menu, lift-and-move to drag.
+/// Two earlier versions of this screen used native drag-and-drop (`.draggable` plus
+/// `.dropDestination`) and both were unusable, for reasons that are inherent to that API rather
+/// than fixable within it. `.draggable` is a **data-transfer** mechanism: it hands the view to a
+/// system drag session, which lifts a *snapshot* into a small floating preview. So the block
+/// visibly shrank into a chip — not a style bug, that's what the API does. And a drop only counts
+/// if it lands on a registered `dropDestination`, whose hit-testing is unreliable for a view
+/// living inside a `ScrollView` inside a `.page`-style `TabView`, so most releases did nothing at
+/// all. Direct manipulation of a coordinate — "move this down half an hour" — is simply not what
+/// that API is for.
+///
+/// A `DragGesture` is. The scroll conflict that made an *earlier* hand-built attempt bad is solved
+/// structurally here rather than fought: the drag is `.sequenced(before:)` a long press, so it
+/// cannot begin until you've held still for a moment. A scroll starts with immediate movement,
+/// which fails the long press, so the scroll view keeps every pan that belongs to it. Once the
+/// press succeeds the touch is ours, and `isDragging` locks scrolling for the duration so nothing
+/// can reclaim it mid-drag.
+///
+/// The cost, stated plainly: a long press can't also open a context menu, so timed blocks no
+/// longer have one. Tapping still opens the task, where Delete lives — and this is what Apple's
+/// own Calendar does with events for the same reason.
 struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     var entries: [Entry]
     var dayStartHour: Int
     var dayEndHour: Int
     var day: Date
     var calendar: Calendar = .current
-    /// Dropped-at-a-time callback: this entry should now start here. The time is already snapped
-    /// to a quarter-hour and clamped inside the day's window, so the caller just persists it.
+    /// Set while a block is being dragged, so the owner can freeze its `ScrollView`.
+    @Binding var isDragging: Bool
+    /// This entry should now start here — already snapped and clamped inside the window.
     var onMove: (_ id: String, _ newStart: Date) -> Void
     @ViewBuilder var rowContent: (Entry) -> RowContent
 
-    private var pointsPerMinute: CGFloat { DayGridMetrics.hourHeight / 60 }
+    private var pointsPerMinute: CGFloat { DayGridMetrics.pointsPerMinute }
     private static var gutterWidth: CGFloat { 54 }
 
-    /// Width of the block column, measured once, so a drag preview is the size of the thing being
-    /// dragged rather than a shrunken stand-in.
-    @State private var canvasWidth: CGFloat = 0
-    /// True while a drag is hovering the canvas — the quarter-hour ticks fade in, so it's visible
-    /// that a drop snaps rather than landing wherever the finger happened to be.
-    @State private var isDropTargeted = false
+    /// Which block is in the air, and how far the finger has moved. The raw offset drives the
+    /// block's position so it glides 1:1 with your finger; the *snapped* value drives the guide
+    /// line, the readout, and what gets committed. Snapping the visual too would make the block
+    /// jump in 25-point steps, which reads as jerky rather than precise.
+    @State private var draggingID: String?
+    @State private var dragRawOffset: CGFloat = 0
+    /// Last quarter-hour mark crossed, so the tick fires once per mark instead of once per frame.
+    @State private var lastTickMinutes = 0
 
     private var windowStart: Date {
         calendar.date(bySettingHour: dayStartHour, minute: 0, second: 0, of: day) ?? day
@@ -113,11 +119,9 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
         max(60, Int(windowEnd.timeIntervalSince(windowStart) / 60))
     }
     private var totalHeight: CGFloat { CGFloat(totalMinutes) * pointsPerMinute }
-    /// Only on-the-hour marks get a printed label — a half-hour still gets a lighter tick line
-    /// for rhythm, just no text, so the gutter doesn't turn into a wall of numbers.
     private var hourMarks: [Int] { Array(stride(from: 0, to: totalMinutes, by: 60)) }
     private var halfHourOnlyMarks: [Int] { Array(stride(from: 30, to: totalMinutes, by: 60)) }
-    /// The :15 and :45 marks, drawn only while something is being dragged.
+    /// The :15 and :45 marks, drawn only while something is in the air.
     private var quarterMarks: [Int] {
         Array(stride(from: 0, to: totalMinutes, by: 15)).filter { $0 % 30 != 0 }
     }
@@ -127,12 +131,32 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     }
     private func y(atMinute minute: Int) -> CGFloat { CGFloat(minute) * pointsPerMinute }
 
+    private func minutesFromWindowStart(_ date: Date) -> Double {
+        date.timeIntervalSince(windowStart) / 60
+    }
+    private func durationMinutes(_ entry: Entry) -> Double {
+        max(1, entry.end.timeIntervalSince(entry.start) / 60)
+    }
+
+    /// Where the dragged block would land, in whole minutes relative to its own start.
+    private func snappedMinutes(for entry: Entry) -> Int {
+        DayGridMetrics.snappedOffsetMinutes(
+            rawOffset: dragRawOffset,
+            minutesFromWindowStart: minutesFromWindowStart(entry.start),
+            durationMinutes: durationMinutes(entry),
+            windowMinutes: totalMinutes
+        )
+    }
+
+    private var draggingEntry: Entry? {
+        guard let draggingID else { return nil }
+        return entries.first { $0.id == draggingID }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             // Labels and gridlines both derive their Y from the exact same `y(atMinute:)`, in
-            // separate same-height columns, so a label and its line can never drift apart —
-            // the previous version stacked them independently (a `VStack` of per-half-hour
-            // frames for each), which is what actually caused them not to line up.
+            // separate same-height columns, so a label and its line can never drift apart.
             ZStack(alignment: .topTrailing) {
                 ForEach(hourMarks, id: \.self) { minute in
                     Text(Self.label(windowStart, addingMinutes: minute, calendar: calendar))
@@ -147,63 +171,65 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
             .frame(width: Self.gutterWidth, height: totalHeight, alignment: .topTrailing)
 
             ZStack(alignment: .topLeading) {
-                ForEach(hourMarks, id: \.self) { minute in
-                    Rectangle()
-                        .fill(Color.Offload.divider)
-                        .frame(height: 1)
-                        .offset(y: y(atMinute: minute))
-                }
-                ForEach(halfHourOnlyMarks, id: \.self) { minute in
-                    Rectangle()
-                        .fill(Color.Offload.divider.opacity(0.45))
-                        .frame(height: 1)
-                        .offset(y: y(atMinute: minute))
-                }
-                if isDropTargeted {
-                    ForEach(quarterMarks, id: \.self) { minute in
-                        Rectangle()
-                            .fill(Color.Offload.indigo.opacity(0.35))
-                            .frame(height: 1)
-                            .offset(y: y(atMinute: minute))
-                    }
-                }
+                gridlines
+                if let entry = draggingEntry { dropGuide(for: entry) }
                 ForEach(entries) { entry in
                     block(for: entry)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: totalHeight, alignment: .topLeading)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { canvasWidth = proxy.size.width }
-                        .onChange(of: proxy.size.width) { _, new in canvasWidth = new }
-                }
-            )
-            // One drop destination covering the whole column, rather than one per block. This is
-            // the change that makes dragging work: every point of the day is a valid place to let
-            // go, including the empty space that is most of it.
-            .dropDestination(for: String.self) { items, location in
-                guard let id = items.first,
-                      let entry = entries.first(where: { $0.id == id }), entry.isDraggable
-                else { return false }
-                onMove(id, droppedStart(at: location.y, for: entry))
-                return true
-            } isTargeted: { targeted in
-                withAnimation(.easeOut(duration: 0.15)) { isDropTargeted = targeted }
-            }
         }
         .frame(height: totalHeight)
     }
 
-    /// Where a block dropped at `y` should start — see `DayGridMetrics.snappedStartMinutes`,
-    /// which holds the arithmetic so it can be tested without a view.
-    private func droppedStart(at y: CGFloat, for entry: Entry) -> Date {
-        let minutes = DayGridMetrics.snappedStartMinutes(
-            dropY: y,
-            durationMinutes: max(1, entry.end.timeIntervalSince(entry.start) / 60),
-            windowMinutes: totalMinutes
-        )
-        return windowStart.addingTimeInterval(minutes * 60)
+    private var gridlines: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(hourMarks, id: \.self) { minute in
+                Rectangle()
+                    .fill(Color.Offload.divider)
+                    .frame(height: 1)
+                    .offset(y: y(atMinute: minute))
+            }
+            ForEach(halfHourOnlyMarks, id: \.self) { minute in
+                Rectangle()
+                    .fill(Color.Offload.divider.opacity(0.45))
+                    .frame(height: 1)
+                    .offset(y: y(atMinute: minute))
+            }
+            // The finer marks appear only while dragging — they'd be visual noise the rest of the
+            // time, and while dragging they're the thing that explains why it snaps.
+            if draggingID != nil {
+                ForEach(quarterMarks, id: \.self) { minute in
+                    Rectangle()
+                        .fill(Color.Offload.indigo.opacity(0.25))
+                        .frame(height: 1)
+                        .offset(y: y(atMinute: minute))
+                }
+            }
+        }
+    }
+
+    /// The dashed line showing exactly where a release would put the block, with the time it
+    /// would land at. This is what makes the drag feel precise rather than approximate.
+    @ViewBuilder
+    private func dropGuide(for entry: Entry) -> some View {
+        let minutes = snappedMinutes(for: entry)
+        let target = calendar.date(byAdding: .minute, value: minutes, to: entry.start) ?? entry.start
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text(TimeFormat.time(target))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Color.Offload.indigo, in: .capsule)
+                    .foregroundStyle(.white)
+                Rectangle()
+                    .fill(Color.Offload.indigo)
+                    .frame(height: 1.5)
+            }
+        }
+        .offset(y: y(for: entry.start) + CGFloat(minutes) * pointsPerMinute - 9)
+        .allowsHitTesting(false)
     }
 
     static func label(_ start: Date, addingMinutes minutes: Int, calendar: Calendar) -> String {
@@ -214,22 +240,94 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
 
     @ViewBuilder
     private func block(for entry: Entry) -> some View {
-        let top = y(for: entry.start)
+        let isThisDragging = draggingID == entry.id
         let height = max(DayGridMetrics.minimumBlockHeight, y(for: entry.end) - y(for: entry.start))
-        let body = rowContent(entry)
+        let top = y(for: entry.start) + (isThisDragging ? dragRawOffset : 0)
+
+        rowContent(entry)
             .frame(height: height, alignment: .top)
-            .offset(y: top)
-            .animation(Motion.snappy, value: top)
-        if entry.isDraggable {
-            body.draggable(entry.id) {
-                // What you see mid-drag is the block itself at its real width, capped in height
-                // so a four-hour task doesn't lift a screen-tall slab under your finger.
-                rowContent(entry)
-                    .frame(width: canvasWidth > 0 ? canvasWidth : nil,
-                           height: min(height, 64), alignment: .top)
+            // Lifted: a touch larger, a shadow under it, and above everything else. Full size and
+            // full width throughout — the thing you're moving is the block, not a stand-in for it.
+            .scaleEffect(isThisDragging ? 1.03 : 1, anchor: .center)
+            .shadow(color: .black.opacity(isThisDragging ? 0.28 : 0),
+                    radius: isThisDragging ? 12 : 0, y: isThisDragging ? 6 : 0)
+            .overlay(alignment: .topTrailing) {
+                if isThisDragging { liveTimeBadge(for: entry) }
             }
-        } else {
-            body
+            .offset(y: top)
+            .zIndex(isThisDragging ? 1 : 0)
+            // Not animated while this block is the one in the air: it has to track the finger
+            // exactly. Everything else — including its own landing — springs.
+            .animation(isThisDragging ? nil : Motion.snappy, value: top)
+            .animation(Motion.snappy, value: isThisDragging)
+            .gesture(entry.isDraggable ? dragGesture(for: entry) : nil)
+    }
+
+    /// The new start time, on the block, while it's moving — so you're reading the answer where
+    /// you're looking rather than tracking a line across the screen.
+    private func liveTimeBadge(for entry: Entry) -> some View {
+        let minutes = snappedMinutes(for: entry)
+        let target = calendar.date(byAdding: .minute, value: minutes, to: entry.start) ?? entry.start
+        let delta = minutes == 0 ? "now" : (minutes > 0 ? "+\(minutes)m" : "\(minutes)m")
+        return VStack(alignment: .trailing, spacing: 1) {
+            Text(TimeFormat.time(target))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .monospacedDigit()
+            Text(delta)
+                .font(.system(size: 9, weight: .semibold))
+                .opacity(0.75)
         }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Color.Offload.indigo, in: .rect(cornerRadius: 7, style: .continuous))
+        .padding(5)
+        .allowsHitTesting(false)
+    }
+
+    /// Hold, then drag.
+    ///
+    /// `.sequenced(before:)` is doing the important work: the `DragGesture` cannot start until the
+    /// `LongPressGesture` has succeeded, and a scroll — which begins moving immediately — fails
+    /// that long press. So scrolling and day-paging keep working untouched, without this gesture
+    /// having to compete with them for the same touch.
+    private func dragGesture(for entry: Entry) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.25)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    guard draggingID != entry.id else { return }
+                    draggingID = entry.id
+                    dragRawOffset = 0
+                    lastTickMinutes = 0
+                    isDragging = true
+                    Haptics.light()          // the lift
+                case .second(true, let drag):
+                    guard let drag else { return }
+                    draggingID = entry.id
+                    isDragging = true
+                    dragRawOffset = drag.translation.height
+                    // One tick per quarter-hour crossed. This is what turns snapping from
+                    // something you notice afterwards into something you feel as you do it.
+                    let snapped = snappedMinutes(for: entry)
+                    if snapped != lastTickMinutes {
+                        lastTickMinutes = snapped
+                        Haptics.light()
+                    }
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                let moved = draggingID == entry.id ? snappedMinutes(for: entry) : 0
+                draggingID = nil
+                dragRawOffset = 0
+                isDragging = false
+                guard moved != 0,
+                      let newStart = calendar.date(byAdding: .minute, value: moved, to: entry.start)
+                else { return }
+                onMove(entry.id, newStart)
+                Haptics.success()
+            }
     }
 }

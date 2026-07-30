@@ -19,7 +19,20 @@ struct SettingsView: View {
     @AppStorage(FocusTimer.focusMinutesKey) private var focusMinutes = FocusTimer.defaultFocusMinutes
     @AppStorage(FocusTimer.shortBreakMinutesKey) private var shortBreakMinutes = FocusTimer.defaultShortBreakMinutes
     @AppStorage(FocusTimer.longBreakMinutesKey) private var longBreakMinutes = FocusTimer.defaultLongBreakMinutes
+    @AppStorage(AnkiLoad.secondsPerAnswerKey) private var ankiSeconds = AnkiLoad.defaultSecondsPerAnswer
+    @AppStorage(AnkiLoad.reviewAgainRateKey) private var ankiReviewAgain = AnkiLoad.defaultReviewAgainRate
+    @AppStorage(AnkiLoad.newAgainRateKey) private var ankiNewAgain = AnkiLoad.defaultNewAgainRate
+    @AppStorage(AnkiLoad.newStepsKey) private var ankiNewSteps = AnkiLoad.defaultNewSteps
     @State private var notificationsDenied = false
+
+    /// A worked example at the current settings, so the difference from the old flat estimate is
+    /// concrete rather than asserted.
+    static func ankiExample() -> String {
+        let settings = AnkiLoad.stored()
+        let minutes = AnkiLoad.minutes(due: 150, new: 30, settings: settings)
+        let flat = (180 * settings.secondsPerAnswer) / 60
+        return "150 due + 30 new ≈ \(AnkiLoad.durationLabel(minutes)), where counting cards alone would say \(flat)m."
+    }
 
     /// "8 AM" / "9 PM" for the reminder-time pickers.
     static func hourLabel(_ hour: Int) -> String {
@@ -130,6 +143,29 @@ struct SettingsView: View {
                     Text("Scheduling")
                 } footer: {
                     Text("A capture or task with no specific time gets slotted into whatever's open before \(Self.hourLabel(dayEndHour)). Past that, it schedules into tomorrow instead of sitting unscheduled today. “My week” is where you reserve the hours it must leave alone.")
+                }
+
+                Section {
+                    Picker("Seconds per answer", selection: $ankiSeconds) {
+                        ForEach([8, 10, 12, 15, 18, 20, 25], id: \.self) { Text("\($0)s").tag($0) }
+                    }
+                    Picker("Again rate, reviews", selection: $ankiReviewAgain) {
+                        ForEach([0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40], id: \.self) {
+                            Text("\(Int($0 * 100))%").tag($0)
+                        }
+                    }
+                    Picker("Again rate, new cards", selection: $ankiNewAgain) {
+                        ForEach([0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50], id: \.self) {
+                            Text("\(Int($0 * 100))%").tag($0)
+                        }
+                    }
+                    Picker("Learning steps", selection: $ankiNewSteps) {
+                        ForEach([1, 2, 3], id: \.self) { Text("\($0) in a row").tag($0) }
+                    }
+                } header: {
+                    Text("Anki")
+                } footer: {
+                    Text("An estimate counts *answers*, not cards: a lapse sends a card back through its learning steps, so a new card needing 2 in a row at 30% again takes about 3.5 answers, not 2. \(Self.ankiExample()) Offload can't read your due count — AnkiMobile doesn't expose one — so Plan my day asks.")
                 }
 
                 Section {

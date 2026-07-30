@@ -23,6 +23,41 @@ struct DayPlanView: View {
     @State private var dropped: Set<String> = []
     @State private var applying = false
     @State private var appeared = false
+    /// Today's Anki counts, pre-filled with yesterday's — they change daily but not wildly, and
+    /// starting from the last numbers is faster than starting from zero.
+    @State private var ankiDue = 0
+    @State private var ankiNew = 0
+    @State private var addingAnki = false
+    /// Tasks created from inside this sheet. `tasks` is passed in by the parent and doesn't
+    /// refresh while the sheet is open, so without this the Anki block would be written to the
+    /// database and then be invisible to the very re-plan that's supposed to arrange the day
+    /// around it.
+    @State private var addedHere: [TaskItem] = []
+
+    private var planningTasks: [TaskItem] { tasks + addedHere }
+
+    private var ankiSettings: AnkiLoad.Settings { AnkiLoad.stored() }
+
+    /// Whether today already has the Anki task, so the prompt asks once rather than every time
+    /// the sheet is opened.
+    private var ankiAlreadyPlanned: Bool {
+        planningTasks.contains { task in
+            task.title == AnkiLoad.taskTitle && task.status != "completed" && !task.deleted
+                && (DueDate.parse(task.dueDate).map { Calendar.current.isDate($0, inSameDayAs: day) } ?? false)
+        }
+    }
+
+    /// Where the Anki block goes: the hour you actually woke, or now if you're already past it.
+    /// Never in the past, because a block behind the current time isn't "first thing", it's
+    /// already overdue.
+    private var ankiStart: Date {
+        let hour = WakeTracker.dayStartHour(now: Date(), fallback: dayStartHour)
+        let calendar = Calendar.current
+        let atWakeHour = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day) ?? day
+        let now = Date()
+        let base = calendar.isDate(day, inSameDayAs: now) ? max(atWakeHour, now) : atWakeHour
+        return DayPlanner.roundUpToQuarterHour(base)
+    }
 
     private var kept: [DayPlanner.ScheduledTask] {
         plan.scheduled.filter { !dropped.contains($0.id) }
@@ -33,6 +68,10 @@ struct DayPlanView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header.appearIn(0, when: appeared)
+
+                    if !ankiAlreadyPlanned {
+                        ankiPrompt.appearIn(1, when: appeared)
+                    }
 
                     if plan.scheduled.isEmpty {
                         emptyState.appearIn(1, when: appeared)
@@ -71,6 +110,9 @@ struct DayPlanView: View {
             }
             .safeAreaInset(edge: .bottom) { applyBar }
             .task {
+                let last = AnkiLoad.lastCounts()
+                ankiDue = last.due
+                ankiNew = last.new
                 await recompute()
                 withAnimation(Motion.settle) { appeared = true }
             }
@@ -86,7 +128,7 @@ struct DayPlanView: View {
         let start = WakeTracker.dayStartHour(now: Date(), fallback: dayStartHour)
         planning = true
         let result = await SmartPlanner.plan(
-            tasks: tasks, events: events, on: day, now: Date(),
+            tasks: planningTasks, events: events, on: day, now: Date(),
             dayStartHour: start, dayEndHour: dayEndHour,
             energyProfile: EnergyProfile(rawValue: energyRaw)
         )
@@ -112,7 +154,7 @@ struct DayPlanView: View {
 
         let start = WakeTracker.dayStartHour(now: Date(), fallback: dayStartHour)
         let recomputed = DayPlanner.plan(
-            tasks: tasks, events: events, on: day, now: Date(),
+            tasks: planningTasks, events: events, on: day, now: Date(),
             dayStartHour: start, dayEndHour: dayEndHour,
             energyProfile: EnergyProfile(rawValue: energyRaw),
             preferredOrder: order,
@@ -120,6 +162,127 @@ struct DayPlanView: View {
         )
         withAnimation(Motion.standard) { plan = recomputed }
         Haptics.light()
+    }
+
+    // MARK: Anki
+
+    /// The one number the app can't work out for itself.
+    ///
+    /// AnkiMobile exposes four URL schemes — `addnote`, `infoForAdding`, `search`, `sync` — and
+    /// none of them returns a due count, so there is no way for Offload to read it. Nor is there
+    /// a back door: AnkiWeb has no public API, AnkiConnect is desktop-only, and iOS sandboxing
+    /// rules out reading another app's collection or its badge. Asking is the honest option, and
+    /// it's two taps against a number that's already on the Anki screen you just came from.
+    ///
+    /// Everything downstream of the count *is* computed — see `AnkiLoad` for why the estimate is
+    /// so much larger than cards × 15 seconds.
+    private var ankiPrompt: some View {
+        let minutes = AnkiLoad.minutes(due: ankiDue, new: ankiNew, settings: ankiSettings)
+        return VStack(alignment: .leading, spacing: 12) {
+            Label("Anki first", systemImage: "rectangle.on.rectangle.angled")
+                .font(.caption).fontWeight(.semibold)
+                .tracking(0.6)
+                .foregroundStyle(Color.Offload.accent(for: StudyCatalog.category))
+
+            Text("How many cards today?")
+                .font(.Offload.taskTitle)
+                .foregroundStyle(Color.Offload.text)
+
+            HStack(spacing: 10) {
+                counter("Due", value: $ankiDue, step: 10)
+                counter("New", value: $ankiNew, step: 5)
+            }
+
+            if minutes > 0 {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(AnkiLoad.durationLabel(minutes))
+                        .font(.system(.title3, design: .rounded).weight(.bold))
+                        .foregroundStyle(Color.Offload.text)
+                    // The arithmetic, said out loud. An estimate this much larger than
+                    // "cards × 15s" looks wrong until you can see where it came from.
+                    Text(AnkiLoad.explanation(due: ankiDue, new: ankiNew, settings: ankiSettings))
+                        .font(.Offload.data)
+                        .foregroundStyle(Color.Offload.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Button {
+                Task { await addAnki() }
+            } label: {
+                HStack {
+                    Label(minutes > 0 ? "Add it first, at \(TimeFormat.time(ankiStart))" : "Nothing due today",
+                          systemImage: minutes > 0 ? "arrow.up.to.line" : "checkmark")
+                        .font(.Offload.body).fontWeight(.semibold)
+                    if addingAnki { Spacer(); ProgressView().tint(.white) }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(minutes > 0 ? Color.Offload.indigo : Color.Offload.surface,
+                            in: .capsule)
+                .foregroundStyle(minutes > 0 ? .white : Color.Offload.muted)
+            }
+            .buttonStyle(.pressable)
+            .disabled(minutes == 0 || addingAnki)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.Offload.accent(for: StudyCatalog.category).opacity(0.10),
+                    in: .rect(cornerRadius: 16, style: .continuous))
+    }
+
+    private func counter(_ label: String, value: Binding<Int>, step: Int) -> some View {
+        VStack(spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .heavy))
+                .tracking(0.8)
+                .foregroundStyle(Color.Offload.muted)
+            HStack(spacing: 0) {
+                stepButton("minus", enabled: value.wrappedValue > 0) {
+                    value.wrappedValue = max(0, value.wrappedValue - step)
+                }
+                Text("\(value.wrappedValue)")
+                    .font(.system(.title3, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .frame(minWidth: 52)
+                    .foregroundStyle(Color.Offload.text)
+                stepButton("plus", enabled: true) {
+                    value.wrappedValue += step
+                }
+            }
+            .padding(.vertical, 4)
+            .background(Color.Offload.surface, in: .capsule)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action(); Haptics.light()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(enabled ? Color.Offload.indigo : Color.Offload.muted.opacity(0.4))
+                .frame(width: 36, height: 30)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    /// Create the Anki block, then re-plan so the rest of the day arranges itself around it.
+    /// The task is pinned (`AnkiLoad.makeTask`), which is what makes "first" stick — a soft time
+    /// would make it just another candidate the planner is free to reorder.
+    private func addAnki() async {
+        let minutes = AnkiLoad.minutes(due: ankiDue, new: ankiNew, settings: ankiSettings)
+        guard minutes > 0 else { return }
+        addingAnki = true
+        AnkiLoad.rememberCounts(due: ankiDue, new: ankiNew)
+        let task = AnkiLoad.makeTask(due: ankiDue, new: ankiNew, at: ankiStart, settings: ankiSettings)
+        await TaskActions.create(task)
+        addedHere.append(task)
+        addingAnki = false
+        Haptics.success()
+        await recompute()
     }
 
     // MARK: Pieces

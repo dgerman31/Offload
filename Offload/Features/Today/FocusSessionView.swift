@@ -70,6 +70,18 @@ struct FocusSessionView: View {
 
             controls(session)
 
+            // Only when the system has actually turned them off. A timer that silently doesn't
+            // appear on the Lock Screen reads as a broken app; saying so — and where to fix it —
+            // costs one line and turns it back into a setting.
+            if !FocusLiveActivity.isAvailable {
+                Label("Live Activities are off, so this won't show on your Lock Screen. Settings › Offload › Live Activities.",
+                      systemImage: "lock.slash")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.leading)
+                    .padding(.horizontal, 32)
+            }
+
             Button("End session") {
                 timer.end(markingComplete: false)
                 dismiss()

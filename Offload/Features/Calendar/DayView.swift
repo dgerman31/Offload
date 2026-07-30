@@ -27,6 +27,10 @@ struct DayView: View {
     /// an actual value *change*, so a toggle guarantees each drop re-triggers it regardless of
     /// what the previous value happened to be.
     @State private var didReorder = false
+    /// True while a block is being dragged on the grid. Freezes the page `ScrollView` for the
+    /// duration so it can't reclaim the pan mid-drag — the long press already stops it *starting*
+    /// a scroll, this stops it interrupting one that's underway.
+    @State private var isDraggingBlock = false
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
 
@@ -143,6 +147,7 @@ struct DayView: View {
                         .padding(.bottom, 40)
                 }
                 .scrollIndicators(.hidden)
+                .scrollDisabled(isDraggingBlock)
                 .tag(day)
             }
         }
@@ -176,6 +181,7 @@ struct DayView: View {
                         dayStartHour: DayPlanner.storedDayStartHour(),
                         dayEndHour: DayPlanner.storedDayEndHour(),
                         day: day,
+                        isDragging: $isDraggingBlock,
                         onMove: handleMove,
                         rowContent: gridBlockContent
                     )
@@ -263,15 +269,16 @@ struct DayView: View {
         .opacity(Self.isProtected(entry.item) ? 0.7 : 1)
         .contentShape(Rectangle())
 
-        // Protected time is a constraint, not a thing — nothing to open, complete, or delete, so
-        // it takes no tap and offers no menu at all. Branching the whole view rather than emptying
-        // the menu's contents: an empty `.contextMenu` still reserves the long press.
+        // No `.contextMenu` here, deliberately: it and drag-to-move both want the long press, and
+        // the menu would win, which is what would leave dragging broken again. Tap opens the task,
+        // where Delete and the rest live — one extra tap for actions, in exchange for a drag that
+        // works. The "Anytime" list below keeps its menu, since nothing there is draggable by time.
+        //
+        // Protected time is a constraint rather than a thing, so it takes no tap at all.
         if Self.isProtected(entry.item) {
             block
         } else {
-            block
-                .onTapGesture { open(entry.item) }
-                .contextMenu { blockMenu(entry.item) }
+            block.onTapGesture { open(entry.item) }
         }
     }
 

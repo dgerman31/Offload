@@ -34,7 +34,15 @@ enum FocusLiveActivity {
     /// relaunch the app finds the activity already on screen instead of stranding it and starting
     /// a second one, with no re-adoption step to remember.
     static func start(taskTitle: String, accentHex: UInt32, session: FocusTimer.Session?) async {
-        guard let session, isAvailable else { return }
+        guard let session else { return }
+        // Said out loud rather than returned silently. This was a bare `guard … isAvailable else
+        // { return }`, which meant "your Lock Screen timer is switched off in Settings" and
+        // "everything worked" looked identical from the outside — exactly the invisible failure
+        // the logging in this app exists to kill.
+        guard isAvailable else {
+            Log.app.error("Live Activities are disabled for Offload — no Lock Screen timer")
+            return
+        }
         await end()   // never two at once
 
         let attributes = FocusActivityAttributes(taskTitle: taskTitle, accentHex: accentHex)
@@ -44,7 +52,10 @@ enum FocusLiveActivity {
                 content: ActivityContent(state: state(from: session), staleDate: session.endsAt.addingTimeInterval(3600)),
                 pushType: nil   // the countdown ticks locally; there is nothing to push
             )
-            Log.app.info("Started the focus Live Activity")
+            // Counted, because the count is the diagnosis. If this says 1 and the Lock Screen is
+            // still blank, the app did its job and the widget extension isn't rendering — a
+            // different problem entirely from the request being refused.
+            Log.app.info("Started the focus Live Activity (now \(Activity<FocusActivityAttributes>.activities.count, privacy: .public) active)")
         } catch {
             // Shape only. The description here is an ActivityKit error and carries no user
             // content, but the house rule is one rule, not one per call site.

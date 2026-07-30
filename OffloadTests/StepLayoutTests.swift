@@ -126,51 +126,81 @@ struct StepLayoutTests {
 }
 
 /// The drag-to-a-time arithmetic behind the Day tab's grid.
-struct DayGridDropTests {
+///
+/// The interaction is a `DragGesture`, so what matters is the mapping from "how far the finger
+/// moved" to "how many minutes that is" — snapped to a quarter-hour and clamped inside the day.
+/// That mapping is pure, which is the only reason it can be checked without a device.
+struct DayGridDragTests {
 
-    /// 100 points per hour, so 60 points is 36 minutes.
-    private let pointsPerMinute = DayGridMetrics.hourHeight / 60
-
-    private func y(minutes: Double) -> CGFloat { CGFloat(minutes) * pointsPerMinute }
-
-    @Test("A drop lands centered on the finger, not half a block late")
-    func centersOnFinger() {
-        // Release 120 minutes into the window holding a 60-minute block: it should start at 90,
-        // so its middle sits where the finger was.
-        let start = DayGridMetrics.snappedStartMinutes(
-            dropY: y(minutes: 120), durationMinutes: 60, windowMinutes: 840)
-        #expect(start == 90)
+    /// 100 points per hour, so one minute is 1⅔ points.
+    private func points(_ minutes: Double) -> CGFloat {
+        CGFloat(minutes) * DayGridMetrics.pointsPerMinute
     }
 
-    @Test("Start times snap to a quarter-hour")
+    /// A 30-minute block sitting two hours into a 14-hour window — room to move either way.
+    private func offset(_ dragged: Double, from: Double = 120, duration: Double = 30) -> Int {
+        DayGridMetrics.snappedOffsetMinutes(
+            rawOffset: points(dragged),
+            minutesFromWindowStart: from,
+            durationMinutes: duration,
+            windowMinutes: 840
+        )
+    }
+
+    @Test("Dragging down half an hour moves it half an hour — the whole point of the feature")
+    func nudgeDown() {
+        #expect(offset(30) == 30)
+        #expect(offset(60) == 60)
+    }
+
+    @Test("Dragging up moves it earlier")
+    func nudgeUp() {
+        #expect(offset(-30) == -30)
+        #expect(offset(-60) == -60)
+    }
+
+    @Test("Every landing is on a quarter-hour, rounding to whichever is nearer")
     func snapsToQuarterHour() {
-        // A 30-minute block, so the proposed start is the drop point minus 15.
-        for (dropMinutes, expected) in [(37.0, 15.0), (38.0, 30.0), (52.0, 30.0), (53.0, 45.0)] {
-            let start = DayGridMetrics.snappedStartMinutes(
-                dropY: y(minutes: dropMinutes), durationMinutes: 30, windowMinutes: 840)
-            #expect(start == expected, "dropping at \(dropMinutes) should start at \(expected)")
-            #expect(start.truncatingRemainder(dividingBy: 15) == 0)
+        #expect(offset(7) == 0)     // under half a step — stays put
+        #expect(offset(8) == 15)
+        #expect(offset(22) == 15)
+        #expect(offset(23) == 30)
+        #expect(offset(37) == 30)
+        #expect(offset(38) == 45)
+        for dragged in stride(from: -120.0, through: 120.0, by: 3.0) {
+            #expect(offset(dragged) % 15 == 0, "\(dragged) points off-grid")
         }
     }
 
-    @Test("A block can't be dropped before the start of the window")
+    @Test("A tiny movement is treated as no movement, so a stray finger can't reschedule anything")
+    func tinyMovementIsNoMove() {
+        #expect(offset(1) == 0)
+        #expect(offset(-1) == 0)
+        #expect(offset(0) == 0)
+    }
+
+    @Test("A block can't be dragged above the start of the day")
     func clampsToWindowStart() {
-        let start = DayGridMetrics.snappedStartMinutes(
-            dropY: y(minutes: 5), durationMinutes: 120, windowMinutes: 840)
-        #expect(start == 0)
+        // It starts 120 minutes in, so it can never move more than 120 minutes earlier.
+        #expect(offset(-500, from: 120) == -120)
+        #expect(offset(-10_000, from: 120) == -120)
     }
 
-    @Test("A block can't be dropped hanging off the end of the day")
+    @Test("A block can't be dragged off the end of the day")
     func clampsToWindowEnd() {
-        let start = DayGridMetrics.snappedStartMinutes(
-            dropY: y(minutes: 830), durationMinutes: 120, windowMinutes: 840)
-        #expect(start == 720)   // 840 - 120: the last place it fits whole
+        // Starting 120 in, 30 long, window 840: the latest start is 810, i.e. +690.
+        #expect(offset(5_000, from: 120, duration: 30) == 690)
     }
 
-    @Test("A block longer than the whole window still starts at the top")
+    @Test("A block already at the very start can only move later")
+    func atTheTop() {
+        #expect(offset(-60, from: 0) == 0)
+        #expect(offset(60, from: 0) == 60)
+    }
+
+    @Test("A block longer than the window can't be moved at all rather than moving somewhere absurd")
     func longerThanWindow() {
-        let start = DayGridMetrics.snappedStartMinutes(
-            dropY: y(minutes: 400), durationMinutes: 900, windowMinutes: 840)
-        #expect(start == 0)
+        #expect(offset(300, from: 0, duration: 900) == 0)
+        #expect(offset(-300, from: 0, duration: 900) == 0)
     }
 }

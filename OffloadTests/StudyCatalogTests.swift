@@ -7,15 +7,28 @@ import Foundation
 /// so these numbers are a fixed contract, not made up.
 struct StudyCatalogTests {
 
-    @Test("Anki duration is a node's real card count at 15 sec/card, for a subtopic or a leaf")
+    @Test("Anki duration prices a node's cards as new cards, learning steps and all")
     func ankiDurationFromRealCardCount() {
+        // This used to assert `cards × 15s`, which is the time it would take if every card were
+        // right first try. Every card under a catalog node is unseen, so the honest model is the
+        // new-card one: two consecutive correct answers with the streak reset by an "Again". The
+        // old figure wasn't slightly low — it was out by a factor of about 3.5.
         let neuroStructures = StudySystem.neuro.subtopics.first { $0.name == "Nervous System Structures" }!
         #expect(neuroStructures.ankiCardCount == 849)
-        #expect(StudyCatalog.ankiMinutes(forCards: neuroStructures.ankiCardCount) == (849 * 15) / 60)
+        #expect(StudyCatalog.ankiMinutes(forCards: 849) == AnkiLoad.minutesForNewCards(849))
+        #expect(StudyCatalog.ankiMinutes(forCards: 849) > 3 * (849 * 15) / 60)
 
         let leaf = neuroStructures.leaves.first { $0.name == "Cranial Nerves" }!
         #expect(leaf.ankiCardCount == 135)
-        #expect(StudyCatalog.ankiMinutes(forCards: leaf.ankiCardCount) == (135 * 15) / 60)
+        #expect(StudyCatalog.ankiMinutes(forCards: 135) == AnkiLoad.minutesForNewCards(135))
+
+        // Still proportional to the card count — the change is the multiplier, not the shape.
+        // Compared within a minute rather than exactly, because minutes round *up*: doubling 118
+        // gives 236 while 270 cards come to 235, and the missing minute is the rounding, not a
+        // non-linearity.
+        let doubled = StudyCatalog.ankiMinutes(forCards: 270)
+        #expect(abs(doubled - 2 * StudyCatalog.ankiMinutes(forCards: 135)) <= 1)
+        #expect(StudyCatalog.ankiMinutes(forCards: 1) >= 1)
     }
 
     @Test("First Aid, UWorld, AMBOSS, and Sketchy use fixed defaults, independent of any subtopic")
@@ -56,7 +69,7 @@ struct StudyCatalogTests {
         #expect(task.title == "Anki: Hematology – Hemostasis")
         #expect(task.category == "Study")
         #expect(task.descriptionText == "464 cards")
-        #expect(task.effortMinutes == (464 * 15) / 60)
+        #expect(task.effortMinutes == AnkiLoad.minutesForNewCards(464))
         #expect(task.dueDate == nil)   // left unscheduled for AutoFit/end-of-day placement
 
         let leaf = subtopic.leaves.first { $0.name == "Anticoagulant Drugs" }!

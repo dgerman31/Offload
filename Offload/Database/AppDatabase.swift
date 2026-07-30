@@ -295,6 +295,43 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "CREATE INDEX idx_task_sessions_started ON task_sessions(started_at);")
         }
 
+        // Daily habits and the grocery list. Both deliberately avoid `tasks`: a habit shouldn't be
+        // scheduled, shouldn't compete for the planner's free time, and shouldn't become overdue
+        // clutter when a day is missed, and forty items of shopping shouldn't flood Home. See
+        // `Habit` and `GroceryItem`.
+        migrator.registerMigration("v11_habits_and_groceries") { db in
+            try db.execute(sql: """
+                CREATE TABLE habits (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    title TEXT NOT NULL,
+                    symbol TEXT NOT NULL DEFAULT 'checkmark.circle',
+                    sort_order REAL NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    deleted INTEGER NOT NULL DEFAULT 0
+                );
+                """)
+            try db.execute(sql: """
+                CREATE TABLE habit_checks (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    habit_id TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    checked_at TEXT NOT NULL
+                );
+                """)
+            // A tick is the row's existence, so the same habit can't be ticked twice on one day —
+            // enforced here rather than trusted to the UI, since a double tap is one tap too many.
+            try db.execute(sql: "CREATE UNIQUE INDEX idx_habit_checks_day ON habit_checks(habit_id, day);")
+            try db.execute(sql: """
+                CREATE TABLE grocery_items (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    title TEXT NOT NULL,
+                    bought INTEGER NOT NULL DEFAULT 0,
+                    sort_order REAL NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                """)
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

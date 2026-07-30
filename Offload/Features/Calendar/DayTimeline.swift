@@ -7,11 +7,32 @@ enum DayItem: Identifiable, Sendable {
     case event(CalendarEvent)
     case task(TaskItem)
 
+    /// Prefixed so an event and a task can never collide in one list. **This is not a task id** —
+    /// mistaking it for one is a real bug that shipped twice: both the grid's drag-to-move and the
+    /// "Anytime" reorder passed this straight to a `store.allTasks.first { $0.id == id }` lookup,
+    /// which silently never matched, so a dragged block sprang back and a reorder did nothing.
+    /// Use `taskId` to get at the underlying task.
     var id: String {
         switch self {
-        case let .event(e): return "event-\(e.id)"
-        case let .task(t):  return "task-\(t.id)"
+        case let .event(e): return Self.eventIDPrefix + e.id
+        case let .task(t):  return Self.taskIDPrefix + t.id
         }
+    }
+
+    static let taskIDPrefix = "task-"
+    static let eventIDPrefix = "event-"
+
+    /// The underlying task's id, or `nil` for an event.
+    var taskId: String? {
+        if case let .task(t) = self { return t.id }
+        return nil
+    }
+
+    /// Recover a task id from an `id` produced above — one place that knows about the prefix, so
+    /// callers holding only a row id can't get this wrong.
+    static func taskId(fromItemID itemID: String) -> String? {
+        guard itemID.hasPrefix(taskIDPrefix) else { return nil }
+        return String(itemID.dropFirst(taskIDPrefix.count))
     }
 
     var title: String {

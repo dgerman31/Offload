@@ -436,7 +436,10 @@ struct DayView: View {
     /// A hand-placed time is also a commitment, exactly as it is in `AddTaskSheet`: it pins, so
     /// the next "Plan my day" builds around it instead of quietly undoing the drag.
     private func handleMove(id: String, to newStart: Date) {
-        guard let task = store.allTasks.first(where: { $0.id == id }) else { return }
+        // `id` is a row id (`task-<uuid>`), not a task id. Looking a task up by it directly is
+        // what made every drag silently do nothing and spring back.
+        guard let taskId = DayItem.taskId(fromItemID: id),
+              let task = store.allTasks.first(where: { $0.id == taskId }) else { return }
         didReorder.toggle()
         Task { await store.moveTask(task, to: newStart) }
     }
@@ -447,11 +450,15 @@ struct DayView: View {
     /// a drag can mean — the same mechanism as `DayPlanView`'s `reorder(draggedID:ontoID:)`. The
     /// timed grid above uses `handleMove` instead, since it *has* coordinates.
     private func handleDrop(draggedID: String, ontoID targetID: String) {
+        // Both arrive as row ids and have to be translated before they can be matched against
+        // task ids — the same mismatch that made this quietly do nothing.
+        guard let dragged = DayItem.taskId(fromItemID: draggedID),
+              let target = DayItem.taskId(fromItemID: targetID) else { return }
         var order = flexibleTasksForSelectedDay.map(\.id)
-        guard let fromIndex = order.firstIndex(of: draggedID) else { return }
+        guard let fromIndex = order.firstIndex(of: dragged) else { return }
         order.remove(at: fromIndex)
-        guard let toIndex = order.firstIndex(of: targetID) else { return }
-        order.insert(draggedID, at: toIndex)
+        guard let toIndex = order.firstIndex(of: target) else { return }
+        order.insert(dragged, at: toIndex)
         didReorder.toggle()
         Task { await store.applyReorder(order, on: selectedDay, events: store.rangeEvents) }
     }

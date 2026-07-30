@@ -121,7 +121,14 @@ struct HomeView: View {
                     if !loose.isEmpty {
                         looseCard(loose, stepsByParent: steps).appearIn(5, when: appeared).scrollAppear()
                     }
-                    projectsLink.appearIn(6, when: appeared).scrollAppear()
+                    // Habits and groceries sit below the day's work, not above it: they're standing
+                    // routines rather than things competing for attention with what's due now.
+                    DailyHabitsCard()
+                        .appearIn(6, when: appeared).scrollAppear()
+                    GroceryCard()
+                        .appearIn(7, when: appeared).scrollAppear()
+
+                    projectsLink.appearIn(8, when: appeared).scrollAppear()
 
                     if openTasks.isEmpty && s.completedToday == 0 {
                         EmptyCaptureInvitation { capture.beginCapture() }

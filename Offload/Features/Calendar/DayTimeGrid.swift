@@ -100,14 +100,29 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     private var pointsPerMinute: CGFloat { DayGridMetrics.pointsPerMinute }
     private static var gutterWidth: CGFloat { 54 }
 
-    /// Which block is in the air, and how far the finger has moved. The raw offset drives the
-    /// block's position so it glides 1:1 with your finger; the *snapped* value drives the guide
-    /// line, the readout, and what gets committed. Snapping the visual too would make the block
-    /// jump in 25-point steps, which reads as jerky rather than precise.
-    @State private var draggingID: String?
-    @State private var dragRawOffset: CGFloat = 0
+    /// Which block is in the air, and how far the finger has moved.
+    ///
+    /// `@GestureState` rather than `@State`, and that's the fix for scrolling breaking after a
+    /// drag: SwiftUI resets a `@GestureState` automatically when a gesture ends **or is
+    /// cancelled**, whereas `@State` only gets cleared by the `onEnded` I wrote — and `onEnded`
+    /// doesn't run on cancellation. One interrupted drag left `isDragging` stuck true, which meant
+    /// `scrollDisabled(true)` forever and a dead screen until the app restarted.
+    ///
+    /// The raw offset drives the block's position so it glides 1:1 with the finger; the *snapped*
+    /// value drives the guide line, the readout and the commit. Snapping the visual too would make
+    /// the block jump in 25-point steps, which reads as jerky rather than precise.
+    @GestureState private var activeDrag: BlockDrag?
     /// Last quarter-hour mark crossed, so the tick fires once per mark instead of once per frame.
+    /// Safe as plain state: a stale value costs at most one extra haptic on the next drag.
     @State private var lastTickMinutes = 0
+
+    struct BlockDrag: Equatable {
+        var id: String
+        var offset: CGFloat
+    }
+
+    private var draggingID: String? { activeDrag?.id }
+    private var dragRawOffset: CGFloat { activeDrag?.offset ?? 0 }
 
     private var windowStart: Date {
         calendar.date(bySettingHour: dayStartHour, minute: 0, second: 0, of: day) ?? day
@@ -139,9 +154,9 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     }
 
     /// Where the dragged block would land, in whole minutes relative to its own start.
-    private func snappedMinutes(for entry: Entry) -> Int {
+    private func snappedMinutes(for entry: Entry, rawOffset: CGFloat? = nil) -> Int {
         DayGridMetrics.snappedOffsetMinutes(
-            rawOffset: dragRawOffset,
+            rawOffset: rawOffset ?? dragRawOffset,
             minutesFromWindowStart: minutesFromWindowStart(entry.start),
             durationMinutes: durationMinutes(entry),
             windowMinutes: totalMinutes
@@ -180,6 +195,12 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
             .frame(maxWidth: .infinity, minHeight: totalHeight, alignment: .topLeading)
         }
         .frame(height: totalHeight)
+        // Driven off the gesture state rather than set imperatively inside the gesture, so a
+        // cancelled drag releases the scroll lock too — `onEnded` never runs in that case.
+        .onChange(of: activeDrag?.id) { _, dragging in
+            isDragging = dragging != nil
+        }
+        .onDisappear { isDragging = false }
     }
 
     private var gridlines: some View {
@@ -293,23 +314,30 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     private func dragGesture(for entry: Entry) -> some Gesture {
         LongPressGesture(minimumDuration: 0.25)
             .sequenced(before: DragGesture(minimumDistance: 0))
+            // Position lives here so it can never be left behind. `.updating` writes only to the
+            // gesture state, which SwiftUI tears down for us however the gesture finishes.
+            .updating($activeDrag) { value, state, transaction in
+                transaction.animation = nil        // track the finger exactly, never lerp toward it
+                switch value {
+                case .first(true):
+                    state = BlockDrag(id: entry.id, offset: 0)
+                case let .second(true, drag):
+                    state = BlockDrag(id: entry.id, offset: drag?.translation.height ?? 0)
+                default:
+                    state = nil
+                }
+            }
+            // Feedback only — no state that matters for correctness.
             .onChanged { value in
                 switch value {
                 case .first(true):
-                    guard draggingID != entry.id else { return }
-                    draggingID = entry.id
-                    dragRawOffset = 0
                     lastTickMinutes = 0
-                    isDragging = true
-                    Haptics.light()          // the lift
-                case .second(true, let drag):
+                    Haptics.light()               // the lift
+                case let .second(true, drag):
                     guard let drag else { return }
-                    draggingID = entry.id
-                    isDragging = true
-                    dragRawOffset = drag.translation.height
-                    // One tick per quarter-hour crossed. This is what turns snapping from
-                    // something you notice afterwards into something you feel as you do it.
-                    let snapped = snappedMinutes(for: entry)
+                    // One tick per quarter-hour crossed: what turns snapping from something you
+                    // notice afterwards into something you feel while doing it.
+                    let snapped = snappedMinutes(for: entry, rawOffset: drag.translation.height)
                     if snapped != lastTickMinutes {
                         lastTickMinutes = snapped
                         Haptics.light()
@@ -318,11 +346,10 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
                     break
                 }
             }
-            .onEnded { _ in
-                let moved = draggingID == entry.id ? snappedMinutes(for: entry) : 0
-                draggingID = nil
-                dragRawOffset = 0
-                isDragging = false
+            .onEnded { value in
+                lastTickMinutes = 0
+                guard case let .second(true, drag) = value, let drag else { return }
+                let moved = snappedMinutes(for: entry, rawOffset: drag.translation.height)
                 guard moved != 0,
                       let newStart = calendar.date(byAdding: .minute, value: moved, to: entry.start)
                 else { return }

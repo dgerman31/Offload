@@ -4,11 +4,19 @@ import Foundation
 /// time Home appears that day, mirroring `WakeTracker`'s own day-boundary guard so the sweep
 /// doesn't re-run — and re-write the database — on every screen visit).
 ///
-/// A flexible task (no fixed time/date — undated, whole-day, or a soft planner-guessed time)
-/// that's still open once its day has passed moves straight to today, silently: it was never a
-/// commitment, so there's nothing to confirm. A task with a real, hard time and date (pinned, or
-/// tied to an actual calendar event) is different — the app can't guess what new time you'd
-/// actually want, so it's surfaced as a "reschedule or delete?" decision instead of moved.
+/// An open task still sitting in a past day moves to today, silently, keeping whatever time of
+/// day it had (see `TaskStore.rollToToday`).
+///
+/// The one exception is a task backed by a **real calendar event**. That's a commitment that
+/// exists in the user's actual calendar and probably involves other people, so the app has no
+/// business moving it on their behalf; it's surfaced as a "reschedule or delete?" decision.
+///
+/// This used to exempt anything `isAnchored` — i.e. any hand-pinned time — on the grounds that
+/// the app couldn't guess what new time you'd want. That reasoning holds for an event with other
+/// people in it and is much weaker for an hour you picked yourself: "the same hour, tomorrow" is
+/// the obvious answer, and it's certainly better than the alternative that was actually happening,
+/// which was a daily 6am ritual sitting in a decision pile forever because it was pinned to make
+/// it come first.
 enum OverdueSweeper {
     static let lastRunKey = "offload.overdueSweep.lastRunDay"
 
@@ -22,13 +30,44 @@ enum OverdueSweeper {
     }
 
     /// Split open, overdue tasks into what should move to today silently versus what needs a
-    /// human decision because it was a real commitment. Pure and testable.
+    /// human decision because it's a real calendar commitment. Pure and testable.
     static func classify(_ tasks: [TaskItem], now: Date = Date(), calendar: Calendar = .current) -> (autoMove: [TaskItem], needsDecision: [TaskItem]) {
         let startOfToday = calendar.startOfDay(for: now)
         let overdue = tasks.filter { task in
             guard task.status != "completed", !task.deleted, let due = DueDate.parse(task.dueDate) else { return false }
             return due < startOfToday
         }
-        return (overdue.filter { !$0.isAnchored }, overdue.filter { $0.isAnchored })
+        return (overdue.filter { $0.calendarEventId == nil },
+                overdue.filter { $0.calendarEventId != nil })
+    }
+
+    /// Where a rolled-forward task lands.
+    ///
+    /// Extracted from the database write so the rule itself is unit-tested rather than inferred
+    /// from what ended up in SQLite. Two cases:
+    ///
+    /// - It **had a real time**: keep that hour, and keep the pin — the hour is information the
+    ///   user supplied, and flattening it to an undated intention discards it.
+    /// - It was **undated or whole-day**: there's no hour to keep, so it stays a whole-day
+    ///   intention and gives up any pin.
+    ///
+    /// A preserved hour that has already gone by today becomes the next quarter-hour instead,
+    /// because landing in the past would leave the task overdue the instant it moved — rolling
+    /// forward every day and never becoming actionable.
+    static func rolledPlacement(
+        for task: TaskItem,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> (dueDate: Date, isAllDay: Bool, keepsPin: Bool) {
+        guard task.hasSpecificTime, let previous = DueDate.parse(task.dueDate) else {
+            return (calendar.startOfDay(for: now), true, false)
+        }
+        let clock = calendar.dateComponents([.hour, .minute], from: previous)
+        let nextOpening = DayPlanner.roundUpToQuarterHour(now, calendar: calendar)
+        let sameTimeToday = calendar.date(bySettingHour: clock.hour ?? 0,
+                                          minute: clock.minute ?? 0,
+                                          second: 0, of: now)
+        let target = sameTimeToday.map { $0 > now ? $0 : nextOpening } ?? nextOpening
+        return (target, false, true)
     }
 }

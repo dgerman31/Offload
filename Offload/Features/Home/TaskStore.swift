@@ -103,14 +103,25 @@ final class TaskStore {
         rangeEvents = await calendarReader.events(from: start, to: end)
     }
 
-    /// Silently roll a flexible task that's still sitting in a past day forward to today — the
-    /// automatic half of `OverdueSweeper`'s rule that nothing stays overdue. Stays a soft,
-    /// whole-day intention, unpinned, exactly like any other undated capture.
+    /// Silently roll a task still sitting in a past day forward to today — the automatic half of
+    /// `OverdueSweeper`'s rule that nothing stays overdue.
+    ///
+    /// A task that had a **real time keeps it**, along with its pin. This used to flatten
+    /// everything to an unpinned whole-day intention, which threw away the one piece of
+    /// information the user had actually supplied: a 6am ritual came back as an undated "Anytime"
+    /// item, which is the same landing-in-Anytime complaint that got auto-fit rewritten. Undated
+    /// and whole-day work still rolls forward as whole-day, because there's no time to keep.
+    ///
+    /// If that hour has already passed today, the task takes the next quarter-hour instead.
+    /// Preserving 6am at 9am would leave it overdue the moment it moved — rolling forever and
+    /// never becoming actionable.
     func rollToToday(_ task: TaskItem, now: Date = Date(), calendar: Calendar = .current) async {
+        let placement = OverdueSweeper.rolledPlacement(for: task, now: now, calendar: calendar)
         var updated = task
-        updated.dueDate = DueDate.canonicalString(from: calendar.startOfDay(for: now))
-        updated.dueIsAllDay = true
-        updated.pinned = false
+        updated.dueDate = DueDate.canonicalString(from: placement.dueDate)
+        updated.dueIsAllDay = placement.isAllDay
+        // A kept pin is left exactly as it was — it says "I chose this hour", which is still true.
+        if !placement.keepsPin { updated.pinned = false }
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }
     }

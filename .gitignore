@@ -28,3 +28,6 @@ Home Tab Redesign Concepts.zip
 *.p12
 *.mobileprovision
 *.cer
+
+# Claude Code worktrees — local scratch checkouts, never part of the build.
+.claude/worktrees/

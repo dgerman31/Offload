@@ -55,7 +55,20 @@ enum EnergyProfile: String, CaseIterable, Identifiable, Sendable {
     /// so admin doesn't squat on your best hours.
     static func penalty(for task: TaskItem, at start: Date, profile: EnergyProfile,
                         calendar: Calendar = .current) -> Int {
-        let peak = profile.isPeak(start, calendar: calendar)
+        penalty(for: task, at: start, peakHours: profile.peakHours.map { $0 }, calendar: calendar)
+    }
+
+    /// The same scoring against an explicit set of good hours, which is what lets a *measured*
+    /// curve stand in for the declared profile. `EnergyCurve` produces scattered hours rather than
+    /// a contiguous window — your best time can genuinely be 8–10am and 8–9pm — so this takes a
+    /// list rather than a range.
+    ///
+    /// `nil` or empty means no opinion, and every placement scores zero: with nothing learned and
+    /// nothing declared, the planner should front-load the day rather than invent a preference.
+    static func penalty(for task: TaskItem, at start: Date, peakHours: [Int]?,
+                        calendar: Calendar = .current) -> Int {
+        guard let peakHours, !peakHours.isEmpty else { return 0 }
+        let peak = peakHours.contains(calendar.component(.hour, from: start))
         if isDemanding(task) { return peak ? 0 : 2 }
         return peak ? 1 : 0
     }

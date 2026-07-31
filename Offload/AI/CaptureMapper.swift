@@ -50,7 +50,8 @@ enum CaptureMapper {
         now: Date = Date(),
         calendar: Calendar = .current,
         sourceText: String? = nil,
-        isCommand: Bool? = nil
+        isCommand: Bool? = nil,
+        profile: LearnedProfile = .stored()
     ) -> Result {
         // Is the user talking TO the app ("create a project called X" — a command) or ABOUT
         // their work ("I need to create a project" — a to-do)? Gemini decides this directly; the
@@ -105,17 +106,26 @@ enum CaptureMapper {
             // a whole-day intention stays soft and reflowable.) The stricter isRealAppointment
             // gate below still governs the consequential part — writing to the real calendar.
             let hasStatedTime = dueDate != nil && !isAllDay
+            // The model's guess, corrected by what this person's own history says about work
+            // like this. See `learnedEffort` — it either finds a matching phrase you've timed
+            // before, or applies your measured drift, or leaves the guess alone.
+            let category = normalizedCategory(t.category)
+            let effort = learnedEffort(title: cleanTitle,
+                                       modelEstimate: clampedEffort(t.effortMinutes),
+                                       category: category,
+                                       profile: profile)
             let parent = TaskItem(
                 title: cleanTitle,
                 descriptionText: nonEmpty(t.details),
-                category: normalizedCategory(t.category),
+                category: category,
                 priority: resolvedPriority(normalizedPriority(t.priority), dueDate: dueDate, now: now, calendar: calendar),
                 projectId: project?.id,
                 dueDate: dueDate,
                 dueDateConfidence: dueDate == nil ? nil : 0.5,
                 recurrenceRule: nonEmpty(t.recurrenceRule),
                 contextTags: encodeTags(t.contextTags),
-                effortMinutes: clampedEffort(t.effortMinutes),
+                effortMinutes: effort.minutes,
+                metadata: effort.note,
                 people: People.encode(t.people),
                 deadline: DueDate.normalizeLocal(t.deadline, timeZone: calendar.timeZone),
                 dueIsAllDay: isAllDay,
@@ -451,4 +461,39 @@ enum CaptureMapper {
         guard let s = s?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
         return s
     }
+
+    /// Correct the model's estimate with this person's own history, and leave a note saying why.
+    ///
+    /// Two sources, in order of how specific they are:
+    ///
+    /// 1. **A phrase you've actually timed.** If you've done "review lecture" fourteen times and it
+    ///    takes fifty minutes, that beats any general prior — it's the same work, measured.
+    /// 2. **Your measured drift.** Failing a specific match, if your Work reliably runs 40% long,
+    ///    stretch the guess by 40%.
+    ///
+    /// Neither fires without evidence, and neither fires for a small disagreement: silently moving
+    /// 30 minutes to 32 is noise wearing the costume of intelligence, and it spends trust for
+    /// nothing. When something does change, the original is recorded so the task can say what it
+    /// did and be put back in one tap.
+    static func learnedEffort(
+        title: String,
+        modelEstimate: Int?,
+        category: String?,
+        profile: LearnedProfile
+    ) -> (minutes: Int?, note: String?) {
+        if let suggestion = EstimatePriors.suggestion(for: title, modelEstimate: modelEstimate,
+                                                      priors: profile.estimatePriors) {
+            // Always noted, even when the model offered no estimate to revert to. The note isn't
+            // only an undo affordance — it's also what stops the planner applying drift on top of
+            // a figure that's already measured time rather than a guess.
+            return (suggestion.minutes,
+                    LearnedEstimate.encode(original: suggestion.replaced, reason: suggestion.reason))
+        }
+        guard let modelEstimate,
+              let adjustment = profile.adjustment(minutes: modelEstimate, category: category)
+        else { return (modelEstimate, nil) }
+        return (adjustment.adjusted,
+                LearnedEstimate.encode(original: adjustment.base, reason: adjustment.reason))
+    }
+
 }

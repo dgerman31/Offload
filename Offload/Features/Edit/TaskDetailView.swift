@@ -34,6 +34,8 @@ struct TaskDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header.appearIn(0, when: appeared)
+                learnedEstimateNote.appearIn(1, when: appeared).scrollAppear()
+                timeCard.appearIn(1, when: appeared).scrollAppear()
                 subtaskCard.appearIn(1, when: appeared).scrollAppear()
                 metaCard.appearIn(2, when: appeared).scrollAppear()
                 actionsCard.appearIn(3, when: appeared).scrollAppear()
@@ -53,6 +55,7 @@ struct TaskDetailView: View {
             }
         }
         .task { await store.observe() }
+        .task { await store.loadSpentTime() }
         .task { withAnimation(Motion.settle) { appeared = true } }
         .sheet(isPresented: $editing) {
             NavigationStack { TaskEditView(task: task) }
@@ -100,6 +103,110 @@ struct TaskDetailView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .offloadCard(cornerRadius: 20, elevation: .medium)
+    }
+
+    // MARK: Time actually spent
+
+    /// How much of the estimate this task has eaten, across every sitting.
+    ///
+    /// This is the piece that makes long work honest. A four-hour job worked in twenty-five-minute
+    /// blocks over five days has no visible relationship to its estimate anywhere else in the app —
+    /// each sitting looks fine on its own, and the fact that it's now at six hours is something you
+    /// only ever discover by feel. Shown only once a timer has actually run against it; a task with
+    /// no history has nothing to say here and shouldn't take up the space.
+    /// What the app changed about this task's estimate, and the button that undoes it.
+    ///
+    /// Shown whether or not a timer has ever run, unlike the rest of `timeCard` — an adjustment
+    /// made at capture time is exactly the thing you'd want to see *before* starting work, not
+    /// after. Learned behaviour that can't be seen and reversed is just the app being wrong in a
+    /// way you can't argue with.
+    @ViewBuilder
+    private var learnedEstimateNote: some View {
+        if let note = LearnedEstimate.decode(task.metadata), let now = task.effortMinutes {
+            card("Adjusted for you", icon: "wand.and.stars", tint: Color.Offload.indigo) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(headline(note: note, now: now))
+                        .font(.Offload.body)
+                        .foregroundStyle(Color.Offload.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // Only when there's a "before" to go back to. When the model gave no estimate
+                    // at all, this figure is the only one that has ever existed — there's something
+                    // to explain but nothing to revert.
+                    if let original = note.original {
+                        Button {
+                            Task { await store.setEstimate(original) }
+                        } label: {
+                            Text("Put it back to \(TimeFormat.duration(original))")
+                                .font(.caption).fontWeight(.semibold)
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(Color.Offload.surface, in: .capsule)
+                                .foregroundStyle(Color.Offload.indigo)
+                        }
+                        .buttonStyle(.pressable)
+                    }
+                }
+            }
+        }
+    }
+
+    private func headline(note: LearnedEstimate.Note, now: Int) -> String {
+        guard let original = note.original else {
+            return "Set to \(TimeFormat.duration(now)). \(note.reason)"
+        }
+        return "Set to \(TimeFormat.duration(now)) instead of \(TimeFormat.duration(original)). \(note.reason)"
+    }
+
+    @ViewBuilder
+    private var timeCard: some View {
+        if let estimate = task.effortMinutes, estimate > 0, store.spentMinutes > 0 {
+            let spent = store.spentMinutes
+            let over = spent > estimate
+            let fraction = min(1, Double(spent) / Double(estimate))
+            let accent = over ? Color.Offload.amber : tint
+
+            card("Time on this", icon: "hourglass", tint: accent) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(TimeFormat.duration(spent))
+                            .font(.system(.title3, design: .rounded).weight(.bold))
+                            .foregroundStyle(Color.Offload.text)
+                        Text("of \(TimeFormat.duration(estimate)) estimated")
+                            .font(.Offload.data)
+                            .foregroundStyle(Color.Offload.muted)
+                    }
+
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.Offload.divider)
+                            Capsule().fill(accent).frame(width: geo.size.width * fraction)
+                        }
+                    }
+                    .frame(height: 6)
+
+                    if over {
+                        // Rounded up to the next quarter-hour, the same grain everything else in
+                        // the app schedules on. "Call it 3h 15m" is a plan; "3h 7m" is a stopwatch.
+                        let revised = ((spent + 14) / 15) * 15
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("\(TimeFormat.duration(spent - estimate)) past the estimate. Every plan that includes this task is working from the old number.")
+                                .font(.Offload.data)
+                                .foregroundStyle(Color.Offload.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button {
+                                Task { await store.setEstimate(revised) }
+                            } label: {
+                                Text("Call it \(TimeFormat.duration(revised))")
+                                    .font(.caption).fontWeight(.semibold)
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background(accent, in: .capsule)
+                                    .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.pressable)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Rollup across sub-steps — a parent that says "2 of 5" is far more useful than one that
@@ -421,6 +528,10 @@ final class TaskDetailStore {
     private(set) var task: TaskItem
     private(set) var subtasks: [TaskItem] = []
     private(set) var projectTitle: String?
+    /// Focused minutes logged against this task across every sitting. Loaded once rather than
+    /// observed: it only changes when a focus session ends, which can't happen while you're
+    /// looking at this screen.
+    private(set) var spentMinutes = 0
 
     private let taskId: String
     private let db: AppDatabase
@@ -455,5 +566,24 @@ final class TaskDetailStore {
         } catch {
             // Observation ended.
         }
+    }
+
+    func loadSpentTime() async {
+        let logged = await TaskSessionLog.sessions(taskId: taskId, db: db)
+        spentMinutes = TaskSessionLog.spentMinutes(logged, taskId: taskId)
+    }
+
+    /// Replace the estimate with what the work is actually turning out to be. The one-tap version
+    /// of the thing you'd otherwise do by opening Edit, doing the arithmetic, and typing it in —
+    /// which is why nobody does it, and why the estimates never improve.
+    func setEstimate(_ minutes: Int) async {
+        var updated = task
+        updated.effortMinutes = minutes
+        // Clear any learned-adjustment note: once you've set the number yourself, an explanation
+        // of what the app changed it to is describing a decision that's been superseded.
+        updated.metadata = LearnedEstimate.removing(from: task.metadata)
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+        Haptics.success()
     }
 }

@@ -18,6 +18,9 @@ enum TaskEditService {
         note("category", original.category, edited.category)
         note("priority", original.priority, edited.priority)
         note("dueDate", original.dueDate, edited.dueDate)
+        // Estimates were the one field never recorded, which is why the model kept guessing 30
+        // minutes for work that takes this person four hours: there was nothing to learn from.
+        note("effortMinutes", original.effortMinutes.map(String.init), edited.effortMinutes.map(String.init))
         return rows
     }
 

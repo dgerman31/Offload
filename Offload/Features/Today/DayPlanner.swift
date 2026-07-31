@@ -278,7 +278,8 @@ enum DayPlanner {
         limit: Int = 12,
         energyProfile: EnergyProfile? = nil,
         preferredOrder: [String]? = nil,
-        protected: [ProtectedBlock] = []
+        protected: [ProtectedBlock] = [],
+        profile: LearnedProfile = .stored()
     ) -> Plan {
         var pool = candidates(from: tasks, on: day, now: now, calendar: calendar)
         // A smart planner can hand us an order that weighs things the greedy sort can't —
@@ -320,7 +321,10 @@ enum DayPlanner {
         var cursors = slots.map(\.start)
 
         for task in ordered {
-            let effort = task.effortMinutes ?? EnergyBatch.defaultEffort
+            // The learned figure, not the raw estimate: if this person's Work reliably runs 40%
+            // long, reserving the 60 minutes they typed guarantees the day is wrong by 3pm. Falls
+            // straight back to the estimate when there isn't enough history to say otherwise.
+            let effort = profile.plannedMinutes(for: task)
 
             // Stop once the day is reasonably full rather than cramming every free minute.
             if committedMinutes + effort > plannableMinutes, !result.scheduled.isEmpty {
@@ -337,9 +341,13 @@ enum DayPlanner {
                 guard let end = calendar.date(byAdding: .minute, value: effort, to: start),
                       end <= slots[index].end else { continue }
 
-                let penalty = energyProfile.map {
-                    EnergyProfile.penalty(for: task, at: start, profile: $0, calendar: calendar)
-                } ?? 0
+                // Measured hours beat declared ones. `learnedPeakHours` is nil until the focus
+                // history is deep enough, at which point it overrides the picker in Settings —
+                // which was a guess made once, about yourself, on the day you installed the app.
+                let penalty = EnergyProfile.penalty(for: task, at: start,
+                                                    peakHours: profile.learnedPeakHours
+                                                        ?? energyProfile?.peakHours.map { $0 },
+                                                    calendar: calendar)
 
                 if let current = best {
                     if penalty < current.penalty { best = (index, start, end, penalty) }

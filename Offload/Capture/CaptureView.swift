@@ -247,6 +247,9 @@ struct CaptureView: View {
     /// container, otherwise a task count.
     private func headline(added: Int, project: String?) -> String {
         if added == 0, let project { return "Created “\(project)”" }
+        // Everything said was already on the list. That's a success, and saying "Added 0 tasks"
+        // would read as a failure of the capture rather than the point of having a list.
+        if added == 0, !vm.alreadyOnList.isEmpty { return "Already got it" }
         return added == 1 ? "Added 1 task" : "Added \(added) tasks"
     }
 
@@ -295,6 +298,18 @@ struct CaptureView: View {
                 } else if let merged = vm.mergedProjectTitle {
                     projectMergedCard(title: merged)
                 }
+            }
+            // Said again, already there. Deliberately styled as a result rather than a warning:
+            // nothing went wrong, and the app catching a restatement is the feature working.
+            if !vm.alreadyOnList.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(vm.alreadyOnList, id: \.self) { title in
+                        Label("Already on your list: \(title)", systemImage: "checkmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(Color.Offload.muted)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             // Dedup surface (spec §3.5): similar existing tasks — informed, never silent.
             if !similar.isEmpty {

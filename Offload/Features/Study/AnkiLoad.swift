@@ -114,11 +114,7 @@ enum AnkiLoad {
     }
 
     /// "1h 16m" / "43m".
-    static func durationLabel(_ minutes: Int) -> String {
-        guard minutes >= 60 else { return "\(minutes)m" }
-        let (hours, rest) = (minutes / 60, minutes % 60)
-        return rest == 0 ? "\(hours)h" : "\(hours)h \(rest)m"
-    }
+    static func durationLabel(_ minutes: Int) -> String { TimeFormat.duration(minutes) }
 
     /// A one-line explanation of where the number came from, so a surprisingly large estimate
     /// reads as arithmetic rather than as the app being wrong.

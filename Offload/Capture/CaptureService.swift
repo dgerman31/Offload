@@ -70,6 +70,10 @@ struct PreparedCapture {
     /// to retire the placeholder task a previous unextracted attempt left behind, so a successful
     /// retry replaces the raw-text task instead of duplicating it.
     var isRetry: Bool = false
+    /// Titles of open tasks a new one restated word-for-word, so nothing was created for it. Not
+    /// an error and not a warning — the point of saying it back is that "already on your list"
+    /// is a *better* outcome than a second copy, and silence would look like the capture failed.
+    var alreadyOnList: [String] = []
     /// Tasks this capture already owns on disk and that this run keeps as-is — the placeholder a
     /// still-failing retry reuses rather than re-creating. `finalize` folds these back into
     /// `captures.extracted_task_ids` so the next sweep can still find them.
@@ -99,6 +103,8 @@ final class CaptureService {
         var taskTitles: [String]
         var projectTitle: String?
         var similarWarnings: [String] = []
+        /// Things this capture restated that were already open. See `PreparedCapture.alreadyOnList`.
+        var alreadyOnList: [String] = []
         /// Ids of the tasks actually inserted — the targets a tapped chip patches.
         var insertedTaskIds: [String] = []
         /// The clarifying chips to offer for this capture (empty on a confident capture).
@@ -227,9 +233,17 @@ final class CaptureService {
             // prompts. `finalize` retires it; the dedupe pass must not see it at all.
             let placeholders = Set(Self.decodeIds(retrying?.extractedTaskIds))
             let existing = placeholders.isEmpty ? allOpen : allOpen.filter { !placeholders.contains($0.id) }
+            // Anything that's near-identical to something already open is dropped here rather
+            // than becoming a question. The embedding pass below is for *similar* work — a real
+            // judgement call the user should make — while this is for the same sentence said
+            // twice, which is the normal consequence of an app whose whole point is that you say
+            // things the moment they occur to you and then stop carrying them.
+            let deduped = TaskMatcher.partition(newTasks: mapped.tasks, existing: existing)
+            let alreadyOnList = deduped.duplicates.map(\.existing.title)
+
             let stored = UserDefaults.standard.double(forKey: Self.dedupeThresholdKey)
             let candidates = Self.duplicateCandidates(
-                newTasks: mapped.tasks,
+                newTasks: deduped.create,
                 existingTasks: existing,
                 embedder: embedder,
                 threshold: stored > 0 ? stored : 0.85
@@ -240,8 +254,8 @@ final class CaptureService {
             // non-commitment tasks go through the normal pipeline.
             let commitment = CommitmentParser.parse(extraction.capture)
             let effectiveTasks = commitment.routines.isEmpty
-                ? mapped.tasks
-                : mapped.tasks.filter { task in
+                ? deduped.create
+                : deduped.create.filter { task in
                     // Keep tasks whose titles weren't converted to routines. Compared
                     // case-insensitively on purpose: a routine's title is the raw extracted text
                     // while a task's has been through `CaptureMapper.actionTitle`, which
@@ -262,7 +276,8 @@ final class CaptureService {
                 routines: commitment.routines,
                 modelSource: extraction.modelSource,
                 suggestedProjectTitle: mapped.suggestedProjectTitle,
-                isRetry: retrying != nil
+                isRetry: retrying != nil,
+                alreadyOnList: alreadyOnList
             )
         } catch {
             // Keep the raw transcript; mark failed and count the attempt, so `CaptureRetrySweep`
@@ -489,6 +504,7 @@ final class CaptureService {
             // "jury three" back after filing into "Jury 3" would be a small lie.
             projectTitle: insertProject ? (projectOutcome?.project.title ?? project?.title) : nil,
             similarWarnings: warnings,
+            alreadyOnList: prepared.alreadyOnList,
             insertedTaskIds: finalTasks.map(\.id),
             chips: chips,
             suggestedProjectTitle: suggestion,

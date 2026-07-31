@@ -61,6 +61,9 @@ final class CaptureViewModel {
     /// Low Power Mode blocking on-device AI) — the success screen reads honestly ("saved, not
     /// yet organized") instead of claiming a normal, fully-organized success.
     var isUnextracted = false
+    /// Things this capture said that were already open, so nothing was created for them.
+    /// Shown as a result, not a warning — already having it is the good outcome.
+    var alreadyOnList: [String] = []
 
     /// Per-candidate resolutions gathered during the `reviewingDuplicates` phase, keyed by
     /// candidate id. Insertion waits until this covers every candidate.
@@ -225,6 +228,7 @@ final class CaptureViewModel {
         mergedProjectTitle = outcome.filedUnderExistingProject
         capturedProjectName = outcome.capturedProjectName
         isUnextracted = outcome.isUnextracted
+        alreadyOnList = outcome.alreadyOnList
         phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
                       project: outcome.projectTitle, similar: outcome.similarWarnings)
     }

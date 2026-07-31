@@ -227,6 +227,11 @@ struct SettingsView: View {
                         }
                         Slider(value: $dedupeThreshold, in: 0.7...0.95, step: 0.01)
                     }
+                    NavigationLink {
+                        LearnedProfileView()
+                    } label: {
+                        Label("What Offload has learned", systemImage: "brain")
+                    }
                     NavigationLink("Correction history") { CorrectionHistoryView() }
                     NavigationLink {
                         CategoriesView()
@@ -244,6 +249,14 @@ struct SettingsView: View {
                         }
                     } label: {
                         Label("Best hours", systemImage: "bolt.fill")
+                    }
+                    // Said plainly rather than left to be discovered: once there's enough focus
+                    // history, this picker stops being what the planner uses. A setting that
+                    // silently does nothing is worse than no setting.
+                    if LearnedProfile.stored().learnedPeakHours != nil {
+                        Text("Offload has measured your real hours and is using those instead. See “What Offload has learned”.")
+                            .font(.Offload.data)
+                            .foregroundStyle(Color.Offload.muted)
                     }
                 } header: {
                     Text("Learning")

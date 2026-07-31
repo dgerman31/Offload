@@ -119,60 +119,126 @@ struct ProtectedTimeTests {
 /// Focus history — the comparison between what work was estimated to take and what it took.
 struct TaskSessionTests {
 
-    private func session(planned: Int, actual: Int, category: String? = nil,
-                         completed: Bool = true) -> TaskSession {
-        TaskSession(taskId: UUID().uuidString, category: category,
-                    startedAt: "2026-07-29T09:00:00Z", endedAt: "2026-07-29T10:00:00Z",
-                    plannedMinutes: planned, actualMinutes: actual, ranToCompletion: completed)
+    /// A finished task with an estimate, and the sittings it actually took.
+    private func finished(estimate: Int, sittings: [Int], category: String? = nil) -> ([TaskItem], [TaskSession]) {
+        var task = TaskItem(title: "Enter REDCap data", category: category, effortMinutes: estimate)
+        task.status = "completed"
+        let sessions = sittings.map { minutes in
+            TaskSession(taskId: task.id, category: category,
+                        startedAt: "2026-07-29T09:00:00Z", endedAt: "2026-07-29T10:00:00Z",
+                        plannedMinutes: 25, actualMinutes: minutes, ranToCompletion: false)
+        }
+        return ([task], sessions)
     }
 
-    @Test("Drift stays nil until there's enough history to mean anything")
+    /// `count` finished tasks, each estimated at `estimate` and each taking `actual`.
+    private func history(count: Int, estimate: Int, actual: Int,
+                         category: String? = nil) -> ([TaskItem], [TaskSession]) {
+        var tasks: [TaskItem] = []
+        var sessions: [TaskSession] = []
+        for _ in 0..<count {
+            let (t, s) = finished(estimate: estimate, sittings: [actual], category: category)
+            tasks += t
+            sessions += s
+        }
+        return (tasks, sessions)
+    }
+
+    // MARK: Long work
+
+    @Test("A task's sittings add up, however many days they're spread over")
+    func spentAcrossManySittings() {
+        let (tasks, sessions) = finished(estimate: 240, sittings: [25, 25, 50, 45, 25])
+        #expect(TaskSessionLog.spentMinutes(sessions, taskId: tasks[0].id) == 170)
+        // Another task's time is not this task's time.
+        #expect(TaskSessionLog.spentMinutes(sessions, taskId: "someone-else") == 0)
+    }
+
+    @Test("Drift measures the task's estimate, not the length of a pomodoro")
+    func driftIsPerTaskNotPerSitting() {
+        // Five four-hour jobs that each really took six, in 25-minute sittings. Comparing each
+        // sitting to its own timer would report a perfect 1.0 — the whole reason this is measured
+        // per task.
+        var tasks: [TaskItem] = []
+        var sessions: [TaskSession] = []
+        for _ in 0..<5 {
+            let (t, s) = finished(estimate: 240, sittings: Array(repeating: 24, count: 15))
+            tasks += t
+            sessions += s
+        }
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: tasks) == 1.5)
+    }
+
+    // MARK: The sample, and the median
+
+    @Test("Drift stays nil until enough tasks have finished to mean anything")
     func needsASample() {
-        let few = (0..<4).map { _ in session(planned: 30, actual: 45) }
-        #expect(TaskSessionLog.drift(few) == nil)
-        #expect(TaskSessionLog.drift(few + [session(planned: 30, actual: 45)]) == 1.5)
+        let (fewTasks, fewSessions) = history(count: 4, estimate: 30, actual: 45)
+        #expect(TaskSessionLog.drift(sessions: fewSessions, tasks: fewTasks) == nil)
+
+        let (tasks, sessions) = history(count: 5, estimate: 30, actual: 45)
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: tasks) == 1.5)
     }
 
-    @Test("One runaway session can't rewrite every estimate")
+    @Test("One runaway task can't rewrite every estimate")
     func medianNotMean() {
-        // Four honest sessions and one timer left running through lunch. The mean would be ~2.2;
-        // the median says what's actually true, which is that work runs about a quarter long.
-        // Ratios chosen to be exactly representable, so this asserts the rule rather than
-        // floating-point luck.
-        let sessions = [
-            session(planned: 40, actual: 50),
-            session(planned: 60, actual: 75),
-            session(planned: 20, actual: 25),
-            session(planned: 80, actual: 100),
-            session(planned: 30, actual: 180)
-        ]
-        #expect(TaskSessionLog.drift(sessions) == 1.25)
+        // Four honest jobs and one where the timer ran through lunch. The mean would be ~2.2; the
+        // median says what's actually true, which is that work runs about a quarter long.
+        var tasks: [TaskItem] = []
+        var sessions: [TaskSession] = []
+        for (estimate, actual) in [(40, 50), (60, 75), (20, 25), (80, 100), (30, 180)] {
+            let (t, s) = finished(estimate: estimate, sittings: [actual])
+            tasks += t
+            sessions += s
+        }
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: tasks) == 1.25)
     }
 
-    @Test("Sessions stopped early are excluded")
-    func abandonedSessionsIgnored() {
-        let abandoned = (0..<6).map { _ in session(planned: 60, actual: 5, completed: false) }
-        #expect(TaskSessionLog.drift(abandoned) == nil)
+    @Test("A task still in progress hasn't answered the question yet")
+    func unfinishedTasksDontCount() {
+        var (tasks, sessions) = history(count: 5, estimate: 60, actual: 90)
+        // A sixth, still open, that's already blown well past its estimate. It says nothing about
+        // how long the work takes until it's actually done.
+        var open = TaskItem(title: "Ongoing", effortMinutes: 60)
+        open.status = "open"
+        tasks.append(open)
+        sessions.append(TaskSession(taskId: open.id, category: nil,
+                                    startedAt: "2026-07-29T09:00:00Z", endedAt: "2026-07-29T15:00:00Z",
+                                    plannedMinutes: 25, actualMinutes: 360, ranToCompletion: false))
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: tasks) == 1.5)
+    }
 
-        let mixed = abandoned + (0..<5).map { _ in session(planned: 30, actual: 45) }
-        #expect(TaskSessionLog.drift(mixed) == 1.5)
+    @Test("A finished task nobody ever timed is not evidence of anything")
+    func untimedTasksAreIgnored() {
+        let (base, sessions) = history(count: 5, estimate: 60, actual: 90)
+        var untimed = TaskItem(title: "Never timed", effortMinutes: 60)
+        untimed.status = "completed"
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: base + [untimed]) == 1.5)
+
+        // And a task with no estimate at all can't be divided into.
+        var noEstimate = TaskItem(title: "No estimate")
+        noEstimate.status = "completed"
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: base + [untimed, noEstimate]) == 1.5)
     }
 
     @Test("A category with its own history uses it; one without falls back to the overall figure")
     func perCategoryDrift() {
-        let work = (0..<5).map { _ in session(planned: 60, actual: 90, category: "Work") }
-        let personal = (0..<5).map { _ in session(planned: 30, actual: 30, category: "Personal") }
-        let all = work + personal
+        let (workTasks, workSessions) = history(count: 5, estimate: 60, actual: 90, category: "Work")
+        let (personalTasks, personalSessions) = history(count: 5, estimate: 30, actual: 30, category: "Personal")
+        let tasks = workTasks + personalTasks
+        let sessions = workSessions + personalSessions
 
-        #expect(TaskSessionLog.drift(all, category: "Work") == 1.5)
-        #expect(TaskSessionLog.drift(all, category: "Personal") == 1.0)
-        // "Health" has no sessions of its own, so it inherits the overall median.
-        #expect(TaskSessionLog.drift(all, category: "Health") == TaskSessionLog.drift(all))
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: tasks, category: "Work") == 1.5)
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: tasks, category: "Personal") == 1.0)
+        // "Health" has no finished tasks of its own, so it inherits the overall median.
+        #expect(TaskSessionLog.drift(sessions: sessions, tasks: tasks, category: "Health")
+                == TaskSessionLog.drift(sessions: sessions, tasks: tasks))
     }
 
     @Test("Nothing at all yields nothing")
     func empty() {
-        #expect(TaskSessionLog.drift([]) == nil)
-        #expect(TaskSessionLog.drift([], category: "Work") == nil)
+        #expect(TaskSessionLog.drift(sessions: [], tasks: []) == nil)
+        #expect(TaskSessionLog.drift(sessions: [], tasks: [], category: "Work") == nil)
+        #expect(TaskSessionLog.spentMinutes([], taskId: "anything") == 0)
     }
 }

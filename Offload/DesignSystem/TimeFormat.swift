@@ -32,6 +32,14 @@ enum TimeFormat {
         formatter(template: "MMMdjmm").string(from: date)
     }
 
+    /// A length of time like "45m" or "2h 40m". Not a clock time — a duration, which is a
+    /// different question and reads differently.
+    static func duration(_ minutes: Int) -> String {
+        guard minutes >= 60 else { return "\(max(0, minutes))m" }
+        let (hours, rest) = (minutes / 60, minutes % 60)
+        return rest == 0 ? "\(hours)h" : "\(hours)h \(rest)m"
+    }
+
     private static func formatter(template: String) -> DateFormatter {
         let locale = Locale.current
         let key = "\(template)|\(locale.identifier)" as NSString

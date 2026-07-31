@@ -70,6 +70,10 @@ struct OffloadApp: App {
                     // invisible. Before the pattern pass, so recovered tasks are in it.
                     await CaptureRetrySweep.run()
                     await PatternService.shared.refresh()
+                    // Once a day, work out what yesterday taught us. Throttled internally, and
+                    // last in the chain because nothing on screen is waiting for it — the profile
+                    // it writes is read by the *next* plan, not this launch's.
+                    await LearningPass.runIfStale()
                     await NotificationSync.shared.refresh()
                 }
             case .background:

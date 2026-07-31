@@ -33,6 +33,10 @@ enum BackgroundSynthesis {
         nonisolated(unsafe) let bgTask = task
         let work = Task { @MainActor in
             await PatternService.shared.refresh()
+            // The learning pass rides along here rather than getting its own background task:
+            // it wants exactly the same "sometime when the phone is idle" treatment, and a
+            // second BGProcessingTask would compete with this one for the same budget.
+            await LearningPass.run()
             bgTask.setTaskCompleted(success: true)
         }
         task.expirationHandler = {

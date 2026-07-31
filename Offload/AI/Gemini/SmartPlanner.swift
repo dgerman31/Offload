@@ -79,7 +79,8 @@ enum SmartPlanner {
             ], required: ["order"])
             return try await client.generate(
                 system: systemPrompt(now: now, energyProfile: energyProfile),
-                prompt: userPrompt(candidates: candidates, events: events, tasks: tasks, day: day, calendar: calendar),
+                prompt: userPrompt(candidates: candidates, events: events, tasks: tasks, day: day,
+                                   calendar: calendar, now: now),
                 schema: schema, as: Ranking.self, temperature: 0.3
             )
         }
@@ -100,7 +101,7 @@ enum SmartPlanner {
     }
 
     static func userPrompt(candidates: [TaskItem], events: [CalendarEvent], tasks: [TaskItem],
-                           day: Date, calendar: Calendar) -> String {
+                           day: Date, calendar: Calendar, now: Date = Date()) -> String {
         var lines = ["Fixed today (do not reorder — context only):"]
         let fixed = DayPlanner.fixedCommitments(from: tasks, on: day, calendar: calendar)
         let timedEvents = events.filter { !$0.isAllDay && calendar.isDate($0.start, inSameDayAs: day) }
@@ -124,6 +125,14 @@ enum SmartPlanner {
             if let d = DueDate.parse(task.deadline) { parts.append("deadline \(dayLabel(d))") }
             if let cat = task.category { parts.append(cat) }
             lines.append(parts.joined(separator: ", "))
+        }
+
+        // What happened to the last three weeks of plans. Without this the model orders every day
+        // as if it were the first one it had ever seen — it has no way to know that this person's
+        // evenings don't survive contact with reality.
+        if let outcomes = PlanOutcomes.promptFragment(
+            PlanOutcomes.summarize(tasks: tasks, now: now, calendar: calendar)) {
+            lines.append("\n" + outcomes)
         }
         return lines.joined(separator: "\n")
     }

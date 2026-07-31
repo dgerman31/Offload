@@ -189,8 +189,8 @@ struct DayPlanView: View {
                 .foregroundStyle(Color.Offload.text)
 
             HStack(spacing: 10) {
-                counter("Due", value: $ankiDue, step: 10)
-                counter("New", value: $ankiNew, step: 5)
+                CountStepper(label: "Due", value: $ankiDue, step: 10)
+                CountStepper(label: "New", value: $ankiNew, step: 5)
             }
 
             if minutes > 0 {
@@ -229,44 +229,6 @@ struct DayPlanView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.Offload.accent(for: StudyCatalog.category).opacity(0.10),
                     in: .rect(cornerRadius: 16, style: .continuous))
-    }
-
-    private func counter(_ label: String, value: Binding<Int>, step: Int) -> some View {
-        VStack(spacing: 4) {
-            Text(label.uppercased())
-                .font(.system(size: 10, weight: .heavy))
-                .tracking(0.8)
-                .foregroundStyle(Color.Offload.muted)
-            HStack(spacing: 0) {
-                stepButton("minus", enabled: value.wrappedValue > 0) {
-                    value.wrappedValue = max(0, value.wrappedValue - step)
-                }
-                Text("\(value.wrappedValue)")
-                    .font(.system(.title3, design: .rounded).weight(.bold))
-                    .monospacedDigit()
-                    .frame(minWidth: 52)
-                    .foregroundStyle(Color.Offload.text)
-                stepButton("plus", enabled: true) {
-                    value.wrappedValue += step
-                }
-            }
-            .padding(.vertical, 4)
-            .background(Color.Offload.surface, in: .capsule)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            action(); Haptics.light()
-        } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(enabled ? Color.Offload.indigo : Color.Offload.muted.opacity(0.4))
-                .frame(width: 36, height: 30)
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
     }
 
     /// Create the Anki block, then re-plan so the rest of the day arranges itself around it.
@@ -467,5 +429,75 @@ struct DayPlanView: View {
         Haptics.success()
         onApplied?()
         dismiss()
+    }
+}
+
+/// A count you can nudge or just type.
+///
+/// The steppers are right when the number is close — "about forty due" is two taps. They're the
+/// wrong tool for 217, which is why the number itself is the field. It commits per keystroke
+/// rather than on blur, so the time estimate above moves as you type.
+private struct CountStepper: View {
+    let label: String
+    @Binding var value: Int
+    var step: Int
+    @FocusState private var editing: Bool
+
+    /// Digits only, and capped at four — filtered rather than validated, because a number pad can
+    /// still deliver a paste, and no day's card count needs five digits.
+    private var text: Binding<String> {
+        Binding(
+            get: { String(value) },
+            set: { value = Int($0.filter(\.isNumber).prefix(4)) ?? 0 }
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .heavy))
+                .tracking(0.8)
+                .foregroundStyle(Color.Offload.muted)
+            HStack(spacing: 0) {
+                stepButton("minus", enabled: value > 0) { value = max(0, value - step) }
+                TextField("0", text: text)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.center)
+                    .focused($editing)
+                    .font(.system(.title3, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.Offload.text)
+                    .frame(minWidth: 52)
+                stepButton("plus", enabled: true) { value += step }
+            }
+            .padding(.vertical, 4)
+            .background(editing ? Color.Offload.indigo.opacity(0.14) : Color.Offload.surface,
+                        in: .capsule)
+        }
+        .frame(maxWidth: .infinity)
+        .animation(Motion.standard, value: editing)
+        .toolbar {
+            // A number pad has no return key, so without this there's no way back out. Attached
+            // only while this field is focused, so the two steppers can't each contribute one.
+            if editing {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { editing = false }
+                }
+            }
+        }
+    }
+
+    private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action(); Haptics.light()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(enabled ? Color.Offload.indigo : Color.Offload.muted.opacity(0.4))
+                .frame(width: 36, height: 30)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 }

@@ -77,6 +77,6 @@ final class StatsStore {
     /// Joins the shared task stream. Idempotent, and already started by whichever screen got
     /// there first, so on the Settings tab this is normally a no-op.
     func observe() async {
-        await SharedTasks.shared.start(db: db)
+        SharedTasks.shared.start(db: db)
     }
 }

@@ -28,6 +28,10 @@ final class GroceryStore {
         } catch {
             Log.database.error("Grocery observation stopped: \(CaptureService.errorKind(error), privacy: .public)")
         }
+        // Released once the stream ends — `.task` cancels this when the view disappears (switching
+        // tabs, pushing a detail), and without clearing the latch the next `.task` would return
+        // immediately and leave the view frozen on whatever it last saw. Same as `SharedTasks`.
+        started = false
     }
 
     /// Add one line. Splits on commas and newlines, so pasting or dictating "milk, eggs, bread"

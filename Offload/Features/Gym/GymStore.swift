@@ -238,8 +238,8 @@ final class GymStore {
     /// A plain-text summary of what's already on the schedule for the given days — classes,
     /// other tasks — so the planner can route around real commitments instead of guessing.
     /// A direct one-shot read rather than `SharedTasks`: this only runs on an explicit "plan my
-    /// day/week" tap (not a live-updating stream), and `SharedTasks.start()` blocks its caller
-    /// for as long as it's the first-ever observer — wrong contract for a one-off read.
+    /// day/week" tap (not a live-updating stream), where `SharedTasks` is a permanent subscription
+    /// to the whole table — wrong contract for a one-off read.
     private func busyContext(for dates: [Date]) async -> String {
         let tasks = (try? await db.dbQueue.read { database in
             try TaskItem.filter(Column("deleted") == false)

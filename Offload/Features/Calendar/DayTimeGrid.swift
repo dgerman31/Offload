@@ -16,6 +16,10 @@ enum DayGridMetrics {
     /// Dragged times land on one of these marks.
     static let snapMinutes = 15
 
+    /// Scroll target for "now". Lives here rather than on `DayTimeGrid` because that type is
+    /// generic, and naming both of its parameters just to read a string constant is absurd.
+    static let nowAnchorID = "day-grid-now"
+
     static var pointsPerMinute: CGFloat { hourHeight / 60 }
 
     /// The rendered height of a block covering `minutes`.
@@ -116,6 +120,11 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
     /// Safe as plain state: a stale value costs at most one extra haptic on the next drag.
     @State private var lastTickMinutes = 0
 
+    /// The clock behind the now line. Read from an observable property rather than calling
+    /// `Date()` inside the body, because a `Date()` read is invisible to SwiftUI — the line would
+    /// be drawn once at whatever time the view happened to be built and then never move again.
+    @State private var now = Date()
+
     struct BlockDrag: Equatable {
         var id: String
         var offset: CGFloat
@@ -191,10 +200,21 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
                 ForEach(entries) { entry in
                     block(for: entry)
                 }
+                // Last, so it reads across the blocks it passes through rather than under them —
+                // the same call Apple Calendar makes, and the reason the line is legible at all on
+                // a busy morning. The block being dragged still sits above it (`zIndex` 1).
+                if showsNowLine { nowLine }
             }
             .frame(maxWidth: .infinity, minHeight: totalHeight, alignment: .topLeading)
         }
         .frame(height: totalHeight)
+        // A minute's resolution is all the line has; anything faster is redraws nobody can see.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                now = Date()
+            }
+        }
         // Driven off the gesture state rather than set imperatively inside the gesture, so a
         // cancelled drag releases the scroll lock too — `onEnded` never runs in that case.
         .onChange(of: activeDrag?.id) { _, dragging in
@@ -228,6 +248,38 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
                 }
             }
         }
+    }
+
+    /// Only on today, and only while the current time is inside the day's window — a line pinned
+    /// to the top edge at 3am would be a lie about where you are in the day.
+    private var showsNowLine: Bool {
+        calendar.isDate(day, inSameDayAs: now) && now >= windowStart && now <= windowEnd
+    }
+
+    /// Where you are in the day, as a line across it.
+    @ViewBuilder
+    private var nowLine: some View {
+        let top = y(for: now)
+        ZStack(alignment: .topLeading) {
+            // The scroll target, placed with padding rather than `.offset` on purpose: `.offset`
+            // moves pixels but not the layout frame, and `scrollTo` reads the frame. An offset
+            // anchor silently scrolls you to the top of the day instead of to now.
+            Color.clear
+                .frame(width: 1, height: 1)
+                .padding(.top, max(0, top))
+                .id(DayGridMetrics.nowAnchorID)
+
+            HStack(spacing: 0) {
+                Circle()
+                    .fill(Color.Offload.red)
+                    .frame(width: 7, height: 7)
+                Rectangle()
+                    .fill(Color.Offload.red)
+                    .frame(height: 1.5)
+            }
+            .offset(y: top - 3.5)
+        }
+        .allowsHitTesting(false)
     }
 
     /// The dashed line showing exactly where a release would put the block, with the time it

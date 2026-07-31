@@ -81,8 +81,54 @@ enum HabitProgress {
     /// 6 done" is just the morning, and saying anything about it would be nagging.
     static let nudgeAfterHour = 17
 
+    /// How much tick history the card keeps in hand. Enough for the week of dots and a streak
+    /// worth the name, and small enough that it's a few hundred rows rather than a growing table.
+    static let checkWindowDays = 35
+
     static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
         WakeTracker.dayKey(date, calendar: calendar)
+    }
+
+    /// The last `days` days for one habit, oldest first, with today last. What the row of dots
+    /// draws — a week you can read at a glance without opening anything.
+    static func week(
+        _ checks: [HabitCheck],
+        habitId: String,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        days: Int = 7
+    ) -> [Bool] {
+        let ticked = Set(checks.filter { $0.habitId == habitId }.map(\.day))
+        return (0..<days).reversed().map { back in
+            guard let date = calendar.date(byAdding: .day, value: -back, to: now) else { return false }
+            return ticked.contains(dayKey(date, calendar: calendar))
+        }
+    }
+
+    /// Consecutive days ending today.
+    ///
+    /// An unticked today doesn't break the streak — it counts back from yesterday instead. A run
+    /// isn't over until the day is, and a counter that resets at midnight and un-resets when you
+    /// drink your water would be punishing you for the hour rather than the habit.
+    static func streak(
+        _ checks: [HabitCheck],
+        habitId: String,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Int {
+        let ticked = Set(checks.filter { $0.habitId == habitId }.map(\.day))
+        var cursor = now
+        if !ticked.contains(dayKey(now, calendar: calendar)) {
+            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: now) else { return 0 }
+            cursor = yesterday
+        }
+        var count = 0
+        while ticked.contains(dayKey(cursor, calendar: calendar)) {
+            count += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+        return count
     }
 
     /// Ids ticked on `day`.

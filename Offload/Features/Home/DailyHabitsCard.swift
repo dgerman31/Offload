@@ -43,15 +43,16 @@ final class HabitStore {
     func observe() async {
         guard !started else { return }
         started = true
-        // Only a recent window of ticks: the full history grows without bound and the card needs
-        // one day of it. Two days, so a tick made just before midnight is still in hand when the
-        // key rolls over.
+        // A recent window of ticks rather than the whole history, which grows without bound. Five
+        // weeks: enough for the row of dots and a streak, and it comfortably spans midnight so a
+        // tick made at 11:59 is still in hand when the day key rolls over.
         let observation = ValueObservation.tracking { database -> HabitSnapshot in
             let habits = try Habit
                 .filter(Column("deleted") == false)
                 .order(Column("sort_order"))
                 .fetchAll(database)
-            let cutoff = WakeTracker.dayKey(Date().addingTimeInterval(-86_400 * 2), calendar: .current)
+            let window = TimeInterval(HabitProgress.checkWindowDays) * 86_400
+            let cutoff = WakeTracker.dayKey(Date().addingTimeInterval(-window), calendar: .current)
             let checks = try HabitCheck.filter(Column("day") >= cutoff).fetchAll(database)
             return HabitSnapshot(habits: habits, checks: checks)
         }
@@ -64,24 +65,32 @@ final class HabitStore {
         } catch {
             Log.database.error("Habit observation stopped: \(CaptureService.errorKind(error), privacy: .public)")
         }
+        // Released once the stream ends — `.task` cancels this when the card disappears (switching
+        // tabs, pushing a detail), and without clearing the latch the next `.task` would return
+        // immediately and leave the card frozen on whatever it last saw. Same as `SharedTasks`.
+        started = false
     }
 
     /// Tick or untick for today. Unticking deletes the row — a tick is the row's existence, so
     /// there's no flag that can drift out of step with it.
+    ///
+    /// The database decides which way the toggle goes, not the cached `checkedToday`: delete the
+    /// tick if it's there, insert it if it isn't. If the view's copy were the one deciding and it
+    /// had gone stale, a second tap would try to insert a row the unique index already forbids,
+    /// and the tick would fail silently from then on.
     func toggle(_ habit: Habit, now: Date = Date()) async {
         let day = HabitProgress.dayKey(now)
-        let wasChecked = checkedToday.contains(habit.id)
+        let habitId = habit.id
         do {
-            try await db.dbQueue.write { database in
-                if wasChecked {
-                    _ = try HabitCheck
-                        .filter(Column("habit_id") == habit.id && Column("day") == day)
-                        .deleteAll(database)
-                } else {
-                    try HabitCheck(habitId: habit.id, day: day).insert(database)
-                }
+            let ticked = try await db.dbQueue.write { database -> Bool in
+                let removed = try HabitCheck
+                    .filter(Column("habit_id") == habitId && Column("day") == day)
+                    .deleteAll(database)
+                guard removed == 0 else { return false }
+                try HabitCheck(habitId: habitId, day: day).insert(database)
+                return true
             }
-            if wasChecked { Haptics.light() } else { Haptics.success() }
+            if ticked { Haptics.success() } else { Haptics.light() }
         } catch {
             Log.database.error("Habit tick failed: \(CaptureService.errorKind(error), privacy: .public)")
         }
@@ -236,11 +245,38 @@ struct DailyHabitsCard: View {
                     .strikethrough(done, color: Color.Offload.muted)
                     .foregroundStyle(done ? Color.Offload.muted : Color.Offload.text)
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                history(habit)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// The last week, and the run you're on. Sits at the trailing edge and stays small on purpose:
+    /// the card is a checklist first, and a streak that shouts is a streak you start protecting
+    /// instead of a habit you keep.
+    private func history(_ habit: Habit) -> some View {
+        let streak = HabitProgress.streak(store.recentChecks, habitId: habit.id, now: now)
+        return HStack(spacing: 6) {
+            HStack(spacing: 3) {
+                ForEach(Array(HabitProgress.week(store.recentChecks, habitId: habit.id, now: now).enumerated()),
+                        id: \.offset) { _, ticked in
+                    Circle()
+                        .fill(ticked ? Color.Offload.teal : Color.Offload.muted.opacity(0.22))
+                        .frame(width: 5, height: 5)
+                }
+            }
+            // Two days isn't a streak, it's a coincidence — so nothing is said until three.
+            if streak >= 3 {
+                HStack(spacing: 2) {
+                    Image(systemName: "flame.fill").font(.system(size: 9))
+                    Text("\(streak)").font(.system(size: 11, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(Color.Offload.amber)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 

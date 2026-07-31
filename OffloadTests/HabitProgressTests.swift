@@ -49,6 +49,55 @@ struct HabitProgressTests {
         #expect(HabitProgress.summary(done: 5, total: 5) == "5 of 5")
     }
 
+    // MARK: The week of dots, and the streak
+
+    @Test("The week reads oldest first, with today at the end")
+    func weekIsChronological() {
+        // Ticked the 30th (today) and the 28th, nothing else.
+        let checks = [check("h-water", day: 30), check("h-water", day: 28)]
+        let week = HabitProgress.week(checks, habitId: "h-water", now: at(9), calendar: calendar)
+
+        #expect(week.count == 7)
+        #expect(week == [false, false, false, false, true, false, true])
+        #expect(week.last == true)          // today is the last dot, not the first
+    }
+
+    @Test("Another habit's ticks never show up in this one's week")
+    func weekIsPerHabit() {
+        let checks = [check("h-stretch", day: 30), check("h-stretch", day: 29)]
+        let week = HabitProgress.week(checks, habitId: "h-water", now: at(9), calendar: calendar)
+        #expect(week.allSatisfy { $0 == false })
+    }
+
+    @Test("A streak is consecutive days ending today")
+    func streakCounts() {
+        let checks = [check("h-water", day: 30), check("h-water", day: 29), check("h-water", day: 28)]
+        #expect(HabitProgress.streak(checks, habitId: "h-water", now: at(9), calendar: calendar) == 3)
+    }
+
+    @Test("Today being untouched doesn't wipe the streak — the day isn't over")
+    func streakSurvivesAnUnfinishedToday() {
+        // Nothing ticked today; yesterday and the day before were.
+        let checks = [check("h-water", day: 29), check("h-water", day: 28)]
+        #expect(HabitProgress.streak(checks, habitId: "h-water", now: at(9), calendar: calendar) == 2)
+    }
+
+    @Test("A missed day ends the run, however long it was before")
+    func streakBreaksOnAGap() {
+        // 30th and 29th ticked, 28th missed, 27th and 26th ticked. The run is the recent two.
+        let checks = [check("h-water", day: 30), check("h-water", day: 29),
+                      check("h-water", day: 27), check("h-water", day: 26)]
+        #expect(HabitProgress.streak(checks, habitId: "h-water", now: at(9), calendar: calendar) == 2)
+    }
+
+    @Test("No history is a streak of zero, not a crash")
+    func streakWithNothing() {
+        #expect(HabitProgress.streak([], habitId: "h-water", now: at(9), calendar: calendar) == 0)
+        // Ticked only two days ago: yesterday is already a gap, so there's no live run.
+        #expect(HabitProgress.streak([check("h-water", day: 28)], habitId: "h-water",
+                                     now: at(9), calendar: calendar) == 0)
+    }
+
     // MARK: The nudge
 
     @Test("Nothing is said in the morning, however little is done")

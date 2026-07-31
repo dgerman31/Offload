@@ -100,6 +100,9 @@ struct HomeView: View {
         let openTasks = store.openTasks
         let loose = looseTasks(from: openTasks)
         let steps = stepsByParent
+        // Hoisted for the same reason as the rest: it's another full pass over every task, and the
+        // minute clock re-runs this body while the app sits idle.
+        let closingTime = EveningShutdown.shouldOffer(tasks: store.allTasks, now: now)
         return NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
@@ -107,6 +110,13 @@ struct HomeView: View {
                     // Always visible, never conditionally hidden — a feature you have to
                     // discover by having exactly the right state isn't discoverable at all.
                     // If there's genuinely nothing to plan, the sheet itself says so.
+                    // In the evening this is the more useful of the two: "I'm up" reorganizes what's
+                    // left of a day that's already over. It appears above rather than replacing it,
+                    // since planning tomorrow at 10pm is still a legitimate thing to want.
+                    if closingTime {
+                        EveningShutdownCard(tasks: store.allTasks, now: now, store: store)
+                            .appearIn(1, when: appeared)
+                    }
                     wakeUpButton.appearIn(1, when: appeared)
                     captureBar.appearIn(1, when: appeared)
                     PinnedBento(summaries: pinnedSummaries) { editingPins = true }

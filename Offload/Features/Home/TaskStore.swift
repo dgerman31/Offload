@@ -17,30 +17,39 @@ import GRDB
 final class SharedTasks {
     static let shared = SharedTasks()
     private(set) var allTasks: [TaskItem] = []
-    private var started = false
+    /// The one live observation, held by the store itself rather than by whichever screen happened
+    /// to ask first. This is load-bearing: `.task` cancels when a view disappears, and with a real
+    /// tab bar that happens on every tab switch. When the stream belonged to the first caller,
+    /// leaving Home tore it down while every other screen's `start()` had already returned — so
+    /// nothing was observing tasks, and completing something on the Day tab left it sitting on
+    /// screen until you visited Home again and it restarted. Owning the task makes it immune to
+    /// any one view's lifetime.
+    private var stream: Task<Void, Never>?
 
     private init() {}
 
     /// Idempotent: the first caller starts the one real observation; anyone else calling this
     /// (another screen's `.task { await store.observe() }`) just returns immediately, since
-    /// they're all reading the same `allTasks`.
-    func start(db: AppDatabase = .shared) async {
-        guard !started else { return }
-        started = true
-        let observation = ValueObservation.tracking { db in
-            try TaskItem
-                .filter(Column("deleted") == false)
-                .order(Column("created_at").desc)
-                .fetchAll(db)
-        }
-        do {
-            for try await tasks in observation.values(in: db.dbQueue) {
-                allTasks = tasks
+    /// they're all reading the same `allTasks`. Safe to call on every appear — it restarts the
+    /// stream if it ever ended, so a database error can't leave the app permanently stale.
+    func start(db: AppDatabase = .shared) {
+        guard stream == nil else { return }
+        stream = Task { [weak self] in
+            let observation = ValueObservation.tracking { db in
+                try TaskItem
+                    .filter(Column("deleted") == false)
+                    .order(Column("created_at").desc)
+                    .fetchAll(db)
             }
-        } catch {
-            // Observation ended.
+            do {
+                for try await tasks in observation.values(in: db.dbQueue) {
+                    self?.allTasks = tasks
+                }
+            } catch {
+                Log.database.error("Task observation stopped: \(CaptureService.errorKind(error), privacy: .public)")
+            }
+            self?.stream = nil
         }
-        started = false
     }
 }
 
@@ -87,7 +96,7 @@ final class TaskStore {
     /// Join the single shared task stream. Safe to call from every screen that observes tasks —
     /// only the first caller actually starts anything.
     func observe() async {
-        await SharedTasks.shared.start(db: db)
+        SharedTasks.shared.start(db: db)
     }
 
     /// Load events covering the week strip *and* the selected day in one fetch, so tapping
@@ -121,6 +130,19 @@ final class TaskStore {
         updated.dueDate = DueDate.canonicalString(from: placement.dueDate)
         updated.dueIsAllDay = placement.isAllDay
         // A kept pin is left exactly as it was — it says "I chose this hour", which is still true.
+        if !placement.keepsPin { updated.pinned = false }
+        let toSave = updated
+        try? await db.dbQueue.write { try toSave.update($0) }
+    }
+
+    /// Move a task to tomorrow — the evening shutdown's "the rest moves" action. Same rule as
+    /// `rollToToday`: an hour you chose is kept, along with its pin; anything else lands as a
+    /// whole-day intention. See `EveningShutdown.tomorrowPlacement`.
+    func rollToTomorrow(_ task: TaskItem, now: Date = Date(), calendar: Calendar = .current) async {
+        let placement = EveningShutdown.tomorrowPlacement(for: task, now: now, calendar: calendar)
+        var updated = task
+        updated.dueDate = DueDate.canonicalString(from: placement.dueDate)
+        updated.dueIsAllDay = placement.isAllDay
         if !placement.keepsPin { updated.pinned = false }
         let toSave = updated
         try? await db.dbQueue.write { try toSave.update($0) }

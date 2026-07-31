@@ -136,18 +136,31 @@ struct DayView: View {
     private func dayPager(_ itemsByDay: [Date: [DayItem]], stepsByParent: [String: [TaskItem]]) -> some View {
         TabView(selection: $selectedDay) {
             ForEach(days, id: \.timeIntervalSince1970) { day in
-                ScrollView {
-                    // Keyed by `startOfDay`, not by `day` itself: the pager's dates come from
-                    // `date(byAdding: .day)`, which preserves wall-clock time and so lands off
-                    // midnight in zones whose DST transition happens at midnight.
-                    agenda(for: day, items: itemsByDay[Calendar.current.startOfDay(for: day)] ?? [],
-                           stepsByParent: stepsByParent)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-                        .padding(.bottom, 40)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        // Keyed by `startOfDay`, not by `day` itself: the pager's dates come from
+                        // `date(byAdding: .day)`, which preserves wall-clock time and so lands off
+                        // midnight in zones whose DST transition happens at midnight.
+                        agenda(for: day, items: itemsByDay[Calendar.current.startOfDay(for: day)] ?? [],
+                               stepsByParent: stepsByParent)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 40)
+                    }
+                    .scrollIndicators(.hidden)
+                    .scrollDisabled(isDraggingBlock)
+                    // Today opens where you are, not at breakfast. Only today has the anchor, so
+                    // this is a no-op on every other page; the guard just saves the wait.
+                    .task {
+                        guard Calendar.current.isDateInToday(day) else { return }
+                        // One beat, so the grid has been laid out and the anchor has a frame to
+                        // scroll to. Without it the call lands before layout and does nothing.
+                        try? await Task.sleep(for: .milliseconds(120))
+                        withAnimation(Motion.settle) {
+                            proxy.scrollTo(DayGridMetrics.nowAnchorID, anchor: .center)
+                        }
+                    }
                 }
-                .scrollIndicators(.hidden)
-                .scrollDisabled(isDraggingBlock)
                 .tag(day)
             }
         }

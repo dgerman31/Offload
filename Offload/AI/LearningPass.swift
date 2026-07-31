@@ -61,7 +61,7 @@ enum LearningPass {
             }
         }
 
-        let curve = EnergyCurve.learn(sessions: sessions)
+        let curve = EnergyCurve.learn(sessions)
         profile.hourScores = curve.scores
         profile.peakHours = curve.peak
         profile.sessionSample = curve.sample

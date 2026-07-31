@@ -49,7 +49,7 @@ enum EnergyCurve {
     }
 
     /// Derive the curve from focus history. Pure, so the rule is testable without a database.
-    static func learn(sessions: [TaskSession], calendar: Calendar = .current) -> Curve {
+    static func learn(_ sessions: [TaskSession], calendar: Calendar = .current) -> Curve {
         var curve = Curve()
         guard sessions.count >= minimumSessions else { return curve }
 

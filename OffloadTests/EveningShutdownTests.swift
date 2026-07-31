@@ -86,7 +86,7 @@ struct EveningShutdownTests {
 
     @Test("An hour you chose survives the move, along with its pin")
     func timedWorkKeepsItsHour() {
-        var task = open("Email the PI", at: 16, minute: 0)
+        var task = open("Email the PI", at: 16)
         task.pinned = true
 
         let placement = EveningShutdown.tomorrowPlacement(for: task, now: at(21), calendar: calendar)

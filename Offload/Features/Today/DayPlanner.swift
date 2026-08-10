@@ -85,6 +85,17 @@ enum DayPlanner {
         var minutes: Int { max(0, Int(end.timeIntervalSince(start) / 60)) }
     }
 
+    /// The best slot found for one task so far: which free block, when it would run, and how
+    /// badly the hour suits the work. Was an anonymous four-member tuple, which read as
+    /// `current.penalty` at the comparison and `best.index` two lines later with nothing naming
+    /// what those positions meant.
+    private struct Placement {
+        var index: Int
+        var start: Date
+        var end: Date
+        var penalty: Int
+    }
+
     struct Plan: Sendable, Equatable {
         var scheduled: [ScheduledTask] = []
         /// Tasks that didn't fit — surfaced honestly rather than silently dropped.
@@ -335,7 +346,7 @@ enum DayPlanner {
             // Consider every slot that fits, then take the best one rather than merely the
             // first: with an energy profile set, demanding work gets your peak hours and
             // admin is nudged out of them. Ties break earliest, so the day still front-loads.
-            var best: (index: Int, start: Date, end: Date, penalty: Int)?
+            var best: Placement?
             for index in slots.indices {
                 let start = cursors[index]
                 guard let end = calendar.date(byAdding: .minute, value: effort, to: start),
@@ -349,10 +360,10 @@ enum DayPlanner {
                                                         ?? energyProfile?.peakHours.map { $0 },
                                                     calendar: calendar)
 
-                if let current = best {
-                    if penalty < current.penalty { best = (index, start, end, penalty) }
-                } else {
-                    best = (index, start, end, penalty)
+                // Strictly-less keeps the tie-break earliest, since the first slot to reach a
+                // given penalty wins and later equals don't displace it.
+                if penalty < (best?.penalty ?? Int.max) {
+                    best = Placement(index: index, start: start, end: end, penalty: penalty)
                 }
             }
 
@@ -380,7 +391,7 @@ enum DayPlanner {
         let count = plan.scheduled.count
         let minutes = plan.scheduled.reduce(0) { $0 + $1.minutes }
         var line = "\(count) task\(count == 1 ? "" : "s") · about \(formatted(minutes)) of work"
-        if plan.unplaced.count > 0 {
+        if !plan.unplaced.isEmpty {
             line += " · \(plan.unplaced.count) didn't fit"
         }
         return line

@@ -31,6 +31,25 @@ struct CaptureServiceTests {
         func vector(for text: String) -> [Double]? { table[text] }
     }
 
+    /// The pairing the dedup-blocking tests below are built on: two titles that mean the same
+    /// errand but *read* differently.
+    ///
+    /// This matters more than it looks. `prepare` runs `TaskMatcher.partition` before the
+    /// embedding pass, and partition drops anything whose normalized title matches an open task
+    /// outright — saying the identical sentence twice is now reported as "already on your list"
+    /// rather than asked about. So a test that captures "Buy milk" against an existing "Buy
+    /// milk" never reaches the embedder at all and can never produce a candidate; these tests
+    /// asserted exactly that and had been failing since the `alreadyOnList` behavior landed.
+    ///
+    /// A near-duplicate the user should actually be *asked* about is the case where the words
+    /// differ and only the meaning collides — which is what an embedder is for, and what these
+    /// two titles reproduce.
+    static let existingTitle = "Buy milk"
+    static let restatedTitle = "Pick up groceries"
+    static func collidingEmbedder() -> StubEmbedder {
+        StubEmbedder(table: [existingTitle: [1, 0], restatedTitle: [1, 0]])
+    }
+
     /// Fake calendar writer — returns a fixed id without touching EventKit, so appointment
     /// creation is deterministic on CI.
     struct StubCalendarWriter: CalendarWriting {
@@ -59,12 +78,12 @@ struct CaptureServiceTests {
         let existing = TaskItem(title: "Buy milk", category: "Personal", priority: "medium", status: "open")
         try await db.dbQueue.write { try existing.insert($0) }
 
-        let embedder = StubEmbedder(table: ["Buy milk": [1, 0]])
+        let embedder = Self.collidingEmbedder()
         let service = CaptureService(db: db,
-                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: "Buy milk"))),
+                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: Self.restatedTitle))),
                                      embedder: embedder)
 
-        let prepared = try await service.prepare(rawInput: "buy milk", inputType: "text")
+        let prepared = try await service.prepare(rawInput: "pick up groceries", inputType: "text")
         #expect(prepared.candidates.count == 1)
         #expect(prepared.candidates.first?.existingTitle == "Buy milk")
         #expect(prepared.candidates.first?.existingTaskId == existing.id)
@@ -79,12 +98,12 @@ struct CaptureServiceTests {
         let existing = TaskItem(title: "Buy milk", category: "Personal", priority: "medium", status: "open")
         try await db.dbQueue.write { try existing.insert($0) }
 
-        let embedder = StubEmbedder(table: ["Buy milk": [1, 0]])
+        let embedder = Self.collidingEmbedder()
         let service = CaptureService(db: db,
-                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: "Buy milk"))),
+                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: Self.restatedTitle))),
                                      embedder: embedder)
 
-        let prepared = try await service.prepare(rawInput: "buy milk", inputType: "text")
+        let prepared = try await service.prepare(rawInput: "pick up groceries", inputType: "text")
         let candidate = try #require(prepared.candidates.first)
         let outcome = try await service.finalize(prepared, resolutions: [candidate.id: .skip])
 
@@ -102,13 +121,13 @@ struct CaptureServiceTests {
         let existing = TaskItem(title: "Buy milk", category: "Personal", priority: "medium", status: "open", dueDate: nil)
         try await db.dbQueue.write { try existing.insert($0) }
 
-        let embedder = StubEmbedder(table: ["Buy milk": [1, 0]])
+        let embedder = Self.collidingEmbedder()
         let service = CaptureService(db: db,
                                      extractor: FakeExtractor(result: .success(
-                                        extractedOneTask(title: "Buy milk", dueDate: "2026-07-20T09:00:00Z", priority: "high"))),
+                                        extractedOneTask(title: Self.restatedTitle, dueDate: "2026-07-20T09:00:00Z", priority: "high"))),
                                      embedder: embedder)
 
-        let prepared = try await service.prepare(rawInput: "buy milk tomorrow morning", inputType: "text")
+        let prepared = try await service.prepare(rawInput: "pick up groceries tomorrow morning", inputType: "text")
         let candidate = try #require(prepared.candidates.first)
         let outcome = try await service.finalize(prepared, resolutions: [candidate.id: .merge])
 
@@ -126,12 +145,12 @@ struct CaptureServiceTests {
         let existing = TaskItem(title: "Buy milk", category: "Personal", priority: "medium", status: "open")
         try await db.dbQueue.write { try existing.insert($0) }
 
-        let embedder = StubEmbedder(table: ["Buy milk": [1, 0]])
+        let embedder = Self.collidingEmbedder()
         let service = CaptureService(db: db,
-                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: "Buy milk"))),
+                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: Self.restatedTitle))),
                                      embedder: embedder)
 
-        let prepared = try await service.prepare(rawInput: "buy milk", inputType: "text")
+        let prepared = try await service.prepare(rawInput: "pick up groceries", inputType: "text")
         let candidate = try #require(prepared.candidates.first)
         let outcome = try await service.finalize(prepared, resolutions: [candidate.id: .keepBoth])
 
@@ -147,12 +166,12 @@ struct CaptureServiceTests {
         let existing = TaskItem(title: "Buy milk", category: "Personal", priority: "medium", status: "open")
         try await db.dbQueue.write { try existing.insert($0) }
 
-        let embedder = StubEmbedder(table: ["Buy milk": [1, 0]])
+        let embedder = Self.collidingEmbedder()
         let service = CaptureService(db: db,
-                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: "Buy milk"))),
+                                     extractor: FakeExtractor(result: .success(extractedOneTask(title: Self.restatedTitle))),
                                      embedder: embedder)
 
-        let outcome = try await service.process(rawInput: "buy milk", inputType: "text")
+        let outcome = try await service.process(rawInput: "pick up groceries", inputType: "text")
         #expect(outcome.addedTasks == 1)
         #expect(outcome.similarWarnings.count == 1)
         let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
@@ -469,15 +488,15 @@ struct CaptureServiceTests {
 
         let extracted = ExtractedCapture(
             summary: nil,
-            tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
+            tasks: [ExtractedTask(title: Self.restatedTitle, category: "Personal", priority: "medium",
                                   contextTags: [], dueDate: nil, recurrenceRule: nil,
                                   effortMinutes: nil, subtasks: [])],
             suggestedProject: "Groceries")
         let service = CaptureService(db: db,
                                      extractor: FakeExtractor(result: .success(extracted)),
-                                     embedder: StubEmbedder(table: ["Buy milk": [1, 0]]))
+                                     embedder: Self.collidingEmbedder())
 
-        let prepared = try await service.prepare(rawInput: "buy milk for groceries", inputType: "text")
+        let prepared = try await service.prepare(rawInput: "pick up groceries for the week", inputType: "text")
         let candidate = try #require(prepared.candidates.first)
         let outcome = try await service.finalize(prepared, resolutions: [candidate.id: .skip])
 

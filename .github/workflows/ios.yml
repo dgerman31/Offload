@@ -60,11 +60,15 @@ jobs:
     # compile of both app and widget extension in under three minutes. It's the Debug compile plus
     # the suite itself.
     #
-    # 30 is deliberately generous rather than incremental — being killed at the finish line costs
-    # a full re-run and, worse, produces a green `ipa` beside a "cancelled" test job, which is the
+    # Deliberately generous rather than incremental — being killed at the finish line costs a
+    # full re-run and, worse, produces a green `ipa` beside a "cancelled" test job, which is the
     # one outcome that looks like verification without being it. macOS minutes are free on a
     # public repo, so the only thing a tighter bound buys is catching a hang sooner.
-    timeout-minutes: 30
+    #
+    # 30 → 45 once the test step gained a watchdog and one retry: the worst case is now two
+    # bounded attempts plus a build, and at 30 the retry got guillotined mid-attempt — which
+    # spends the whole budget to learn nothing, the exact failure this number exists to avoid.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -168,7 +172,11 @@ jobs:
       - name: Wait for the simulator to be ready
         run: |
           UDID="${{ steps.sim.outputs.udid }}"
-          xcrun simctl bootstatus "$UDID" 2>/dev/null || true
+          # NOT `simctl bootstatus`, in any form. It hangs outright on this runner — the note in
+          # "Pick a simulator" has said so for weeks, and an earlier version of *this* step
+          # called it anyway behind `|| true`, which cannot rescue a command that never
+          # returns. It ate the entire 30-minute job without ever reaching the poll below.
+          # Polling `simctl list` is bounded by construction and tells us the same thing.
           for i in $(seq 1 40); do
             if xcrun simctl list devices | grep "$UDID" | grep -q "Booted"; then
               echo "Simulator booted after $((i * 5))s"
@@ -180,9 +188,12 @@ jobs:
 
       # `-test-timeouts-enabled` covers a stuck *test*; the watchdog below covers a stuck
       # *launch*, which is the failure actually seen here and which no xcodebuild flag catches.
-      # Killing at 12 minutes leaves real time inside the 30-minute job budget for one retry on
-      # a freshly rebooted simulator — the flake reproduced on 1 of 2 consecutive runs, so a
-      # single retry is worth far more than the minutes it costs.
+      #
+      # 7 minutes, not 12. A healthy run spends about a minute actually testing, so 7 is
+      # generous, and the whole worst case has to fit the job budget: ~3 setup + ~5 build +
+      # ~3 readiness + 7 + ~2 reboot + 7 ≈ 27 minutes. At 12 the retry alone pushed past a
+      # 30-minute job and got guillotined mid-attempt, which is a slower way of learning
+      # nothing. timeout-minutes is 45 to leave that arithmetic some slack.
       #
       # Deliberately not GNU `timeout`: macOS does not ship it, and this workflow already
       # carries a scar from a wrapper that was silently a no-op and masked a hang for weeks.
@@ -209,7 +220,7 @@ jobs:
             # an INT watchdog fires and nothing dies — `wait` even returns 0 and the run looks
             # green. Verified against a stub before shipping, precisely because this workflow
             # has already been bitten once by a timeout wrapper that silently did nothing.
-            ( sleep 720; kill -TERM "$pid" 2>/dev/null; sleep 20; kill -KILL "$pid" 2>/dev/null ) &
+            ( sleep 420; kill -TERM "$pid" 2>/dev/null; sleep 20; kill -KILL "$pid" 2>/dev/null ) &
             local dog=$!
             wait "$pid"; local rc=$?
             kill "$dog" 2>/dev/null || true
@@ -232,7 +243,11 @@ jobs:
             xcrun simctl shutdown "$UDID" 2>/dev/null || true
             sleep 5
             xcrun simctl boot "$UDID" 2>/dev/null || true
-            xcrun simctl bootstatus "$UDID" 2>/dev/null || true
+            # Bounded poll, for the same reason as the readiness step — never `bootstatus`.
+            for i in $(seq 1 24); do
+              xcrun simctl list devices | grep "$UDID" | grep -q "Booted" && break
+              sleep 5
+            done
             rc=0
             run_tests || rc=$?
           fi

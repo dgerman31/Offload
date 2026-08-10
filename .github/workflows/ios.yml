@@ -155,24 +155,90 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             | tee build-for-testing.log | xcbeautify
 
-      # `-test-timeouts-enabled` is the real cure for a silent hang: without it one stuck test
-      # blocks the whole job and reports nothing, so a 30-minute wall-clock kill is all you
-      # learn. With it, a test that overruns its allowance is killed and reported *by name*,
-      # and the rest of the suite still runs — a hang becomes an ordinary failing test.
+      # Wait for the simulator to actually be usable before asking it to run anything.
+      #
+      # The observed failure is precisely here: on a bad run the log stops dead at "Writing
+      # result bundle" and the test app never launches — 30 minutes of silence, no test ever
+      # started. (Confirmed by diffing a good run against a bad one: the good one prints app
+      # launch lines at that exact point.) `-test-timeouts-enabled` cannot help, since it only
+      # governs tests that are already running.
+      #
+      # Polls `simctl list` rather than `simctl bootstatus -b`, which hangs outright on this
+      # runner — see the note in "Pick a simulator".
+      - name: Wait for the simulator to be ready
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          xcrun simctl bootstatus "$UDID" 2>/dev/null || true
+          for i in $(seq 1 40); do
+            if xcrun simctl list devices | grep "$UDID" | grep -q "Booted"; then
+              echo "Simulator booted after $((i * 5))s"
+              break
+            fi
+            sleep 5
+          done
+          xcrun simctl list devices | grep "$UDID" || true
+
+      # `-test-timeouts-enabled` covers a stuck *test*; the watchdog below covers a stuck
+      # *launch*, which is the failure actually seen here and which no xcodebuild flag catches.
+      # Killing at 12 minutes leaves real time inside the 30-minute job budget for one retry on
+      # a freshly rebooted simulator — the flake reproduced on 1 of 2 consecutive runs, so a
+      # single retry is worth far more than the minutes it costs.
+      #
+      # Deliberately not GNU `timeout`: macOS does not ship it, and this workflow already
+      # carries a scar from a wrapper that was silently a no-op and masked a hang for weeks.
       - name: Test (Simulator)
         run: |
           set -o pipefail
-          xcodebuild test-without-building \
-            -project Offload.xcodeproj \
-            -scheme Offload \
-            -destination "id=${{ steps.sim.outputs.udid }}" \
-            -derivedDataPath DerivedData \
-            -enableCodeCoverage YES \
-            -resultBundlePath TestResults.xcresult \
-            -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 120 \
-            -maximum-test-execution-time-allowance 300 \
-            | tee test-run.log | xcbeautify
+          UDID="${{ steps.sim.outputs.udid }}"
+
+          run_tests () {
+            xcodebuild test-without-building \
+              -project Offload.xcodeproj \
+              -scheme Offload \
+              -destination "id=$UDID" \
+              -derivedDataPath DerivedData \
+              -clonedSourcePackagesDirPath .spm-cache \
+              -enableCodeCoverage YES \
+              -resultBundlePath TestResults.xcresult \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 120 \
+              -maximum-test-execution-time-allowance 300 \
+              > test-run.log 2>&1 &
+            local pid=$!
+            # TERM, not INT: a non-interactive shell sets background jobs to ignore SIGINT, so
+            # an INT watchdog fires and nothing dies — `wait` even returns 0 and the run looks
+            # green. Verified against a stub before shipping, precisely because this workflow
+            # has already been bitten once by a timeout wrapper that silently did nothing.
+            ( sleep 720; kill -TERM "$pid" 2>/dev/null; sleep 20; kill -KILL "$pid" 2>/dev/null ) &
+            local dog=$!
+            wait "$pid"; local rc=$?
+            kill "$dog" 2>/dev/null || true
+            return $rc
+          }
+
+          # "Did any test actually start?" is what separates a real failure (report it, don't
+          # retry — retrying genuine failures just doubles the wait) from a dead launch.
+          started () { grep -q "Test run started\|Test Suite 'All tests' started" test-run.log; }
+
+          # `rc` is captured explicitly at each call: `$?` after an `if` block is the status of
+          # the *if*, not of the command inside it, which would silently green a failed run.
+          rc=0
+          run_tests || rc=$?
+
+          if [ "$rc" -ne 0 ] && ! started; then
+            echo "::warning::Test run produced no tests — simulator launch stalled. Retrying once on a fresh boot."
+            cat test-run.log
+            rm -rf TestResults.xcresult
+            xcrun simctl shutdown "$UDID" 2>/dev/null || true
+            sleep 5
+            xcrun simctl boot "$UDID" 2>/dev/null || true
+            xcrun simctl bootstatus "$UDID" 2>/dev/null || true
+            rc=0
+            run_tests || rc=$?
+          fi
+
+          xcbeautify < test-run.log || cat test-run.log
+          exit $rc
 
       # The raw, unfiltered logs — the thing that was missing when this last went wrong.
       - name: Upload xcodebuild logs

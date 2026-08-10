@@ -227,22 +227,27 @@ struct GeminiExtractionService {
     }
 }
 
-/// Prefers Gemini, falls back to on-device Apple Intelligence only when there's no key, no
-/// network, no budget, or the call fails. Conforms to the same `TaskExtracting` protocol the
-/// capture pipeline already depends on, so nothing above it changes.
+/// Gemini, or nothing.
+///
+/// This used to fall back to the on-device Apple Intelligence model whenever the cloud wasn't
+/// available, and that fallback was the bug: a small model in a ~4k shared context carries the
+/// same instructions but follows them inconsistently, so the same sentence sorted well on one
+/// capture and landed as a bare transcript on the next — with no signal anywhere that a
+/// different, weaker model had answered. "Sometimes it's smart, sometimes it isn't" is a worse
+/// product than "it tells you when it can't run".
+///
+/// So there is no second model now. When Gemini can't answer, this throws the typed reason and
+/// the capture pipeline holds the user's words instead of half-understanding them.
 @MainActor
 final class SmartExtractionService: TaskExtracting {
     private let db: AppDatabase
-    private let onDevice: ExtractionService
 
     init(db: AppDatabase = .shared) {
         self.db = db
-        self.onDevice = ExtractionService(db: db)
     }
 
     func extract(from transcript: String) async throws -> ExtractionResult {
-        // AIRouter returns nil (never throws) when the cloud isn't available or the call fails,
-        // so a simple `if let` cleanly expresses "Gemini, else fall back".
+        // AIRouter returns nil (never throws) and records why in `lastUnavailable`.
         if let result = await AIRouter.shared.run(label: "extract", { key in
             let gemini = GeminiExtractionService(
                 client: GeminiClient(apiKey: key),
@@ -253,7 +258,8 @@ final class SmartExtractionService: TaskExtracting {
         }) {
             return result
         }
-        // No cloud (no key / offline / over budget / error) → the on-device model.
-        return try await onDevice.extract(from: transcript)
+        // `lastUnavailable` is set on every nil path; the fallback covers a caller racing a
+        // success that cleared it, where "something went wrong" is the only honest answer.
+        throw AIRouter.shared.lastUnavailable ?? .failed("The request didn't complete.")
     }
 }

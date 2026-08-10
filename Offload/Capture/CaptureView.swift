@@ -48,7 +48,23 @@ struct CaptureView: View {
             // mic that never came up at all. This covers the rest: every voice failure ends
             // with a usable, focused text field, never a dead mic screen.
             .onChange(of: vm.focusTextFieldRequest) { _, _ in fieldFocused = true }
+            // The AI couldn't run. An alert, not a screen: the words are still in the field
+            // underneath, so dismissing puts the user back on their own sentence with the
+            // keyboard up, one tap from sending it again.
+            .alert("Couldn't sort this capture", isPresented: showingUnavailable) {
+                Button("OK", role: .cancel) { fieldFocused = true }
+            } message: {
+                Text(vm.unavailableMessage ?? "")
+            }
         }
+    }
+
+    /// Bridges the optional diagnosis to the `Bool` an alert wants; dismissing clears it.
+    private var showingUnavailable: Binding<Bool> {
+        Binding(
+            get: { vm.unavailableMessage != nil },
+            set: { shown in if !shown { vm.unavailableMessage = nil } }
+        )
     }
 
     // MARK: Editor
@@ -255,9 +271,7 @@ struct CaptureView: View {
 
     private func successView(added: Int, titles: [String], project: String?, similar: [String]) -> some View {
         VStack(spacing: 16) {
-            if vm.isUnextracted {
-                unextractedHeader
-            } else {
+            Group {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 56))
                     .foregroundStyle(Color.Offload.teal)
@@ -338,33 +352,12 @@ struct CaptureView: View {
         // With refinement chips, the project offer, OR an automatic project merge present we
         // DON'T auto-dismiss — each one needs a tap the user can only give if the sheet is still
         // there, and an undo that vanishes on a timer is no undo at all. Answering any of them
-        // lets the timer resume; the unextracted state gets extra time, since there's more to read.
+        // lets the timer resume.
         .task(id: "\(vm.chips.count)-\(vm.suggestedProjectTitle ?? "")-\(vm.mergedProjectTitle ?? "")") {
             guard !vm.hasChips, vm.suggestedProjectTitle == nil, vm.mergedProjectTitle == nil else { return }
-            let seconds = vm.isUnextracted
-                ? 4.5
-                : min(5.0, 1.6 + Double(titles.count) * 0.5 + Double(similar.count) * 1.0)
+            let seconds = min(5.0, 1.6 + Double(titles.count) * 0.5 + Double(similar.count) * 1.0)
             try? await Task.sleep(for: .seconds(seconds))
             finish()
-        }
-    }
-
-    /// Extraction wasn't available for this capture (e.g. Low Power Mode blocking on-device AI),
-    /// so it was saved as raw text rather than organized. Neither a normal success — nothing's
-    /// actually organized yet — nor an error — nothing failed, the words are safe. Its own honest
-    /// middle state: the existing foreground retry sweep will organize it properly later.
-    private var unextractedHeader: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "tray.full.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(Color.Offload.indigo)
-            Text("Saved — I'll sort it out soon")
-                .font(.Offload.section)
-                .foregroundStyle(Color.Offload.text)
-            Text("Your words are safe as you wrote them. As soon as AI's available again, this turns into proper tasks on its own.")
-                .font(.Offload.body)
-                .foregroundStyle(Color.Offload.muted)
-                .multilineTextAlignment(.center)
         }
     }
 

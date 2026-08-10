@@ -57,10 +57,9 @@ final class CaptureViewModel {
     /// What this capture actually called the project, so undoing the merge can file the tasks
     /// under that name instead.
     private var capturedProjectName: String?
-    /// True when this capture was saved as raw text because no AI extractor was available (e.g.
-    /// Low Power Mode blocking on-device AI) — the success screen reads honestly ("saved, not
-    /// yet organized") instead of claiming a normal, fully-organized success.
-    var isUnextracted = false
+    /// Why the last attempt couldn't be sorted, when it couldn't. Non-nil drives the alert over
+    /// the capture box; the words stay in `text` behind it, ready to send again.
+    var unavailableMessage: String?
     /// Things this capture said that were already open, so nothing was created for them.
     /// Shown as a result, not a warning — already having it is the good outcome.
     var alreadyOnList: [String] = []
@@ -212,10 +211,28 @@ final class CaptureViewModel {
                 Haptics.warning()
                 phase = .reviewingDuplicates(candidates: prepared.candidates)
             }
+        } catch let unavailable as ExtractionUnavailable {
+            hold(unavailable)
         } catch {
             Haptics.warning()
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// Keep the capture in the box and say why it couldn't be sorted.
+    ///
+    /// Deliberately *not* `.failed`, which takes over the whole screen and offers only a way out:
+    /// nothing here is broken and nothing was lost, the AI just couldn't run this minute. Going
+    /// back to `.editing` leaves the words exactly where the user left them — `text` is never
+    /// cleared on submit — so dismissing the alert lands them on their own sentence, one tap from
+    /// trying again.
+    private func hold(_ reason: ExtractionUnavailable) {
+        phase = .editing
+        // A call cancelled because the user navigated away isn't news. Interrupting them to
+        // report their own action would be noise, not diagnosis.
+        guard !reason.isSilent else { return }
+        Haptics.warning()
+        unavailableMessage = reason.message
     }
 
     /// Move to the success screen, stashing any clarifying chips and the tasks they patch.
@@ -227,7 +244,6 @@ final class CaptureViewModel {
         assignedProjectConfirmation = nil
         mergedProjectTitle = outcome.filedUnderExistingProject
         capturedProjectName = outcome.capturedProjectName
-        isUnextracted = outcome.isUnextracted
         alreadyOnList = outcome.alreadyOnList
         phase = .done(added: outcome.addedTasks, titles: outcome.taskTitles,
                       project: outcome.projectTitle, similar: outcome.similarWarnings)
@@ -340,6 +356,6 @@ final class CaptureViewModel {
         assignedProjectConfirmation = nil
         mergedProjectTitle = nil
         capturedProjectName = nil
-        isUnextracted = false
+        unavailableMessage = nil
     }
 }

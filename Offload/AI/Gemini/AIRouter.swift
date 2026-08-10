@@ -21,24 +21,42 @@ final class AIRouter {
     private(set) var lastError: String?
     private(set) var lastSucceeded = false
 
+    /// Why the most recent call declined to run or failed, as a typed reason rather than a
+    /// message. `run` returns `nil` for six quite different situations, and the capture pipeline
+    /// now has to tell the user which one it hit — "add a key" and "you're offline" call for
+    /// different actions. Cleared on success.
+    private(set) var lastUnavailable: ExtractionUnavailable?
+
     /// Is the cloud a live option right now? (Key present and the user hasn't forced on-device.)
     var cloudAvailable: Bool {
         SecretStore.hasGeminiKey && !UserDefaults.standard.bool(forKey: Self.onDeviceOnlyKey)
     }
 
-    /// Run a Gemini operation if allowed. Returns nil — meaning "fall back to on-device" — when
-    /// there's no key, the private-mode switch is on, we're over budget, or the call fails.
+    /// Run a Gemini operation if allowed. Returns nil when there's no key, the private-mode
+    /// switch is on, we're over budget, or the call fails — recording *which* in
+    /// `lastUnavailable` so the caller can say something true about it.
     /// The API key is injected so no call site touches the Keychain directly.
     func run<T>(label: String, _ body: (String) async throws -> T) async -> T? {
-        guard cloudAvailable, let key = SecretStore.geminiKey else { return nil }
+        // Split what `cloudAvailable` folds together: "you turned the cloud off" and "you never
+        // set it up" are both `false` there, but they ask the user for opposite things.
+        guard !UserDefaults.standard.bool(forKey: Self.onDeviceOnlyKey) else {
+            lastUnavailable = .privateMode
+            return nil
+        }
+        guard SecretStore.hasGeminiKey, let key = SecretStore.geminiKey else {
+            lastUnavailable = .noKey
+            return nil
+        }
         guard await AIBudget.shared.reserve() else {
-            lastError = "Daily/'per-minute AI limit reached — using on-device."
+            lastUnavailable = .overBudget
+            lastError = "Daily/per-minute AI limit reached."
             return nil
         }
         do {
             let result = try await body(key)
             lastSucceeded = true
             lastError = nil
+            lastUnavailable = nil
             return result
         } catch {
             // A cancelled request — the view disappeared, the user navigated away mid-capture —
@@ -48,6 +66,7 @@ final class AIRouter {
             // about whether the call would have succeeded.
             if error is CancellationError || (error as? URLError)?.code == .cancelled {
                 await AIBudget.shared.refund()
+                lastUnavailable = .cancelled
                 Log.ai.debug("Gemini call for \(label, privacy: .public) cancelled — no error recorded")
                 return nil
             }
@@ -71,7 +90,12 @@ final class AIRouter {
             }
             lastSucceeded = false
             lastError = "\(label): \(error.localizedDescription)"
-            Log.ai.notice("Gemini call for \(label, privacy: .public) fell back to on-device: kind \(Self.kind(error), privacy: .public)")
+            // A pre-send failure never reached Google, which in practice means the network — say
+            // "check your connection" rather than blaming the model for something it never saw.
+            lastUnavailable = Self.isPreSendFailure(error)
+                ? .offline(Self.kind(error))
+                : .failed(error.localizedDescription)
+            Log.ai.notice("Gemini call for \(label, privacy: .public) unavailable: kind \(Self.kind(error), privacy: .public)")
             return nil
         }
     }

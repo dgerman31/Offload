@@ -247,54 +247,78 @@ struct CaptureServiceTests {
         #expect(capture?.extractedTaskIds != nil)
     }
 
-    // MARK: Bug B — a capture never fails outright (Low Power Mode kills Apple Intelligence)
+    // MARK: Bug B — an unavailable extractor holds the capture rather than faking a success
+    //
+    // These tests used to assert the opposite: that a capture "never fails outright" and the raw
+    // transcript is saved as one plain task. That behavior was the bug users actually reported —
+    // "I left my jacket in school" arriving as a task by that name wasn't a bad extraction, it
+    // was *no* extraction wearing a success's clothes, with nothing saying the good model never
+    // ran. The philosophy changed, so the tests changed with it.
 
-    @Test("An extractor that throws still saves the raw words as one task the sweep will retry")
-    func unavailableExtractorStillSavesATask() async throws {
+    @Test("An unavailable extractor creates no task and holds the capture for a deliberate retry")
+    func unavailableExtractorHoldsTheCapture() async throws {
         let db = try AppDatabase.makeInMemory()
         let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
 
-        // Previously this threw and the user saw an error for words they'd just spoken.
-        let outcome = try await service.process(rawInput: "remember the milk", inputType: "text")
-        #expect(outcome.isUnextracted)
-        #expect(outcome.addedTasks == 1)
-        #expect(outcome.taskTitles == ["remember the milk"])
+        await #expect(throws: ExtractionUnavailable.self) {
+            _ = try await service.process(rawInput: "I left my jacket in school", inputType: "text")
+        }
 
+        // Nothing is invented from words nothing understood.
+        let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
+        #expect(taskCount == 0)
+
+        // The words themselves are still on disk — the row is the record, not a task.
         let capture = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
-        #expect(capture.rawInput == "remember the milk")
-        // The whole point: still `failed` and still under the ceiling, so `CaptureRetrySweep`
-        // picks it up on the next foreground and gets the real structured extraction.
-        #expect(capture.processingStatus == "failed")
-        #expect(capture.retryCount == 1)
-        #expect(capture.retryCount < CaptureRetrySweep.maxAttempts)
+        #expect(capture.rawInput == "I left my jacket in school")
+        // `held`, not `failed`: their owner is looking at them in the capture box, so the sweep
+        // (which matches only `failed`) must not also retry them behind the user's back.
+        #expect(capture.processingStatus == "held")
+        #expect(capture.retryCount == 0)
         // No model ran, so the column mustn't claim one did.
         #expect(capture.modelSource == nil)
-        // The placeholder's id is recorded, which is what lets a later retry retire it.
-        #expect(CaptureService.decodeIds(capture.extractedTaskIds).count == 1)
-
-        let tasks = try await db.dbQueue.read { try TaskItem.fetchAll($0) }
-        #expect(tasks.count == 1)
-        #expect(tasks.first?.title == "remember the milk")
-        // The placeholder is a real captured task, so it gets a real slot like any other —
-        // landing in "Anytime" is the outcome the user explicitly reported as a bug. Soft and
-        // unpinned, so the timeline can reflow it and a successful retry can replace it outright.
-        let placeholder = try #require(tasks.first)
-        #expect(placeholder.dueDate != nil)
-        #expect(placeholder.dueIsAllDay == false)
-        #expect(placeholder.pinned == false)
-        // Nothing *else* is invented: no model ran, so there's no category to claim.
-        #expect(placeholder.category == nil)
     }
 
-    @Test("A successful retry replaces the raw-text placeholder instead of duplicating it")
-    func retryReplacesPlaceholder() async throws {
+    @Test("A sweep retry that still can't extract leaves the row failed and counts the attempt")
+    func retryWhileUnavailableStaysFailed() async throws {
         let db = try AppDatabase.makeInMemory()
-        // 1. Extraction unavailable — the raw words land as one plain task.
-        let failing = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
-        _ = try await failing.process(rawInput: "remember the milk", inputType: "text")
-        let failedRow = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
+        // A row from before this change: an older build marked it `failed` after saving the raw
+        // text as a placeholder task, and the sweep is still working through it.
+        let placeholder = TaskItem(title: "remember the milk", category: nil, priority: "medium")
+        let legacy = Capture(rawInput: "remember the milk", inputType: "text",
+                             processingStatus: "failed",
+                             extractedTaskIds: "[\"\(placeholder.id)\"]",
+                             retryCount: 1)
+        try await db.dbQueue.write { database in
+            try placeholder.insert(database)
+            try legacy.insert(database)
+        }
 
-        // 2. The sweep comes back once the model is available again.
+        let failing = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
+        await #expect(throws: ExtractionUnavailable.self) {
+            _ = try await failing.process(rawInput: "remember the milk", inputType: "text", retrying: legacy)
+        }
+
+        let row = try #require(try await db.dbQueue.read { try Capture.fetchOne($0, key: legacy.id) })
+        // Still `failed` — one transient outage mustn't park a legacy row forever — and the
+        // attempt is counted, so the sweep's ceiling still converges.
+        #expect(row.processingStatus == "failed")
+        #expect(row.retryCount == 2)
+    }
+
+    @Test("A successful retry retires a legacy raw-text placeholder instead of duplicating it")
+    func successfulRetryRetiresLegacyPlaceholder() async throws {
+        let db = try AppDatabase.makeInMemory()
+        let placeholder = TaskItem(title: "remember the milk", category: nil, priority: "medium")
+        let legacy = Capture(rawInput: "remember the milk", inputType: "text",
+                             processingStatus: "failed",
+                             extractedTaskIds: "[\"\(placeholder.id)\"]",
+                             retryCount: 1)
+        try await db.dbQueue.write { database in
+            try placeholder.insert(database)
+            try legacy.insert(database)
+        }
+
         let extracted = ExtractedCapture(
             summary: nil,
             tasks: [ExtractedTask(title: "Buy milk", category: "Personal", priority: "medium",
@@ -302,71 +326,45 @@ struct CaptureServiceTests {
                                   effortMinutes: nil, subtasks: [])],
             suggestedProject: nil)
         let working = CaptureService(db: db, extractor: FakeExtractor(result: .success(extracted)), embedder: NullEmbedder())
-        let outcome = try await working.process(rawInput: "remember the milk", inputType: "text", retrying: failedRow)
+        let outcome = try await working.process(rawInput: "remember the milk", inputType: "text", retrying: legacy)
 
-        #expect(!outcome.isUnextracted)
         #expect(outcome.addedTasks == 1)
-
-        // Exactly one live task — the structured one. The placeholder was retired, not left behind.
+        // Exactly one live task — the structured one. The placeholder was retired, not left beside it.
         let live = try await db.dbQueue.read {
             try TaskItem.filter(Column("deleted") == false).fetchAll($0)
         }
         #expect(live.count == 1)
         #expect(live.first?.title == "Buy milk")
 
-        // And one capture row, now genuinely done.
-        let captures = try await db.dbQueue.read { try Capture.fetchAll($0) }
-        #expect(captures.count == 1)
-        #expect(captures.first?.processingStatus == "done")
-        #expect(captures.first?.modelSource == "foundation")
+        let row = try #require(try await db.dbQueue.read { try Capture.fetchOne($0, key: legacy.id) })
+        #expect(row.processingStatus == "done")
     }
 
-    @Test("A retry that fails again reuses the placeholder instead of piling up duplicates")
-    func repeatedFallbackKeepsOnePlaceholder() async throws {
-        let db = try AppDatabase.makeInMemory()
-        let failing = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
-        _ = try await failing.process(rawInput: "remember the milk", inputType: "text")
-        let first = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
-        let placeholderIds = CaptureService.decodeIds(first.extractedTaskIds)
-        #expect(placeholderIds.count == 1)
-
-        // The sweep comes back and the model is still unavailable.
-        let outcome = try await failing.process(rawInput: "remember the milk", inputType: "text", retrying: first)
-        #expect(outcome.isUnextracted)
-        #expect(outcome.addedTasks == 0)        // nothing new — the original task still stands
-
-        let live = try await db.dbQueue.read {
-            try TaskItem.filter(Column("deleted") == false).fetchAll($0)
-        }
-        #expect(live.count == 1)
-        #expect(live.first?.id == placeholderIds.first)   // same row, so any user edit survives
-
-        let row = try #require(try await db.dbQueue.read { try Capture.fetchAll($0).first })
-        #expect(row.retryCount == 2)                      // the sweep's ceiling still converges
-        #expect(CaptureService.decodeIds(row.extractedTaskIds) == placeholderIds)
-    }
-
-    @Test("A blank capture nothing could extract still records the row without inventing a task")
+    @Test("A blank capture nothing could extract records the row and invents nothing")
     func unavailableExtractorOnBlankInput() async throws {
         let db = try AppDatabase.makeInMemory()
         let service = CaptureService(db: db, extractor: FakeExtractor(result: .failure(BoomError())), embedder: NullEmbedder())
 
-        let outcome = try await service.process(rawInput: "   ", inputType: "text")
-        #expect(outcome.isUnextracted)
-        #expect(outcome.addedTasks == 0)
+        await #expect(throws: ExtractionUnavailable.self) {
+            _ = try await service.process(rawInput: "   ", inputType: "text")
+        }
         let taskCount = try await db.dbQueue.read { try TaskItem.fetchCount($0) }
         #expect(taskCount == 0)
     }
 
-    @Test("A long raw capture is truncated into a readable fallback title")
-    func fallbackTitleTruncates() {
-        let short = CaptureService.fallbackTitle(from: "  buy   milk\nand eggs ")
-        #expect(short == "buy milk and eggs")            // whitespace collapsed, kept verbatim
-
-        let long = String(repeating: "word ", count: 60)
-        let title = CaptureService.fallbackTitle(from: long)
-        #expect(title.count <= CaptureService.fallbackTitleLimit + 1)   // +1 for the ellipsis
-        #expect(title.hasSuffix("…"))
+    @Test("Every unavailable reason says something, and only cancellation stays quiet")
+    func unavailableReasonsReadWell() {
+        let reasons: [ExtractionUnavailable] = [
+            .noKey, .privateMode, .overBudget, .offline("URLError(-1009)"), .failed("500")
+        ]
+        for reason in reasons {
+            // Each one names what happened and promises the words survived — which they did.
+            #expect(!reason.message.isEmpty)
+            #expect(reason.message.contains("still here"))
+            #expect(!reason.isSilent)
+        }
+        // The user navigating away is their own doing; reporting it back would be noise.
+        #expect(ExtractionUnavailable.cancelled.isSilent)
     }
 
     // MARK: Bug A — a named project is either created or offered for confirmation

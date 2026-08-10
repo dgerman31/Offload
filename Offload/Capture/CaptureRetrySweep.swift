@@ -64,15 +64,10 @@ enum CaptureRetrySweep {
                 // Counts only — the capture's text is the user's own words and never goes to the
                 // log, at any privacy level.
                 //
-                // `process` no longer throws when extraction is simply unavailable: it saves the
-                // raw text as one placeholder task and returns normally. So a bare "succeeded"
-                // here would be a lie on exactly the runs this sweep exists to fix. `isUnextracted`
-                // is what tells the two apart.
-                if outcome.isUnextracted {
-                    Log.capture.notice("Retry still unextracted — placeholder kept, will try again next foreground")
-                } else {
-                    Log.capture.notice("Retry succeeded: \(outcome.addedTasks, privacy: .public) task(s) recovered")
-                }
+                // Reaching here means a real extraction happened. When Gemini is unavailable
+                // `process` throws instead of inventing a placeholder task, so the `catch` below
+                // is the "still can't do it" path and this one can't lie about success.
+                Log.capture.notice("Retry succeeded: \(outcome.addedTasks, privacy: .public) task(s) recovered")
             } catch {
                 // `prepare` already re-marked the row failed and incremented its attempt count on
                 // the way out, so there's nothing to write here.

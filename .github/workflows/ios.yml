@@ -131,22 +131,60 @@ jobs:
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
-      # `test` already builds — the old `clean build test` compiled the world twice, and
-      # `clean` is meaningless on a fresh runner that has no derived data to begin with.
-      # No `||` retry on a second device: it doubled the cost of every genuine test failure.
-      - name: Test (Simulator)
+      # Build and run are SEPARATE steps, deliberately.
+      #
+      # They used to be one `xcodebuild test`, and when it hung there was no way to tell
+      # whether the compiler or a test was stuck: the job sat silent until the runner killed
+      # it, and a runner kill discards xcbeautify's buffered output, so the evidence died with
+      # it. (A 26-minute hang left exactly one clue: the last line it happened to have
+      # flushed.) Two steps put a labelled boundary between the two possibilities — whichever
+      # one is red tells you where to look — and `tee` keeps the raw log even when xcbeautify's
+      # filtered view swallows the interesting part.
+      #
+      # Both share -derivedDataPath so the run step finds what the build step produced.
+      - name: Build for testing
         run: |
           set -o pipefail
-          xcodebuild test \
+          xcodebuild build-for-testing \
             -project Offload.xcodeproj \
             -scheme Offload \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
+            -derivedDataPath DerivedData \
+            ONLY_ACTIVE_ARCH=YES \
+            | tee build-for-testing.log | xcbeautify
+
+      # `-test-timeouts-enabled` is the real cure for a silent hang: without it one stuck test
+      # blocks the whole job and reports nothing, so a 30-minute wall-clock kill is all you
+      # learn. With it, a test that overruns its allowance is killed and reported *by name*,
+      # and the rest of the suite still runs — a hang becomes an ordinary failing test.
+      - name: Test (Simulator)
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project Offload.xcodeproj \
+            -scheme Offload \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath DerivedData \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
-            ONLY_ACTIVE_ARCH=YES \
-            | xcbeautify
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 300 \
+            | tee test-run.log | xcbeautify
+
+      # The raw, unfiltered logs — the thing that was missing when this last went wrong.
+      - name: Upload xcodebuild logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: |
+            build-for-testing.log
+            test-run.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Surfaced as a log signal only — no threshold gate. Absolute coverage gates are easy to
       # game and punish legacy code; this just answers "roughly how much is covered" for a human

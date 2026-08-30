@@ -53,7 +53,7 @@ struct RoutinesView: View {
     private func routineRow(_ routine: Routine) -> some View {
         HStack(spacing: 12) {
             Image(systemName: routine.routineKind == .fixed ? "calendar" : "repeat")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(.footnote, weight: .semibold))
                 .foregroundStyle(Color.Offload.accent(for: routine.category))
                 .frame(width: 32, height: 32)
                 .background(Color.Offload.accent(for: routine.category).opacity(0.13),

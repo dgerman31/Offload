@@ -83,7 +83,7 @@ struct TaskRowView: View {
                     // next line rather than being squeezed until words break mid-syllable.
                     FlowLayout(spacing: 8, lineSpacing: 6) {
                         if let category = task.category, !category.isEmpty {
-                            chip(category, color: Color.Offload.indigo)
+                            chip(category, color: Color.Offload.indigoText)
                         }
                         priorityBadge(task.priority)
                         statusBadge(task.status)
@@ -111,7 +111,7 @@ struct TaskRowView: View {
                                 .fixedSize()
                                 .padding(.horizontal, 8).padding(.vertical, 3)
                                 .background(Color.Offload.indigo.opacity(0.13), in: .capsule)
-                                .foregroundStyle(Color.Offload.indigo)
+                                .foregroundStyle(Color.Offload.indigoText)
                         }
                         ForEach(contextTags, id: \.self) { tag in
                             Label(tag, systemImage: Self.tagIcon(tag))

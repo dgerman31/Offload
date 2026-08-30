@@ -270,7 +270,7 @@ struct SettingsView: View {
                             .font(.Offload.body)
                     } icon: {
                         Image(systemName: "bolt.circle.fill")
-                            .foregroundStyle(Color.Offload.indigo)
+                            .foregroundStyle(Color.Offload.indigoText)
                     }
                     Text("The Quick Capture shortcut is also available in Shortcuts and Siri.")
                         .font(.Offload.body)
@@ -385,7 +385,7 @@ struct SettingsView: View {
             Divider()
             statTile("\(s.completedThisWeek)", "this week", "calendar", Color.Offload.teal)
             Divider()
-            statTile("\(s.openCount)", "open", "tray.fill", Color.Offload.indigo)
+            statTile("\(s.openCount)", "open", "tray.fill", Color.Offload.indigoText)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)

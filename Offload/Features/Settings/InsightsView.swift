@@ -59,14 +59,14 @@ struct InsightsView: View {
             statTile("\(s.completedThisWeek)", "done this week", "checkmark.circle.fill", Color.Offload.green)
             statTile(DayPlanner.formatted(focusMinutes), "focused", "timer", Color.Offload.teal)
             statTile("\(focusSessions)", "focus session\(focusSessions == 1 ? "" : "s")",
-                     "brain.head.profile", Color.Offload.indigo)
+                     "brain.head.profile", Color.Offload.indigoText)
         }
     }
 
     private func statTile(_ value: String, _ label: String, _ icon: String, _ tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(.subheadline, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 34, height: 34)
                 .background(tint.opacity(0.13), in: .rect(cornerRadius: 10, style: .continuous))
@@ -257,7 +257,7 @@ struct InsightsView: View {
     // MARK: Model reflection
 
     private var reflectionCard: some View {
-        card("This week", icon: "sparkles", tint: Color.Offload.indigo) {
+        card("This week", icon: "sparkles", tint: Color.Offload.indigoText) {
             VStack(alignment: .leading, spacing: 12) {
                 if let insight {
                     Text(insight)
@@ -284,7 +284,7 @@ struct InsightsView: View {
                     }
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
-                    .foregroundStyle(Color.Offload.indigo)
+                    .foregroundStyle(Color.Offload.indigoText)
                 }
                 .buttonStyle(.pressable)
                 .disabled(generating)

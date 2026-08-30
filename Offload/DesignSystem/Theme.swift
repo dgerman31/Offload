@@ -5,24 +5,72 @@ import SwiftUI
 /// call sites — views reference `Color.Offload.*` and `Font.Offload.*`.
 enum OffloadTheme {}
 
+/// The raw hex values behind `Color.Offload`, exposed so the contrast rules can be *tested*
+/// rather than eyeballed. `Color` can't be read back apart on iOS, so the numbers live here and
+/// the colours are built from them.
+///
+/// ### Why the semantic colours are light/dark pairs
+///
+/// They used to be single values, and light mode failed WCAG badly on every one that carries
+/// meaning: teal 2.90:1, amber 2.18:1, green 2.28:1 against a white card — all below even the
+/// 3:1 large-text floor. The hues are unchanged; the light-mode variants are simply dark enough
+/// to read, and dark mode keeps the brighter values it always had.
+///
+/// Indigo needed splitting rather than darkening. As a **fill** under white text it wants to be
+/// deep; as **text on a dark card** the same value is 1.72:1 and effectively invisible. One token
+/// cannot be both, so there are two.
+enum OffloadPalette {
+    // Brand fill — carries white text. Lightened for dark mode so the shape itself separates from
+    // a dark card (3.50:1) while white text on it still passes (4.86:1).
+    static let indigoFillLight: UInt32 = 0x2E3B8C
+    static let indigoFillDark: UInt32  = 0x5568D4
+    // Indigo as text or an icon tint on a surface.
+    static let indigoTextLight: UInt32 = 0x2E3B8C
+    static let indigoTextDark: UInt32  = 0x8AA0FF
+
+    static let tealLight: UInt32  = 0x107E7A
+    static let tealDark: UInt32   = 0x16A9A3
+    static let amberLight: UInt32 = 0x8A6A1F
+    static let amberDark: UInt32  = 0xD4A959
+    static let greenLight: UInt32 = 0x16823E
+    static let greenDark: UInt32  = 0x22C55E
+    static let redLight: UInt32   = 0xC0392B
+    static let redDark: UInt32    = 0xF87171
+
+    static let backgroundLight: UInt32 = 0xFAF6EE
+    static let backgroundDark: UInt32  = 0x0E1020
+    static let surfaceLight: UInt32    = 0xFFFFFF
+    static let surfaceDark: UInt32     = 0x181B2E
+    static let textLight: UInt32       = 0x17171B
+    static let textDark: UInt32        = 0xECECEC
+    static let mutedLight: UInt32      = 0x6E6A5F
+    static let mutedDark: UInt32       = 0x9AA0AA
+}
+
 extension Color {
     enum Offload {
-        // Brand + semantic colors (spec 5.2)
-        static let indigo   = Color(hex: 0x2E3B8C)   // primary actions, active states
-        static let teal     = Color(hex: 0x16A9A3)   // completion, positive states
-        static let amber    = Color(hex: 0xD4A959)   // deferred / friction / warnings
-        static let green    = Color(hex: 0x22C55E)   // completed
-        static let red      = Color(hex: 0xEF4444)   // overdue / blocked
+        // Brand + semantic colors (spec 5.2). Light/dark pairs — see `OffloadPalette`.
+        /// Primary-action **fill**, under white text.
+        static let indigo = Color(light: OffloadPalette.indigoFillLight, dark: OffloadPalette.indigoFillDark)
+        /// Indigo used as **text or an icon** on a surface. Not interchangeable with `indigo`.
+        static let indigoText = Color(light: OffloadPalette.indigoTextLight, dark: OffloadPalette.indigoTextDark)
+        static let teal   = Color(light: OffloadPalette.tealLight, dark: OffloadPalette.tealDark)
+        static let amber  = Color(light: OffloadPalette.amberLight, dark: OffloadPalette.amberDark)
+        static let green  = Color(light: OffloadPalette.greenLight, dark: OffloadPalette.greenDark)
+        static let red    = Color(light: OffloadPalette.redLight, dark: OffloadPalette.redDark)
+        /// A solid teal fill carrying white text. Constant across modes: the bright dark-mode teal
+        /// is only 2.90:1 under white, so a filled capsule must use the deep value in both.
+        static let tealFill = Color(hex: OffloadPalette.tealLight)
 
         // Surfaces + text — adapt to light/dark.
         // Light mode is a warm cream (Design Language 2.0 "elite pass") — pure-white cards float
         // above a paper-like #FAF6EE ground; dark mode is the deep indigo-black from the design
         // language, never a flat neutral grey.
-        static let background = Color(light: 0xFAF6EE, dark: 0x0E1020)
-        static let surface    = Color(light: 0xFFFFFF, dark: 0x181B2E) // cards, inputs
+        static let background = Color(light: OffloadPalette.backgroundLight, dark: OffloadPalette.backgroundDark)
+        static let surface    = Color(light: OffloadPalette.surfaceLight, dark: OffloadPalette.surfaceDark) // cards, inputs
         static let elevated   = Color(light: 0xFFFFFF, dark: 0x1F2340) // sheets, popovers
-        static let text       = Color(light: 0x17171B, dark: 0xECECEC) // primary text
-        static let muted      = Color(light: 0x7A756B, dark: 0x9AA0AA) // secondary text (warm grey)
+        static let text       = Color(light: OffloadPalette.textLight, dark: OffloadPalette.textDark) // primary text
+        static let muted      = Color(light: OffloadPalette.mutedLight, dark: OffloadPalette.mutedDark) // secondary text
         static let divider    = Color(light: 0xEBE5D9, dark: 0x2C3050)
 
         /// Barely-there edge that separates layered surfaces in dark mode, where shadow alone

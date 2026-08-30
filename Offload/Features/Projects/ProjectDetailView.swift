@@ -26,7 +26,7 @@ struct ProjectDetailView: View {
             Label("Where this stands".uppercased(), systemImage: "text.alignleft")
                 .font(.caption2).fontWeight(.bold)
                 .tracking(0.9)
-                .foregroundStyle(Color.Offload.indigo)
+                .foregroundStyle(Color.Offload.indigoText)
 
             Text(brief ?? ProjectBrief.deterministicBrief(
                 ProjectBrief.facts(project: project, tasks: store.todo + store.done, now: Date())
@@ -49,7 +49,7 @@ struct ProjectDetailView: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
-                .foregroundStyle(Color.Offload.indigo)
+                .foregroundStyle(Color.Offload.indigoText)
             }
             .buttonStyle(.pressable)
             .disabled(generatingBrief)
@@ -86,7 +86,7 @@ struct ProjectDetailView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "folder.fill")
-                                    .foregroundStyle(Color.Offload.indigo)
+                                    .foregroundStyle(Color.Offload.indigoText)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(child.project.title)
                                         .font(.Offload.taskTitle)
@@ -112,7 +112,7 @@ struct ProjectDetailView: View {
                                 .font(.system(.caption, design: .rounded)).fontWeight(.bold)
                                 .frame(width: 22, height: 22)
                                 .background(Color.Offload.indigo.opacity(0.12), in: .circle)
-                                .foregroundStyle(Color.Offload.indigo)
+                                .foregroundStyle(Color.Offload.indigoText)
                                 .padding(.top, 4)
                             TaskRowView(task: task, onEdit: { editing = task }) { Task { await store.toggleComplete(task) } }
                         }

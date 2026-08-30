@@ -149,7 +149,7 @@ struct GymSessionDetailView: View {
                 Spacer(minLength: 8)
                 if exercise.isLogged {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
+                        .font(.system(.body))
                         .foregroundStyle(Color.Offload.green)
                 }
             }
@@ -182,7 +182,7 @@ struct GymSessionDetailView: View {
                         .overlay {
                             if done {
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .bold))
+                                    .font(.system(.caption2, weight: .bold))
                                     .foregroundStyle(.white)
                             }
                         }
@@ -232,7 +232,7 @@ private struct WeightLogField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "scalemass")
-                .font(.system(size: 12))
+                .font(.system(.caption))
                 .foregroundStyle(Color.Offload.muted)
             TextField(exercise.weightNote ?? "Log actual weight", text: $draft)
                 .font(.caption)

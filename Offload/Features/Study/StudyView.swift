@@ -115,7 +115,7 @@ struct StudyView: View {
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: "shuffle")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(
@@ -151,7 +151,7 @@ struct StudyView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: resource.icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(.caption2, weight: .semibold))
                     .foregroundStyle(accent)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(resource.rawValue).font(.caption).fontWeight(.semibold).foregroundStyle(accent)
@@ -180,7 +180,7 @@ struct StudyView: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: system.icon)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(.footnote, weight: .semibold))
                         .foregroundStyle(accent)
                     Text(system.rawValue.uppercased())
                         .font(.caption).fontWeight(.bold).tracking(0.8)
@@ -189,7 +189,7 @@ struct StudyView: View {
                     Text("\(system.totalAnkiCards) Anki cards")
                         .font(.caption).foregroundStyle(Color.Offload.muted)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(.caption2, weight: .semibold))
                         .foregroundStyle(Color.Offload.muted)
                         .rotationEffect(.degrees(ankiHidden ? -90 : 0))
                 }
@@ -238,7 +238,7 @@ struct StudyView: View {
                         Spacer(minLength: 8)
                         if !subtopic.leaves.isEmpty {
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.system(.caption2, weight: .semibold))
                                 .foregroundStyle(Color.Offload.muted)
                                 .rotationEffect(.degrees(leavesShown ? 0 : -90))
                         }
@@ -304,7 +304,7 @@ struct StudyView: View {
     /// tapping it is the entire interaction, and it flips the instant you tap it.
     private func addGlyph(_ added: Bool) -> some View {
         Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
-            .font(.system(size: 16, weight: .semibold))
+            .font(.system(.callout, weight: .semibold))
             .foregroundStyle(added ? Color.Offload.green : Color.Offload.muted)
     }
 

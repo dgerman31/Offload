@@ -26,7 +26,7 @@ struct CorrectionHistoryView: View {
                                 .foregroundStyle(Color.Offload.muted)
                             Image(systemName: "arrow.right")
                                 .font(.caption2)
-                                .foregroundStyle(Color.Offload.indigo)
+                                .foregroundStyle(Color.Offload.indigoText)
                             Text(correction.userValue ?? "—")
                                 .fontWeight(.medium)
                                 .foregroundStyle(Color.Offload.text)

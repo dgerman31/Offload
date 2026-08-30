@@ -151,7 +151,7 @@ struct DailyHabitsCard: View {
                 }
                 Button { managing = true } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(.footnote, weight: .semibold))
                         .foregroundStyle(Color.Offload.muted)
                 }
                 .buttonStyle(.pressable)
@@ -212,7 +212,7 @@ struct DailyHabitsCard: View {
                     Label("Start with a few", systemImage: "wand.and.stars")
                         .font(.caption).fontWeight(.semibold)
                         .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(Color.Offload.teal, in: .capsule)
+                        .background(Color.Offload.tealFill, in: .capsule)
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.pressable)
@@ -233,11 +233,11 @@ struct DailyHabitsCard: View {
         } label: {
             HStack(spacing: 11) {
                 Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(.title3, weight: .medium))
                     .foregroundStyle(done ? Color.Offload.green : Color.Offload.muted.opacity(0.55))
                     .symbolEffect(.bounce, value: done)
                 Image(systemName: habit.symbol)
-                    .font(.system(size: 12))
+                    .font(.system(.caption))
                     .foregroundStyle(done ? Color.Offload.muted : Color.Offload.teal)
                     .frame(width: 18)
                 Text(habit.title)
@@ -270,8 +270,8 @@ struct DailyHabitsCard: View {
             // Two days isn't a streak, it's a coincidence — so nothing is said until three.
             if streak >= 3 {
                 HStack(spacing: 2) {
-                    Image(systemName: "flame.fill").font(.system(size: 9))
-                    Text("\(streak)").font(.system(size: 11, weight: .bold, design: .rounded))
+                    Image(systemName: "flame.fill").font(.system(.caption2))
+                    Text("\(streak)").font(.system(.caption2, design: .rounded, weight: .bold))
                 }
                 .foregroundStyle(Color.Offload.amber)
             }

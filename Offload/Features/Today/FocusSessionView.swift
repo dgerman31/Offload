@@ -127,7 +127,7 @@ struct FocusSessionView: View {
 
             VStack(spacing: 4) {
                 Text(timer.clock)
-                    .font(.system(size: 52, weight: .bold, design: .rounded))
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(.white)
                 Text(timer.isRunning ? "remaining" : "paused")
@@ -187,7 +187,7 @@ struct FocusSessionView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
                     .background(.white, in: .capsule)
-                    .foregroundStyle(Color(hex: 0x2E3B8C))
+                    .foregroundStyle(Color.Offload.indigoText)
             }
             .buttonStyle(.pressable)
         }
@@ -250,7 +250,7 @@ struct FocusMiniBar: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: timer.phase.symbol)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(.footnote, weight: .semibold))
                         .foregroundStyle(tint)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(session.taskTitle)
@@ -258,12 +258,12 @@ struct FocusMiniBar: View {
                             .foregroundStyle(Color.Offload.text)
                             .lineLimit(1)
                         Text(timer.phase.isBreak ? timer.phase.label : "Focusing")
-                            .font(.system(size: 10))
+                            .font(.system(.caption2))
                             .foregroundStyle(Color.Offload.muted)
                     }
                     Spacer(minLength: 8)
                     Text(timer.clock)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .font(.system(.body, design: .rounded, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(Color.Offload.text)
                     Button {
@@ -271,7 +271,7 @@ struct FocusMiniBar: View {
                         Haptics.light()
                     } label: {
                         Image(systemName: timer.isRunning ? "pause.fill" : "play.fill")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(.caption, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 30, height: 30)
                             .background(tint, in: .circle)

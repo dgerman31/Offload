@@ -186,7 +186,7 @@ struct SearchView: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 10) {
                         Image(systemName: list.icon)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(.subheadline, weight: .semibold))
                             .foregroundStyle(list.tint)
                             .frame(width: 34, height: 34)
                             .background(list.tint.opacity(0.13), in: .rect(cornerRadius: 10, style: .continuous))
@@ -290,7 +290,7 @@ struct SearchView: View {
             Label("People", systemImage: "person.2.fill")
                 .font(.caption2).fontWeight(.bold)
                 .tracking(0.9)
-                .foregroundStyle(Color.Offload.indigo)
+                .foregroundStyle(Color.Offload.indigoText)
 
             VStack(spacing: 8) {
                 ForEach(commitments) { commitment in
@@ -320,7 +320,7 @@ struct SearchView: View {
                             }
                             Spacer(minLength: 0)
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(.caption2, weight: .semibold))
                                 .foregroundStyle(Color.Offload.muted)
                         }
                     }
@@ -339,8 +339,8 @@ struct SearchView: View {
                 withAnimation(Motion.standard) { selectedPerson = nil }
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.Offload.indigo)
+                    .font(.system(.footnote, weight: .bold))
+                    .foregroundStyle(Color.Offload.indigoText)
                     .frame(width: 30, height: 30)
                     .background(Color.Offload.indigo.opacity(0.10), in: .circle)
             }
@@ -371,8 +371,8 @@ struct SearchView: View {
                 withAnimation(Motion.standard) { smartList = nil }
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.Offload.indigo)
+                    .font(.system(.footnote, weight: .bold))
+                    .foregroundStyle(Color.Offload.indigoText)
                     .frame(width: 30, height: 30)
                     .background(Color.Offload.indigo.opacity(0.10), in: .circle)
             }
@@ -417,7 +417,7 @@ struct SearchView: View {
                                       ? "checkmark.circle.fill" : "circle")
                                     .font(.title3)
                                     .foregroundStyle(selected.contains(task.id)
-                                                     ? Color.Offload.indigo : Color.Offload.muted)
+                                                     ? Color.Offload.indigoText : Color.Offload.muted)
                             }
                             .buttonStyle(.pressable(scale: 0.85))
                             .padding(.leading, 12)
@@ -482,7 +482,7 @@ struct SearchView: View {
                 if store.category != nil || store.priority != nil {
                     Button("Clear") { store.category = nil; store.priority = nil }
                         .font(.caption).fontWeight(.semibold)
-                        .foregroundStyle(Color.Offload.indigo)
+                        .foregroundStyle(Color.Offload.indigoText)
                         .buttonStyle(.pressable)
                 }
             }
@@ -499,7 +499,7 @@ struct SearchView: View {
         .lineLimit(1).fixedSize()
         .padding(.horizontal, 12).padding(.vertical, 7)
         .background((active ? Color.Offload.indigo : Color.Offload.muted).opacity(0.12), in: .capsule)
-        .foregroundStyle(active ? Color.Offload.indigo : Color.Offload.text)
+        .foregroundStyle(active ? Color.Offload.indigoText : Color.Offload.text)
     }
 }
 

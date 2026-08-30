@@ -121,7 +121,7 @@ struct AllTasksView: View {
     private func style(for title: String) -> (String, Color) {
         switch title {
         case "Overdue":   return ("exclamationmark.circle.fill", Color.Offload.red)
-        case "Today":     return ("sun.max.fill", Color.Offload.indigo)
+        case "Today":     return ("sun.max.fill", Color.Offload.indigoText)
         case "Tomorrow":  return ("sunrise.fill", Color.Offload.teal)
         case "This week": return ("calendar", Color.Offload.muted)
         case "Later":     return ("calendar.badge.clock", Color.Offload.muted)

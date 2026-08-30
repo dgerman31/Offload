@@ -108,7 +108,7 @@ struct GroceryListView: View {
                     if !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Button("Add") { commit() }
                             .font(.caption).fontWeight(.semibold)
-                            .foregroundStyle(Color.Offload.indigo)
+                            .foregroundStyle(Color.Offload.indigoText)
                     }
                 }
             } footer: {
@@ -129,7 +129,7 @@ struct GroceryListView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: item.bought ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 19, weight: .medium))
+                                    .font(.system(.title3, weight: .medium))
                                     .foregroundStyle(item.bought ? Color.Offload.green : Color.Offload.muted.opacity(0.55))
                                     .symbolEffect(.bounce, value: item.bought)
                                 Text(item.title)
@@ -203,7 +203,7 @@ struct GroceryCard: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "cart.fill")
-                    .font(.system(size: 15))
+                    .font(.system(.subheadline))
                     .foregroundStyle(Color.Offload.accent(for: "Personal"))
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 1) {
@@ -216,7 +216,7 @@ struct GroceryCard: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(.caption, weight: .semibold))
                     .foregroundStyle(Color.Offload.muted.opacity(0.6))
             }
             .padding(14)

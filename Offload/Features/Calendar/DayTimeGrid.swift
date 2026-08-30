@@ -184,7 +184,7 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
             ZStack(alignment: .topTrailing) {
                 ForEach(hourMarks, id: \.self) { minute in
                     Text(Self.label(windowStart, addingMinutes: minute, calendar: calendar))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(.footnote, weight: .semibold))
                         .foregroundStyle(Color.Offload.muted)
                         .fixedSize()
                         // Nudged up roughly half this font's line height, so the text sits
@@ -291,7 +291,7 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Text(TimeFormat.time(target))
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(.caption2, design: .rounded, weight: .bold))
                     .monospacedDigit()
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Color.Offload.indigo, in: .capsule)
@@ -344,10 +344,10 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
         let delta = minutes == 0 ? "now" : (minutes > 0 ? "+\(minutes)m" : "\(minutes)m")
         return VStack(alignment: .trailing, spacing: 1) {
             Text(TimeFormat.time(target))
-                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .font(.system(.caption, design: .rounded, weight: .bold))
                 .monospacedDigit()
             Text(delta)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(.caption2, weight: .semibold))
                 .opacity(0.75)
         }
         .foregroundStyle(.white)

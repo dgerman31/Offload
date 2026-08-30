@@ -100,8 +100,8 @@ struct MyWeekView: View {
     private func row(_ block: ProtectedBlock) -> some View {
         HStack(spacing: 12) {
             Image(systemName: block.kind.symbol)
-                .font(.system(size: 15))
-                .foregroundStyle(block.isEnabled ? Color.Offload.indigo : Color.Offload.muted)
+                .font(.system(.subheadline))
+                .foregroundStyle(block.isEnabled ? Color.Offload.indigoText : Color.Offload.muted)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(block.title.isEmpty ? block.kind.label : block.title)
@@ -225,7 +225,7 @@ struct ProtectedBlockEditor: View {
             Haptics.light()
         } label: {
             Text(label)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(.footnote, weight: .semibold))
                 .frame(maxWidth: .infinity)
                 .frame(height: 34)
                 .background(on ? Color.Offload.indigo : Color.Offload.surface, in: .circle)

@@ -77,7 +77,7 @@ struct WeekStrip: View {
         let isSelected = calendar.isDate(day, inSameDayAs: selected)
         let isToday = calendar.isDate(day, inSameDayAs: now)
         let dayDensity = density[calendar.startOfDay(for: day)] ?? DayDensity()
-        let topColor: Color = isSelected ? .white.opacity(0.95) : (isToday ? Color.Offload.indigo : Color.Offload.muted)
+        let topColor: Color = isSelected ? .white.opacity(0.95) : (isToday ? Color.Offload.indigoText : Color.Offload.muted)
 
         return Button {
             withAnimation(Motion.standard) { selected = calendar.startOfDay(for: day) }
@@ -121,7 +121,7 @@ struct WeekStrip: View {
                     }
                     if isToday {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(isSelected ? Color.white.opacity(0.7) : Color.Offload.indigo.opacity(0.5),
+                            .strokeBorder(isSelected ? Color.white.opacity(0.7) : Color.Offload.indigoText.opacity(0.5),
                                           lineWidth: 1.5)
                     }
                 }

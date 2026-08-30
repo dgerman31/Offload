@@ -100,7 +100,7 @@ struct ProjectsView: View {
                     withAnimation(Motion.standard) { toggleExpanded(summary.id) }
                 } label: {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(.caption2, weight: .bold))
                         .foregroundStyle(Color.Offload.muted)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .frame(width: 20, height: 20)
@@ -158,7 +158,7 @@ private struct ProjectRowView: View {
                 Circle().stroke(Color.Offload.divider, lineWidth: 5)
                 Circle()
                     .trim(from: 0, to: summary.progress)
-                    .stroke(summary.progress >= 1 ? Color.Offload.green : Color.Offload.indigo,
+                    .stroke(summary.progress >= 1 ? Color.Offload.green : Color.Offload.indigoText,
                             style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .animation(Motion.settle, value: summary.progress)
@@ -166,7 +166,7 @@ private struct ProjectRowView: View {
                       ? "checkmark"
                       : (summary.hasChildren ? "folder.fill.badge.plus" : "folder.fill"))
                     .font(.caption)
-                    .foregroundStyle(summary.progress >= 1 && summary.total > 0 ? Color.Offload.green : Color.Offload.indigo)
+                    .foregroundStyle(summary.progress >= 1 && summary.total > 0 ? Color.Offload.green : Color.Offload.indigoText)
             }
             .frame(width: 42, height: 42)
 

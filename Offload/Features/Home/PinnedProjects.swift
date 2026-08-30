@@ -57,20 +57,20 @@ struct PinnedBento: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("PINNED")
-                    .font(.system(size: 11, weight: .heavy))
+                    .font(.system(.caption2, weight: .heavy))
                     .tracking(1)
                     .foregroundStyle(Color.Offload.muted)
                 Spacer()
                 Button("Edit", action: onEdit)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.Offload.indigo)
+                    .font(.system(.caption, weight: .semibold))
+                    .foregroundStyle(Color.Offload.indigoText)
                     .buttonStyle(.pressable)
             }
 
             if summaries.isEmpty {
                 Button(action: onEdit) {
                     HStack(spacing: 8) {
-                        Image(systemName: "pin.fill").font(.system(size: 13, weight: .semibold))
+                        Image(systemName: "pin.fill").font(.system(.footnote, weight: .semibold))
                         Text("Pin a project or list for one-tap access")
                             .font(.Offload.body)
                         Spacer(minLength: 0)
@@ -104,17 +104,17 @@ struct PinnedBento: View {
         let accent = PinnedProjects.accent(slot)
         return VStack(alignment: .leading, spacing: 10) {
             Image(systemName: PinnedProjects.glyph(slot))
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(.body, weight: .semibold))
                 .foregroundStyle(accent)
                 .frame(width: 38, height: 38)
                 .background(accent.opacity(0.2), in: .rect(cornerRadius: 11, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text(summary.project.title)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(.footnote, weight: .bold))
                     .foregroundStyle(Color.Offload.text)
                     .lineLimit(1)
                 Text("\(summary.total) task\(summary.total == 1 ? "" : "s")")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(.caption2, weight: .semibold))
                     .foregroundStyle(accent)
             }
         }
@@ -172,7 +172,7 @@ struct PinEditSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: summary.hasChildren ? "folder.fill.badge.plus" : "folder.fill")
-                    .foregroundStyle(Color.Offload.indigo)
+                    .foregroundStyle(Color.Offload.indigoText)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(summary.project.title)
                         .font(.Offload.taskTitle)
@@ -183,7 +183,7 @@ struct PinEditSheet: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: pinned ? "pin.fill" : "pin")
-                    .foregroundStyle(pinned ? Color.Offload.indigo : Color.Offload.muted.opacity(0.5))
+                    .foregroundStyle(pinned ? Color.Offload.indigoText : Color.Offload.muted.opacity(0.5))
             }
             .contentShape(Rectangle())
         }

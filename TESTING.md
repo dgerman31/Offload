@@ -77,6 +77,49 @@ the reason and a one-tap revert. Confirm the revert restores the old number.
 
 ---
 
+## Tier 2.5 — the HIG pass (v2.8.0)
+
+None of this can be checked by CI. Liquid Glass doesn't even render correctly in the simulator, so
+the whole appearance layer is device-only.
+
+### 11. Text actually scales now
+**Settings → Accessibility → Display & Text Size → Larger Text.** Drag it up.
+- Every screen's text should grow. Before this build, almost none of it did — 87 places used a
+  fixed point size.
+- Push it to the largest accessibility size and walk Home, Day, Study, Gym, Settings. Look for
+  **truncation, overlap, and anything you can no longer reach.** That's the failure mode, and it's
+  the part I couldn't test.
+- Then drop it to the smallest size and check nothing collapses.
+
+### 12. Reduce Motion is honoured
+**Settings → Accessibility → Motion → Reduce Motion.** Turn it on.
+- Cards should no longer slide up and stagger in when a screen opens — they fade.
+- Scrolling should no longer scale or lift cards as they cross the screen.
+- Buttons should still dim when pressed, but not shrink.
+- Turn it back off and confirm the choreography returns.
+
+### 13. Colour is readable in light mode
+Switch to **light** appearance (Settings → Appearance). The semantic colours were all failing
+contrast and have been darkened:
+- Habit labels and Study accents (teal), the evening nudge (amber), completion ticks (green), and
+  overdue markers (red) should all read clearly against white cards and the cream background.
+- They should look like the same colours, just deeper. If any reads as muddy or brown rather than
+  "darker teal/amber/green", tell me — that's a hue drift I'd want to correct.
+- Check dark mode too: the primary indigo used as *text* was previously invisible on dark cards
+  (1.72:1). Anywhere indigo text appears on a dark surface should now be plainly legible.
+
+### 14. The tab bar minimises
+Scroll down any long screen: the tab bar should shrink away, and come back when you scroll up.
+
+### 15. Liquid Glass
+Look at the tab bar, navigation bars, and sheets. On iOS 26 these should carry the system's glass
+material. **This is the check I most need from you** — I can't see it, and if it isn't there it
+means something in the app is opting out of the system chrome.
+
+Also turn on **Reduce Transparency** and confirm nothing becomes unreadable.
+
+---
+
 ## Tier 3 — still unresolved
 
 ### 10. The Live Activity on the Lock Screen

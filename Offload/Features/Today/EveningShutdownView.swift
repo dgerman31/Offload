@@ -125,7 +125,7 @@ struct EveningShutdownView: View {
                 toggle(task.id, in: $finishing, clearing: $dropping)
             } label: {
                 Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(.title3, weight: .medium))
                     .foregroundStyle(isDone ? Color.Offload.green : Color.Offload.muted.opacity(0.5))
                     .symbolEffect(.bounce, value: isDone)
             }
@@ -147,7 +147,7 @@ struct EveningShutdownView: View {
                 toggle(task.id, in: $dropping, clearing: $finishing)
             } label: {
                 Image(systemName: isDropped ? "arrow.uturn.backward" : "xmark")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(.caption, weight: .bold))
                     .foregroundStyle(Color.Offload.muted)
                     .frame(width: 30, height: 30)
                     .background(Color.Offload.background, in: .circle)
@@ -277,7 +277,7 @@ struct EveningShutdownCard: View {
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: "moon.stars.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(
@@ -296,7 +296,7 @@ struct EveningShutdownCard: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(.caption, weight: .semibold))
                     .foregroundStyle(Color.Offload.muted)
             }
             .padding(16)

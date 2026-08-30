@@ -25,7 +25,7 @@ struct ReorderableRow: ViewModifier {
                 if isTargeted {
                     Capsule()
                         .stroke(style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
-                        .foregroundStyle(Color.Offload.indigo)
+                        .foregroundStyle(Color.Offload.indigoText)
                         .frame(height: 2)
                         .offset(y: -8)
                         .transition(.opacity)

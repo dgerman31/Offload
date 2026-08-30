@@ -353,7 +353,7 @@ struct HomeView: View {
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: "sunrise.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(.body, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(
@@ -371,7 +371,7 @@ struct HomeView: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(.caption, weight: .semibold))
                     .foregroundStyle(Color.Offload.muted)
             }
             .padding(16)
@@ -389,14 +389,14 @@ struct HomeView: View {
         Button { capture.beginCapture() } label: {
             HStack(spacing: 10) {
                 Image(systemName: "bolt.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.Offload.indigo)
+                    .font(.system(.subheadline, weight: .semibold))
+                    .foregroundStyle(Color.Offload.indigoText)
                 Text("Say what's on your mind…")
                     .font(.Offload.body)
                     .foregroundStyle(Color.Offload.muted)
                 Spacer(minLength: 0)
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(.footnote, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
                     .background(Color.Offload.indigo, in: Circle())
@@ -468,7 +468,7 @@ struct HomeView: View {
     // MARK: Now & Next
 
     private func nowAndNext(_ s: DaySummary) -> some View {
-        card("Next", icon: "arrow.forward.circle.fill", tint: Color.Offload.indigo) {
+        card("Next", icon: "arrow.forward.circle.fill", tint: Color.Offload.indigoText) {
             VStack(spacing: 12) {
                 if let event = s.nextEvent {
                     HStack(spacing: 12) {
@@ -573,13 +573,13 @@ struct HomeView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "checklist")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(.caption, weight: .semibold))
                     Text("All tasks")
                         .font(.Offload.manrope(13, .semibold))
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(.caption2, weight: .semibold))
                 }
-                .foregroundStyle(Color.Offload.indigo)
+                .foregroundStyle(Color.Offload.indigoText)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
                 .background(Color.Offload.indigo.opacity(0.10), in: .capsule)
@@ -591,13 +591,13 @@ struct HomeView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(.caption, weight: .semibold))
                     Text("All projects")
                         .font(.Offload.manrope(13, .semibold))
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(.caption2, weight: .semibold))
                 }
-                .foregroundStyle(Color.Offload.indigo)
+                .foregroundStyle(Color.Offload.indigoText)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
                 .background(Color.Offload.indigo.opacity(0.10), in: .capsule)
@@ -611,7 +611,7 @@ struct HomeView: View {
 
     private func iconBadge(_ symbol: String, tint: Color) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(.footnote, weight: .semibold))
             .foregroundStyle(tint)
             .frame(width: 30, height: 30)
             .background(tint.opacity(0.12), in: .rect(cornerRadius: 9, style: .continuous))
@@ -651,7 +651,7 @@ struct HomeView: View {
                     .font(.Offload.data)
                     .monospacedDigit()
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(.caption2, weight: .bold))
                     .rotationEffect(.degrees(expanded ? 0 : -90))
             }
             .foregroundStyle(Color.Offload.muted)
@@ -768,7 +768,7 @@ struct EmptyCaptureInvitation: View {
     var body: some View {
         VStack(spacing: 18) {
             Image(systemName: "bolt.circle.fill")
-                .font(.system(size: 60))
+                .font(.system(.largeTitle))
                 .foregroundStyle(
                     LinearGradient(colors: [Color(hex: 0x5A76DC), Color(hex: 0x8A6FE0)],
                                    startPoint: .top, endPoint: .bottom)

@@ -117,7 +117,7 @@ struct SwipeToDeleteModifier: ViewModifier {
             Button { confirmDelete() } label: {
                 Label("Delete", systemImage: "trash.fill")
                     .labelStyle(.iconOnly)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(.callout, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: revealWidth)
                     .frame(maxHeight: .infinity)

@@ -72,7 +72,7 @@ struct TaskDetailView: View {
                     Haptics.light()
                 } label: {
                     Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 26, weight: .medium))
+                        .font(.system(.title, weight: .medium))
                         .foregroundStyle(task.status == "completed" ? Color.Offload.green : tint)
                         .symbolEffect(.bounce, value: task.status)
                 }
@@ -123,7 +123,7 @@ struct TaskDetailView: View {
     @ViewBuilder
     private var learnedEstimateNote: some View {
         if let note = LearnedEstimate.decode(task.metadata), let now = task.effortMinutes {
-            card("Adjusted for you", icon: "wand.and.stars", tint: Color.Offload.indigo) {
+            card("Adjusted for you", icon: "wand.and.stars", tint: Color.Offload.indigoText) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(headline(note: note, now: now))
                         .font(.Offload.body)
@@ -140,7 +140,7 @@ struct TaskDetailView: View {
                                 .font(.caption).fontWeight(.semibold)
                                 .padding(.horizontal, 12).padding(.vertical, 7)
                                 .background(Color.Offload.surface, in: .capsule)
-                                .foregroundStyle(Color.Offload.indigo)
+                                .foregroundStyle(Color.Offload.indigoText)
                         }
                         .buttonStyle(.pressable)
                     }
@@ -280,7 +280,7 @@ struct TaskDetailView: View {
                 Haptics.light()
             } label: {
                 Image(systemName: sub.status == "completed" ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 15))
+                    .font(.system(.subheadline))
                     .foregroundStyle(sub.status == "completed" ? Color.Offload.green : Color.Offload.muted)
                     .symbolEffect(.bounce, value: sub.status)
                     .contentShape(Circle())
@@ -337,7 +337,7 @@ struct TaskDetailView: View {
     private var addStepField: some View {
         HStack(spacing: 10) {
             Image(systemName: "plus.circle")
-                .font(.system(size: 15))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.Offload.muted)
             TextField("Add a step", text: $newStep)
                 .font(.Offload.body)
@@ -418,10 +418,10 @@ struct TaskDetailView: View {
                 let people = People.decode(task.people)
                 if !people.isEmpty {
                     metaRow("People", people.joined(separator: ", "), icon: "person.2.fill",
-                            tint: Color.Offload.indigo)
+                            tint: Color.Offload.indigoText)
                 }
                 if let project = store.projectTitle {
-                    metaRow("Project", project, icon: "folder.badge.gearshape", tint: Color.Offload.indigo)
+                    metaRow("Project", project, icon: "folder.badge.gearshape", tint: Color.Offload.indigoText)
                 }
             }
         }
@@ -431,7 +431,7 @@ struct TaskDetailView: View {
                          interactive: Bool = false) -> some View {
         HStack(spacing: 11) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(.caption, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 24, height: 24)
                 .background(tint.opacity(0.12), in: .rect(cornerRadius: 7, style: .continuous))
@@ -446,7 +446,7 @@ struct TaskDetailView: View {
             // A quiet affordance that this value is changeable right here, no Edit needed.
             if interactive {
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(.caption2, weight: .semibold))
                     .foregroundStyle(Color.Offload.muted.opacity(0.6))
             }
         }

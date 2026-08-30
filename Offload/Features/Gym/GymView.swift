@@ -72,7 +72,7 @@ struct GymView: View {
                 Button {
                     withAnimation(Motion.page) { weekStart = Calendar.current.date(byAdding: .day, value: -7, to: weekStart) ?? weekStart }
                 } label: {
-                    Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold))
+                    Image(systemName: "chevron.left").font(.system(.footnote, weight: .semibold))
                 }
                 .buttonStyle(.pressable(scale: 0.85))
                 .accessibilityLabel("Previous week")
@@ -84,7 +84,7 @@ struct GymView: View {
                         Button("This week") {
                             withAnimation(Motion.page) { weekStart = GymStore.startOfWeek(Date()) }
                         }
-                        .font(.caption).foregroundStyle(Color.Offload.indigo)
+                        .font(.caption).foregroundStyle(Color.Offload.indigoText)
                     }
                 }
                 Spacer(minLength: 0)
@@ -92,7 +92,7 @@ struct GymView: View {
                 Button {
                     withAnimation(Motion.page) { weekStart = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart }
                 } label: {
-                    Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
+                    Image(systemName: "chevron.right").font(.system(.footnote, weight: .semibold))
                 }
                 .buttonStyle(.pressable(scale: 0.85))
                 .accessibilityLabel("Next week")
@@ -144,8 +144,8 @@ struct GymView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: "figure.strengthtraining.traditional")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.Offload.indigo)
+                    .font(.system(.subheadline, weight: .semibold))
+                    .foregroundStyle(Color.Offload.indigoText)
                 TextField("Describe your goals, or just tap Plan…", text: $input, axis: .vertical)
                     .font(.Offload.body)
                     .focused($inputFocused)
@@ -170,7 +170,7 @@ struct GymView: View {
                         .font(.caption).fontWeight(.semibold)
                         .padding(.horizontal, 13).padding(.vertical, 8)
                         .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
-                        .foregroundStyle(Color.Offload.indigo)
+                        .foregroundStyle(Color.Offload.indigoText)
                 }
                 .buttonStyle(.pressable)
 
@@ -246,12 +246,12 @@ struct GymView: View {
             HStack {
                 Text(Self.dayLabel(day).uppercased())
                     .font(.caption2).fontWeight(.bold).tracking(0.6)
-                    .foregroundStyle(isToday ? Color.Offload.indigo : Color.Offload.muted)
+                    .foregroundStyle(isToday ? Color.Offload.indigoText : Color.Offload.muted)
                 if isToday {
                     Text("TODAY").font(.caption2).fontWeight(.bold).tracking(0.6)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.Offload.indigo.opacity(0.14), in: .capsule)
-                        .foregroundStyle(Color.Offload.indigo)
+                        .foregroundStyle(Color.Offload.indigoText)
                 }
                 Spacer(minLength: 0)
                 if sessions.isEmpty {
@@ -260,7 +260,7 @@ struct GymView: View {
                     } label: {
                         Label("Plan", systemImage: "plus.circle.fill")
                             .font(.caption).fontWeight(.semibold)
-                            .foregroundStyle(Color.Offload.indigo)
+                            .foregroundStyle(Color.Offload.indigoText)
                     }
                     .buttonStyle(.pressable)
                 }
@@ -295,7 +295,7 @@ struct GymView: View {
                 Task { await store.toggleComplete(session) }
             } label: {
                 Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(.body, weight: .medium))
                     .foregroundStyle(done ? Color.Offload.green : accent)
             }
             .buttonStyle(.pressable(scale: 0.85))
@@ -322,7 +322,7 @@ struct GymView: View {
                 }
             }
             Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(.caption2, weight: .semibold))
                 .foregroundStyle(Color.Offload.muted)
         }
         .padding(11)
@@ -338,7 +338,7 @@ struct GymView: View {
 
     static func accent(for workoutType: String) -> Color {
         switch workoutType {
-        case "strength":   return Color.Offload.indigo
+        case "strength":   return Color.Offload.indigoText
         case "cardio":     return Color(hex: 0xE8547C)
         case "mobility", "stretching": return Color.Offload.teal
         case "hiit":       return Color(hex: 0xD79A2B)

@@ -44,7 +44,7 @@ struct OffloadApp: App {
             RootView()
                 .environment(availability)
                 .environment(capture)
-                .tint(Color.Offload.indigo)
+                .tint(Color.Offload.indigoText)
                 .themed()   // honour the light/dark preference from Settings
         }
         .onChange(of: scenePhase) { _, phase in

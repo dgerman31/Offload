@@ -103,14 +103,14 @@ struct AddTaskSheet: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "wand.and.stars")
-                                    .foregroundStyle(Color.Offload.indigo)
+                                    .foregroundStyle(Color.Offload.indigoText)
                                 Text("Schedule for \(Self.friendly(detected.date, hasTime: detected.hasTime))")
                                     .font(.Offload.body)
                                     .foregroundStyle(Color.Offload.text)
                                 Spacer(minLength: 0)
                                 Text("Use")
                                     .font(.caption).fontWeight(.semibold)
-                                    .foregroundStyle(Color.Offload.indigo)
+                                    .foregroundStyle(Color.Offload.indigoText)
                             }
                         }
                         .buttonStyle(.plain)

@@ -114,7 +114,7 @@ struct CaptureView: View {
                         .padding(.horizontal, 18).padding(.vertical, 10)
                         .background(vm.isListening ? Color.Offload.teal : Color.Offload.surface,
                                     in: .capsule)
-                        .foregroundStyle(vm.isListening ? .white : Color.Offload.indigo)
+                        .foregroundStyle(vm.isListening ? .white : Color.Offload.indigoText)
                         .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: vm.isListening ? 0 : 1))
                 }
                 .disabled(vm.isProcessing)
@@ -133,7 +133,7 @@ struct CaptureView: View {
                             .font(.Offload.taskTitle)
                             .padding(.horizontal, 18).padding(.vertical, 10)
                             .background(Color.Offload.surface, in: .capsule)
-                            .foregroundStyle(Color.Offload.indigo)
+                            .foregroundStyle(Color.Offload.indigoText)
                             .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: 1))
                     }
                     .accessibilityLabel("Type instead — stop the mic without saving")
@@ -249,7 +249,7 @@ struct CaptureView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
                 .background(selected ? Color.Offload.indigo : Color.Offload.background, in: .capsule)
-                .foregroundStyle(selected ? .white : Color.Offload.indigo)
+                .foregroundStyle(selected ? .white : Color.Offload.indigoText)
                 .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: selected ? 0 : 1))
         }
         .buttonStyle(.plain)
@@ -273,7 +273,7 @@ struct CaptureView: View {
         VStack(spacing: 16) {
             Group {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 56))
+                    .font(.system(.largeTitle))
                     .foregroundStyle(Color.Offload.teal)
                 // "Create a project" with nothing else made a container, not tasks — say so.
                 Text(headline(added: added, project: project))
@@ -367,8 +367,8 @@ struct CaptureView: View {
     private func projectMergedCard(title: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "folder.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.Offload.indigo)
+                .font(.system(.footnote))
+                .foregroundStyle(Color.Offload.indigoText)
             Text("Filed under “\(title)”")
                 .font(.Offload.body)
                 .foregroundStyle(Color.Offload.text)
@@ -381,7 +381,7 @@ struct CaptureView: View {
                     .font(.caption).fontWeight(.semibold)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(Color.Offload.surface, in: .capsule)
-                    .foregroundStyle(Color.Offload.indigo)
+                    .foregroundStyle(Color.Offload.indigoText)
                     .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: 1))
             }
             .buttonStyle(.pressable)
@@ -463,7 +463,7 @@ struct CaptureView: View {
                             .font(.caption).fontWeight(.semibold)
                             .padding(.horizontal, 14).padding(.vertical, 8)
                             .background(Color.Offload.surface, in: .capsule)
-                            .foregroundStyle(Color.Offload.indigo)
+                            .foregroundStyle(Color.Offload.indigoText)
                             .overlay(Capsule().stroke(Color.Offload.divider, lineWidth: 1))
                     }
                     .buttonStyle(PressableButtonStyle())

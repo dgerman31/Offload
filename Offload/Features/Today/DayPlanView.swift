@@ -266,7 +266,7 @@ struct DayPlanView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "sparkles")
                         .font(.caption)
-                        .foregroundStyle(Color.Offload.indigo)
+                        .foregroundStyle(Color.Offload.indigoText)
                     Text(rationale)
                         .font(.Offload.body)
                         .foregroundStyle(Color.Offload.text)
@@ -309,7 +309,7 @@ struct DayPlanView: View {
                         .lineLimit(1).fixedSize()
                         .padding(.horizontal, 11).padding(.vertical, 6)
                         .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
-                        .foregroundStyle(Color.Offload.indigo)
+                        .foregroundStyle(Color.Offload.indigoText)
                 }
             }
         }
@@ -337,7 +337,7 @@ struct DayPlanView: View {
                 Haptics.light()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(.caption2, weight: .bold))
                     .foregroundStyle(Color.Offload.muted)
                     .frame(width: 26, height: 26)
                     .background(Color.Offload.muted.opacity(0.12), in: .circle)
@@ -455,7 +455,7 @@ private struct CountStepper: View {
     var body: some View {
         VStack(spacing: 4) {
             Text(label.uppercased())
-                .font(.system(size: 10, weight: .heavy))
+                .font(.system(.caption2, weight: .heavy))
                 .tracking(0.8)
                 .foregroundStyle(Color.Offload.muted)
             HStack(spacing: 0) {
@@ -493,8 +493,8 @@ private struct CountStepper: View {
             action(); Haptics.light()
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(enabled ? Color.Offload.indigo : Color.Offload.muted.opacity(0.4))
+                .font(.system(.footnote, weight: .bold))
+                .foregroundStyle(enabled ? Color.Offload.indigoText : Color.Offload.muted.opacity(0.4))
                 .frame(width: 36, height: 30)
         }
         .buttonStyle(.plain)

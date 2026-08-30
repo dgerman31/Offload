@@ -102,7 +102,7 @@ struct RestTimerView: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 1), value: timer.progress)
                 Text(timer.clock)
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(Color.Offload.text)
             }

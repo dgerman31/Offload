@@ -28,7 +28,11 @@ struct RootView: View {
                     Tab("Study", systemImage: "graduationcap.fill", value: RootTab.study) { StudyView() }
                     Tab("Settings", systemImage: "slider.horizontal.3", value: RootTab.settings) { SettingsView() }
                 }
-                .tint(Color.Offload.indigo)
+                // iOS 26: the tab bar shrinks out of the way as you read down a screen and comes
+                // back the moment you scroll up. Content-first, and it's the system behaviour —
+                // matching it is most of what makes an app feel native rather than adjacent.
+                .tabBarMinimizeBehavior(.onScrollDown)
+                .tint(Color.Offload.indigoText)
                 // Above the tab bar, over whatever tab you're on. A running timer that's only
                 // visible on the screen that started it is indistinguishable from one that
                 // stopped — and this one keeps running everywhere, so it has to show everywhere.

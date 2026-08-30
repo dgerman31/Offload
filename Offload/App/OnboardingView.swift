@@ -123,7 +123,7 @@ struct OnboardingView: View {
                     } label: {
                         VStack(spacing: 8) {
                             Image(systemName: theme.icon)
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(.body, weight: .semibold))
                             Text(theme.label)
                                 .font(.caption).fontWeight(.semibold)
                         }
@@ -154,7 +154,7 @@ struct OnboardingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Image(systemName: icon)
-                    .font(.system(size: 40, weight: .semibold))
+                    .font(.system(.largeTitle, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.top, 40)
 
@@ -182,7 +182,7 @@ struct OnboardingView: View {
     private func bullet(_ icon: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(.footnote, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(.white.opacity(0.14), in: .rect(cornerRadius: 8, style: .continuous))
@@ -198,7 +198,7 @@ struct OnboardingView: View {
         HStack(spacing: 12) {
             Text(number)
                 .font(.system(.caption, design: .rounded)).fontWeight(.bold)
-                .foregroundStyle(Color(hex: 0x2E3B8C))
+                .foregroundStyle(Color.Offload.indigoText)
                 .frame(width: 24, height: 24)
                 .background(.white, in: .circle)
             Text(text)
@@ -214,7 +214,7 @@ struct OnboardingView: View {
     ) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(.footnote, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 32, height: 32)
                 .background(.white.opacity(0.14), in: .rect(cornerRadius: 9, style: .continuous))
@@ -241,7 +241,7 @@ struct OnboardingView: View {
                         .font(.caption).fontWeight(.semibold)
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(.white, in: .capsule)
-                        .foregroundStyle(Color(hex: 0x2E3B8C))
+                        .foregroundStyle(Color.Offload.indigoText)
                 }
                 .buttonStyle(.pressable)
             }
@@ -284,7 +284,7 @@ struct OnboardingView: View {
                     .font(.Offload.taskTitle)
                     .padding(.horizontal, 26).padding(.vertical, 14)
                     .background(.white, in: .capsule)
-                    .foregroundStyle(Color(hex: 0x2E3B8C))
+                    .foregroundStyle(Color.Offload.indigoText)
             }
             .buttonStyle(.pressable)
         }

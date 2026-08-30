@@ -123,18 +123,18 @@ struct DiagnosticsView: View {
                     .font(.Offload.data)
                     .foregroundStyle(Color.Offload.muted)
                 Text(entry.category)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(.caption2, weight: .semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.Offload.surface, in: .capsule)
                     .foregroundStyle(Color.Offload.muted)
                 if Self.isProblem(entry.level) {
                     Text(entry.level.uppercased())
-                        .font(.system(size: 10, weight: .heavy))
+                        .font(.system(.caption2, weight: .heavy))
                         .foregroundStyle(Color.Offload.red)
                 }
             }
             Text(entry.message)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(Self.isProblem(entry.level) ? Color.Offload.red : Color.Offload.text)
                 .textSelection(.enabled)
         }

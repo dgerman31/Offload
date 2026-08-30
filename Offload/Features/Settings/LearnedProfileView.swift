@@ -169,7 +169,7 @@ struct LearnedProfileView: View {
                         .fill(peak ? Color.Offload.teal : Color.Offload.muted.opacity(0.28))
                         .frame(height: max(4, 46 * score))
                     Text(shortHour(hour))
-                        .font(.system(size: 8, weight: peak ? .bold : .regular))
+                        .font(.system(.caption2, weight: peak ? .bold : .regular))
                         .foregroundStyle(peak ? Color.Offload.text : Color.Offload.muted)
                 }
                 .frame(maxWidth: .infinity)
@@ -241,7 +241,7 @@ struct LearnedProfileView: View {
                             .font(.caption).fontWeight(.medium)
                             .padding(.horizontal, 9).padding(.vertical, 5)
                             .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
-                            .foregroundStyle(Color.Offload.indigo)
+                            .foregroundStyle(Color.Offload.indigoText)
                     }
                 }
                 .padding(.vertical, 4)

@@ -171,7 +171,7 @@ struct RitualView: View {
             }
         }
 
-        section("Mental load", icon: load.band.symbol, tint: Color.Offload.indigo, index: 2) {
+        section("Mental load", icon: load.band.symbol, tint: Color.Offload.indigoText, index: 2) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(load.headline)
                     .font(.Offload.taskTitle)
@@ -232,7 +232,7 @@ struct RitualView: View {
                                     .lineLimit(1).fixedSize()
                                     .padding(.horizontal, 11).padding(.vertical, 6)
                                     .background(Color.Offload.indigo.opacity(0.12), in: .capsule)
-                                    .foregroundStyle(Color.Offload.indigo)
+                                    .foregroundStyle(Color.Offload.indigoText)
                             }
                             .buttonStyle(.pressable)
                         }
@@ -241,7 +241,7 @@ struct RitualView: View {
             }
         }
 
-        section("Anything still on your mind?", icon: "brain.head.profile", tint: Color.Offload.indigo, index: 3) {
+        section("Anything still on your mind?", icon: "brain.head.profile", tint: Color.Offload.indigoText, index: 3) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Empty it here and it'll be organized for you. Nothing needs carrying overnight.")
                     .font(.Offload.data)

@@ -311,7 +311,7 @@ struct DayView: View {
             if case let .task(task) = entry.item {
                 Button { Task { await store.toggleComplete(task) } } label: {
                     Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(.footnote, weight: .medium))
                         .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
                         .symbolEffect(.bounce, value: task.status)
                 }
@@ -331,7 +331,7 @@ struct DayView: View {
                         Text("· \(Self.stepsRemaining(entry.steps))/\(entry.steps.count) steps")
                     }
                 }
-                .font(.system(size: 10))
+                .font(.system(.caption2))
                 .foregroundStyle(Color.Offload.muted)
                 .lineLimit(1)
             }
@@ -348,19 +348,19 @@ struct DayView: View {
         return HStack(spacing: 8) {
             Button { Task { await store.toggleComplete(slice.task) } } label: {
                 Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(.caption, weight: .medium))
                     .foregroundStyle(done ? Color.Offload.green : accent.opacity(0.7))
                     .symbolEffect(.bounce, value: slice.task.status)
             }
             .buttonStyle(.pressable(scale: 0.85))
             Text(slice.task.title)
-                .font(.system(size: 11))
+                .font(.system(.caption2))
                 .strikethrough(done)
                 .foregroundStyle(done ? Color.Offload.muted : Color.Offload.text)
                 .lineLimit(1)
             Spacer(minLength: 4)
             Text(TimeFormat.time(slice.start))
-                .font(.system(size: 9))
+                .font(.system(.caption2))
                 .foregroundStyle(Color.Offload.muted)
         }
         .padding(.leading, 20).padding(.trailing, 8)
@@ -384,7 +384,7 @@ struct DayView: View {
             if case let .task(task) = item {
                 Button { Task { await store.toggleComplete(task) } } label: {
                     Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(.callout, weight: .medium))
                         .foregroundStyle(task.status == "completed" ? Color.Offload.green : accent)
                         .symbolEffect(.bounce, value: task.status)
                 }

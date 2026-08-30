@@ -109,10 +109,13 @@ struct PressableButtonStyle: ButtonStyle {
     var scale: CGFloat = 0.96
 
     func makeBody(configuration: Configuration) -> some View {
-        Body(configuration: configuration, scale: scale)
+        PressedLabel(configuration: configuration, scale: scale)
     }
 
-    private struct Body: View {
+    /// Deliberately *not* called `Body`: `ButtonStyle` has an associated type of that name, so a
+    /// nested `Body` is read as the protocol's witness rather than a helper view — and a private
+    /// witness can't satisfy an internal protocol, which is the error that produced.
+    private struct PressedLabel: View {
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
         let configuration: Configuration
         let scale: CGFloat

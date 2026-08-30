@@ -1,158 +1,103 @@
-# Offload v1.0.0 — What's New & How to Test It
+# Offload — on-device test script
 
-Sideload `~/Desktop/Offload-App/Offload.ipa`, then trust it under
-**Settings → General → VPN & Device Management**.
+*For **v2.7.0 (build 47)**. Rewritten 31 July 2026; the previous version of this file tested
+v1.0.0 and had been wrong for roughly forty builds.*
 
-**Do this first:** Settings → Data → **Erase all tasks**. Most of these features only look
-right against fresh data, and old test tasks were captured before the extraction fixes.
-
----
-
-## Tier 1 — Test these first (biggest changes)
-
-### 1. Extraction that captures intent, not words
-Capture each of these by voice and check what you get:
-
-| Say this | Should produce | Should NOT produce |
-|---|---|---|
-| "I left my jacket in school" | **Retrieve jacket from school** | "forget jacket" |
-| "I keep forgetting to call mom" | **Call mom** | anything about forgetting |
-| "ugh this codebase is a mess" | **nothing** (venting) | a vague "codebase" task |
-| "create a project for future app ideas, I want subfolders and a details field" | A project + **exactly 2 tasks** | a 5-step lifecycle plan with invented dates |
-| "rent's due friday" | **Pay rent**, Finance, **high**, due Friday | medium priority |
-
-> The 4th row is the exact failure you screenshotted. It should no longer invent
-> "Research app management systems / Design architecture / Develop / Test / Launch",
-> and should attach **no due dates or effort estimates** you didn't mention.
-
-### 2. Plan my day
-Add 4–5 tasks with no dates, make sure you have a calendar event or two today, then tap
-**Plan my day** on Home.
-- Tasks should fill the **real gaps** between your meetings, never overlapping them
-- Nothing scheduled **in the past** — planning at 2pm starts at 2pm
-- 5-minute buffers between tasks
-- Anything that doesn't fit is listed as **"Didn't fit today"**, not crammed in
-- Tap the **slider chip** → set "Best hours" → demanding work should move into that window
-- Drop a row with ✕, then **Schedule** — accepted times appear on the Home timeline
-
-### 3. Reminders that you can act on
-Settings → Reminders → turn on **"Remind me when tasks are due"** (allow notifications).
-Create a task due ~2 minutes out, then **lock your phone**.
-- Notification fires
-- **Long-press it** → "Mark done" and "In an hour"
-- "Mark done" completes it *without opening the app* — verify in the app afterwards
-
-### 4. Recurrence actually repeats
-Add a task → schedule it → **Repeat: Every day** → save → complete it.
-- Undo banner says **"next one scheduled"**
-- Tomorrow's date now has that task (check the week strip / Calendar)
-- Previously this did nothing at all
+Sideload the `.ipa` from the CI run, then trust it under **Settings → General → VPN & Device
+Management**. This covers what's changed recently and what CI cannot check — anything involving a
+finger, a Lock Screen, or several days of real use.
 
 ---
 
-## Tier 2 — Daily-use features
+## Tier 1 — the fixes that need confirming
 
-### 5. Light / dark mode
-Settings → Appearance → Automatic / Light / Dark. Light mode should look *designed*
-(cool off-white, white cards floating) — not plain white.
+### 1. Dragging a block actually sticks
+Day tab → press and hold a task block → drag it down an hour → release.
 
-### 6. Week strip + timeline (Home)
-- Tap days in the strip to look ahead; dots show which days are busy
-- The day renders as a **connected timeline** — events and tasks on one rail, colour-coded
-by category, past items dimmed
+- It should **stay where you put it**, not spring back. (It sprang back until v2.6.0: the row id is
+  prefixed `task-…` and the lookup was searching for a task with that as its id, so nothing was
+  ever written.)
+- **Scrolling must still work afterwards.** Drag, then immediately scroll. Also start a drag and
+  cancel it by dragging off the edge, then scroll. Both must work — a cancelled drag used to leave
+  the scroll view frozen until the app restarted.
+- Try it on a gym-linked block and on a real calendar event: neither should move.
 
-### 7. Manual add + natural language
-Tap **+** on Home. Type `lunch with Sam tomorrow 1pm`.
-- A row appears offering **"Schedule for tomorrow 1:00 PM"**
-- Tapping it sets the date and trims the title to "lunch with Sam"
-- It should **offer**, never auto-apply
+### 2. Completing a task on the Day tab makes it disappear
+Visit another tab first, come back, then complete something from the Day tab. It should vanish
+immediately. (The shared task stream was torn down when Home disappeared, so nothing was observing
+tasks and every list except Home went stale.)
 
-### 8. Focus timer
-Long-press any task → **Focus X min** → full-screen countdown ring.
-Finish or "Done early" → task completes, minutes bank into Insights.
+### 3. The Home cards stay live
+- Home → Groceries → add three items → back. The card must read **"3 to get"**, not "Nothing on the
+  list".
+- Home → tick a daily habit; it ticks and stays ticked. Tick it again and it unticks. Repeat after
+  switching tabs a few times. Both cards froze permanently after the first navigation away.
 
-### 9. Waiting on someone
-Long-press a task → **Waiting on someone**.
-- Gets an amber "Waiting" chip
-- **Excluded from Plan my day** (you can't do it)
-- Weighs less in Mental Load
-- Appears under Search → **Waiting on**
-
-### 10. Mental Load
-Home shows an inverse ring — *lower is calmer*. Add overdue tasks and watch it climb;
-the advice line should change with the band (Clear → Light → Full → Heavy).
-
-### 11. Daily rituals
-Open the app **before 11am** → "Morning brief" card. **After 7pm** → "Close the day".
-The evening one: review what closed, one-tap roll leftovers to tomorrow, and a final
-brain-dump that runs through the normal capture pipeline.
+### 4. Anki counts are typable
+Home → "I'm up" → the Anki card → tap the number and type `217`. The estimate above should update as
+you type. The ± buttons still work.
 
 ---
 
-## Tier 3 — Structure & organisation
+## Tier 2 — what's new
 
-### 12. Project subfolders
-Projects → **+** → create one → long-press it → **Add subfolder**.
-Progress should **roll up**: a parent counts everything beneath it.
+### 4b. Capture fails honestly (v2.7.0)
+Turn on Airplane Mode and capture something. It must **keep your words**, say plainly that it
+couldn't reach Gemini, and leave the retry to you — never save a half-understood task. Repeat with
+the API key removed, and with Private Mode on: each should name its own reason. Then reconnect and
+confirm `CaptureRetrySweep` picks the capture up.
 
-### 13. Task detail screen
-Tap any task (previously went straight to an edit form).
-- Read-first view: details, steps with **"2 of 5 done"** progress bar, people, repeat rule
-- **Add a step** inline at the bottom
-- Focus / Snooze / Delete buttons; Edit in the top-right
+### 5. Evening shutdown
+Appears **after 8pm**, and only when there's something to close out. Home → "Close out the day".
+- Tick something you actually did, drop something you didn't, leave the rest alone.
+- The button says "Move N to tomorrow" — N should count only what you left alone.
+- Work with a real time keeps that hour tomorrow; whole-day work lands as whole-day.
+- Once closed out, it shouldn't ask again until tomorrow.
 
-### 14. People & commitments
-Capture "send Sarah the deck" and "call Sarah about the invoice".
-Search → scroll past the smart lists → **People** → Sarah → everything you owe her.
-Also try Siri: **"Hey Siri, what do I owe someone in Offload"**.
+### 6. Habit streaks
+Tick a habit three days running — a flame and a count appear. Miss a day and it resets. **Not having
+ticked today must not zero it** — the day isn't over.
 
-### 15. Smart lists
-Search now opens on **Overdue / Today / This week / High priority / Unscheduled /
-Waiting on / Completed** with live counts.
+### 7. The now line
+Day tab, today: a red line at the current time, and the view opens scrolled to it. Yesterday and
+tomorrow have no line and open at the top.
 
-### 16. Bulk actions
-Search → open a list → **Select** (top right) → tick several → bar appears with
-**Done / Snooze / Delete**.
+### 8. Time spent against the estimate
+Run the focus timer against one task across a few sittings. Task detail should show *"1h 10m of 2h
+estimated"*. Push past the estimate and it offers to revise it.
 
-### 17. Custom categories
-Settings → Learning → **Categories** → add e.g. "Studying".
-It appears in pickers *and* the AI will file into it.
+### 9. What Offload has learned
+**Settings → What Offload has learned.** Expect it to be nearly empty for a couple of weeks — that's
+correct. Everything is sample-gated: 5 finished timed tasks for drift, 12 focus sessions for the
+energy curve, 3 repetitions for an estimate prior, 8 scheduled blocks for plan outcomes. Check that
+"Recalculate now" doesn't hang and that "Forget everything" empties it.
 
----
-
-## Tier 4 — Quieter things
-
-| # | Feature | Where |
-|---|---|---|
-| 18 | **Insights screen** — streaks, focus minutes, mental load, weekly review, where your week went | Settings → Your progress → Insights |
-| 19 | **Habit learning** — peak hour, effort bias, neglected categories (silent until ~12 completions) | Insights → "How you work" |
-| 20 | **Weekly review** — flags tasks you keep deferring and stale undated ones | Insights → "Your week" |
-| 21 | **Journal** — every capture in your own words, including ones that made no task | Settings → Journal |
-| 22 | **Project briefs** — "where are we with this?" written on-device | Open any project |
-| 23 | **Data export** — one JSON file you own | Settings → Data → Export everything |
-| 24 | **Siri: "what's on my plate"** | Lock screen |
-| 25 | **Live waveform** while dictating | Capture screen, tap the mic |
-| 26 | **Onboarding** — only shows on a fresh install | Delete + reinstall to see it |
-| 27 | **Duplicate task** | Long-press any task |
-| 28 | **Consistent actions** — same long-press menu on every screen | Home / Search / Calendar |
-| 29 | **Swipe actions** | Inside a project |
-| 30 | **Auto-record** — Action Button opens already listening, with "Type instead" | Press the Action Button |
+Once it fills in, any task whose estimate the app changed shows an **"Adjusted for you"** card with
+the reason and a one-tap revert. Confirm the revert restores the old number.
 
 ---
 
-## What I'd most like feedback on
+## Tier 3 — still unresolved
 
-1. **Does the extraction feel right now?** That's the heart of the app and the thing CI
-   can't verify — the model only runs on your phone.
-2. **Is "Plan my day" useful or gimmicky?** It's the biggest new bet.
-3. **Motion intensity** — scroll transitions and the card cascade. Too much? Too subtle?
-4. **Is Home too busy?** It now has hero, week strip, now/next, plan, ritual, mental load,
-   suggestions, overdue, timeline, batch, whenever. That may be too many cards competing.
+### 10. The Live Activity on the Lock Screen
+Known issue: the focus timer appears in the Dynamic Island but has been reported blank on the Lock
+Screen. To narrow it down:
 
-## Known limitations
+1. Start a focus timer, then lock the phone.
+2. **Settings → Data → Diagnostics**, `app` category:
+   - *"Started the focus Live Activity (now 1 active)"* → the app asked correctly and the widget
+     extension isn't rendering. Most likely Sideloadly rewriting bundle IDs so the extension no
+     longer matches its host app.
+   - An error line → ActivityKit refused the request.
+   - Nothing at all → Live Activities are disabled for the app.
+3. Also check **Settings → Face ID & Passcode → Live Activities** — a separate switch, and the one
+   that would explain "Dynamic Island yes, Lock Screen no".
 
-- **Calendar events need a real device** — the simulator has no EventKit data
-- **Notifications need permission** — grant them in onboarding or Settings
-- **Habit learning stays silent** until ~12 completed tasks (by design — an app that claims
-  to know you after three tasks is lying)
-- **7-day sideload expiry** on a free Apple ID; reinstall to renew
+---
+
+## Regressions worth a glance
+
+Cheap to check, and all have broken before: voice capture auto-submits when you tap the mic again ·
+"rent's due friday" produces *Pay rent*, Finance, high, due Friday · venting produces no task ·
+saying something already on your list says "Already got it" instead of adding a second copy ·
+appointments appear in Apple Calendar · planning at 2pm never schedules anything into the morning.

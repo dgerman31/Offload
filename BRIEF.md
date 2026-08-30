@@ -1,98 +1,110 @@
 # Offload — App Brief (for brainstorming future features)
 
+*Accurate as of v2.7.0 (build 47). If this disagrees with `git log`, trust the log.*
+
 ## What it is
 
-**Offload** is a near-zero-friction thought-capture app for iPhone. You press the Action
-Button, speak or type a passing thought, and an **on-device AI** turns it into organized,
-contextual tasks. Nothing leaves the phone.
+**Offload** is a near-zero-friction thought-capture app for iPhone. You press the Action Button,
+speak a passing thought, and an AI turns it into organised, scheduled work.
 
-**The core promise:** you forget nothing, so your mind un-clenches. It's a cognitive-offload
-tool first and a task manager second. The guiding inversion: **an empty screen is success**,
-not an empty state — when Home says "Mind clear," the product worked.
+**The core promise:** you forget nothing, so your mind un-clenches. It's a cognitive-offload tool
+first and a task manager second. The guiding inversion: **an empty screen is success**, not an empty
+state — when Home says "Mind clear," the product worked.
+
+**Who it's for:** one user, a medical student who sets his own daily schedule. The app is
+deliberately *not* deadline-or-pressure shaped — there is no red "overdue"; timing reads "Scheduled"
+for fixed commitments and "Planned for" for soft ones. Work that slips rolls forward automatically
+rather than accumulating as debt.
 
 ## Technical shape
 
-- **Platform:** iOS 26+, iPhone only (Apple Intelligence–eligible devices, e.g. iPhone 15 Pro / 16 / 17)
-- **AI:** Apple Foundation Models framework — on-device, free, no network, no API cost.
-  Typed extraction via `@Generable` structured output (constrained decoding, so no JSON parsing).
-- **UI:** SwiftUI, 5 tabs (Home · Calendar · Projects · Search · Settings)
-- **Storage:** SQLite via GRDB, reactive `ValueObservation` streams
-- **Calendar:** EventKit, read *and* write
-- **Embeddings:** `NLEmbedding` sentence vectors, on-device, for dedup + semantic search
-- **Distribution:** GitHub Actions builds an unsigned `.ipa` → Sideloadly + free Apple ID.
-  7-day re-sign cycle. No paid Apple Developer account yet, so **no TestFlight, no push
-  notifications, no App Store**. Currently v0.3.1, single user (the developer).
-- **Constraint worth knowing:** the developer's Mac can't build iOS 26, so **GitHub Actions
-  CI is the only way to verify a build**. Every change ships as a large, CI-verified increment.
+- **Platform:** iOS 26+, iPhone only. Five tabs: **Home · Day · Gym · Study · Settings**
+  (Search and Projects live inside Home).
+- **AI:** **Gemini 3.1 Flash Lite** — extraction and day planning. As of v2.7.0 capture is
+  Gemini-**only**: the on-device fallback was deliberately removed, because a small model silently
+  standing in for a frontier one produced quietly worse captures with nothing saying the good model
+  never ran. When Gemini can't run the words stay put and the app says why (`ExtractionUnavailable`).
+  `AIRouter` routes; `AIBudget` caps spend. **This is not an on-device-only app** — capture text and
+  task titles go to Google. What never leaves: the database, embeddings, the learned profile, and
+  journal entries (planned, and specified as never-sent by design).
+- **Storage:** SQLite via GRDB with reactive `ValueObservation` streams; one shared task stream
+  (`SharedTasks`) rather than per-screen observations.
+- **Calendar:** EventKit, read *and* write. **Embeddings:** `NLEmbedding`, on-device, for dedup and
+  semantic search. **Focus:** ActivityKit Live Activity, Lock Screen and Dynamic Island.
+- **Distribution:** GitHub Actions builds an unsigned `.ipa` (opt-in via `[ipa]` in the commit
+  message) → Sideloadly + free Apple ID. 7-day re-sign cycle.
+- **Free-signing constraints:** no App Groups, so **a Home Screen widget cannot read app data at
+  all**; no push; no iCloud; no TestFlight. Live Activities are the exception and work fine.
+- **Build constraint:** the developer's Mac (macOS 12) cannot compile the app. **CI is the only
+  compiler**, so everything ships as a large, CI-verified increment written blind.
 
 ## Current features (all shipped and CI-verified)
 
 **Capture**
-- Action Button → capture screen that's *already recording* (auto-record), with a "type
-  instead" escape that stops the mic without submitting
-- Voice capture with on-device transcription; tapping the mic again stops *and* submits
-- Siri lock-screen capture — "Hey Siri, tell Offload" runs the whole pipeline without unlocking
-- Raw input is persisted *before* extraction, so words are never lost on AI failure
+- Action Button and Siri open a screen that's *already recording*, with a "type instead" escape
+- Raw input persisted *before* extraction, so words survive an AI failure; `CaptureRetrySweep`
+  re-extracts anything that failed once conditions change
+- **Honest failure** — when Gemini is unreachable, out of budget, or has no key, the capture says
+  which, keeps your words, and leaves the retry to you rather than saving something dumber
+- **Intent-based extraction:** problem statements invert into their fix ("left my jacket in school"
+  → *Retrieve jacket from school*), meta-frames are stripped ("I keep forgetting to call mom" →
+  *Call mom*), vague intents become concrete next steps, pure venting produces nothing
+- Complexity-matched structure: errand → one task; multi-step job → steps; real project → tasks
+- Priority from consequence and urgency, with a guard so anything due today is never "low"
+- **Duplicate handling in two tiers:** near-identical restatements of open tasks are dropped with an
+  "already on your list" result; genuinely *similar* work still prompts Merge / Keep both / Skip
+- Categories, context tags, effort estimates, lenient multi-format due-date parsing, RRULE recurrence
+- Natural-language commitments ("gym 5×/week ~45min", "class M–Th 9–12") become `Routine`s, not tasks
+- Appointments the model classifies as real become actual EventKit events
 
-**AI extraction (the heart of the app)**
-- **Intent-based, not transcription-based.** Problem statements invert into their fix
-  ("I left my jacket in school" → "Retrieve jacket from school"); meta-frames are stripped
-  ("I keep forgetting to call mom" → "Call mom"); vague intents become concrete next steps
-  ("think about the Q3 roadmap" → "Draft Q3 roadmap outline"); pure venting produces no task
-- **Complexity-matched structure:** atomic errand → one task; genuinely multi-step task →
-  subtasks; real project → multiple tasks. Deterministic guards prevent over-decomposition
-- **Priority** inferred from consequence + urgency + language intensity, with a guardrail so
-  anything due today/overdue is never labeled "low"
-- Categories, context tags (home/work/car/store/gym/phone/…), effort estimates, due dates
-  with lenient multi-format parsing, recurrence rules (iCalendar RRULE)
-- **Deliberate mode:** optional slower two-pass reasoning for better results on hard captures
-- **Duplicate detection blocks before saving** — near-duplicates prompt Merge / Keep both / Skip
-- Calendar-aware scheduling: the model reads your calendar to pick due times around busy windows
-- **Calendar write:** the model classifies real appointments, which become actual EventKit events
+**Scheduling**
+- `DayPlanner` — deterministic, quarter-hour grid, plans ~⅔ of free time, respects the waking
+  window, protected time, real events, and pinned commitments
+- `SmartPlanner` — Gemini orders the day; the deterministic planner places it
+- Auto-fit puts undated captures into today; `LiquidTimeline` self-heals as the day slips
+- Overdue work rolls forward automatically, keeping the hour you chose where you chose one
+- **Day tab:** real time grid, live now line, long-press-drag blocks to any quarter-hour
 
-**Organization & review**
-- **Home = day dashboard.** Time-of-day gradient hero that leads with what needs you
-  ("2 things are overdue" / "3 things need you today" / "Mind clear"), progress ring,
-  Now & Next (next event + single best task), overdue, today's timeline, and an undated pile
-- **Calendar tab:** interactive month grid with per-day density dots (events vs. tasks, red
-  for high priority); tap any day for its real timeline — calendar events merged with tasks
-  due that day, in the order they'll happen
-- Projects with progress, semantic + keyword search, streaks & stats
-- **Energy batching:** "I have 30 minutes" → a batch of tasks that actually fits
-- **Pattern suggestions:** detects repeated captures and offers to make them recurring;
-  flags stale tasks for breakdown. Never auto-applied
-- **Correction learning ledger:** records where you overrode the AI
-- **Weekly insight:** the model reads real open/overdue/streak/category data and writes a
-  short reflection plus 1–2 concrete next steps
-- Undo for completion/deletion; "Erase all tasks" reset
+**Study & Gym**
+- Study tab: subtag tree, standalone resources, and **Anki priced by expected *answers*, not cards**
+  — again-rates and the two-correct-in-a-row rule for new cards are in the arithmetic
+- Gym tab: AI-planned weekly sessions materialised as real blocks
 
-**Design**
-- Spring-only motion system, scroll-driven entrance transitions, staggered card cascades,
-  depth-based layering (soft shadows, not borders), dark-first deep indigo-black palette
+**Focus**
+- Live Activity timer with pomodoro breaks; survives backgrounding and termination
+- Every sitting recorded against its task (`TaskSessionLog`)
 
-## Already on the roadmap — please suggest things BEYOND these
+**Rituals & Home**
+- Morning "I'm up" replan; **evening shutdown** — what got done, what's left, where it goes
+- Daily habits with a week of dots and streaks; grocery list
+- Home leads with a time-of-day hero, pinned projects bento, Now & Next
 
-**Wellness arc (planned):** Mental Load score ("your mind is holding 4 open loops") ·
-evening shutdown ritual + morning brief · focus sessions with timer + Do Not Disturb ·
-mood tagging on capture with correlation over time · journal lane for non-task captures ·
-HealthKit mindful minutes · quiet hours.
+**Learning from history** (v2.6.0 — one `LearnedProfile`, rebuilt nightly)
+- Measured **drift** sizes the blocks the planner reserves and corrects estimates at capture
+- A measured **energy curve** (minutes per sitting, exposure-normalised) overrides the declared
+  best-hours setting
+- **Estimate priors** for work you've done repeatedly; a learned **glossary** of your own vocabulary
+  fed into the extraction prompt; your **corrections** taught back to the model
+- **Plan outcomes** — how previous plans actually went — fed into the planning prompt
+- All of it visible, explained, sample-gated, and deletable under *Settings → What Offload has learned*
 
-**Engineering backlog (planned):** review sheet before save · streaming extraction preview ·
-fallback model ladder for ineligible devices · sqlite-vec for scaling vector search ·
-widgets + Lock Screen · dependency/blocker chains · relationship tracking ("what do I owe
-Sarah?") · cross-capture synthesis & project briefs · natural-language quick-add ·
-paid Apple Developer account → TestFlight.
+## Already planned — suggest things BEYOND these
+
+See `FUTURE_PLANS.md`. In short: **running the day live** rather than proposing it; a
+**passcode-protected private journal**; **module-based exam readiness** (Anki + AmBoss + UWorld,
+planned backwards from the exam date); **mental load** and reflection; **living project briefs**;
+**weekly synthesis**; a **pressure map** four weeks out. Deferred but wanted: vision capture of a
+syllabus, share sheet, Apple Watch, writing Anki cards via `addnote`, ask-your-own-data, backup.
 
 ## What would help most
 
-Ideas that deepen the core promise — *capture is effortless and nothing is forgotten* —
-especially ones that:
-- exploit **on-device AI** in ways cloud task apps structurally can't (privacy, zero cost,
-  always available, can read personal context freely)
+Ideas that deepen the core promise — *capture is effortless and nothing is forgotten* — especially
+ones that:
 - make the app feel like it **understands you over time** rather than just storing text
-- reduce friction even further at the capture moment, or surface the right thing at the
-  right moment without nagging
-- work within the constraints: single-user, no push notifications, no server, iPhone-only
+- surface the right thing at the right moment **without nagging**
+- exploit the fact that this is one person's app with years of their real history in it — things a
+  general task app structurally cannot do
+- work within the constraints: single user, no push, no server, no widget, iPhone only
 
-Also welcome: honest critique of what's over-built, what's missing that users of task apps
-consider table stakes, and where this differs meaningfully from Things / Todoist / Reminders.
+Also welcome: honest critique of what's over-built, what's missing that people consider table
+stakes, and where this differs meaningfully from Things / Todoist / Reminders.

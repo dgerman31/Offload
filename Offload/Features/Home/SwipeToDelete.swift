@@ -72,9 +72,6 @@ struct SwipeToDeleteModifier: ViewModifier {
     /// How much a drag past the threshold still moves things, as a fraction of the raw distance —
     /// real resistance instead of an instant hard clamp.
     private let rubberBandFactor: CGFloat = 0.3
-    /// Comfortably above the ~10pt a `ScrollView` needs to claim a pan, so scrolling always wins
-    /// an ordinary vertical drag and this gesture never even starts. See the type's docs.
-    private let minimumSwipeDistance: CGFloat = 20
     /// A flick this fast (points/second) holds the rail open even if it didn't travel far.
     private let flickVelocity: CGFloat = 600
 
@@ -83,7 +80,13 @@ struct SwipeToDeleteModifier: ViewModifier {
             deleteRail
             content
                 .offset(x: -offset)
-                .gesture(swipeOrTap)
+                .gesture(DirectionalPan(axis: .horizontal,
+                                        onChange: { panChanged($0) },
+                                        onEnd: { panEnded($0, velocity: $1) }))
+                // A separate tap recognizer is safe now, which it wasn't before. The pan declines
+                // touches that aren't horizontal instead of starting and then backing out, so a
+                // tap and a scroll never have to be untangled from a half-begun swipe.
+                .onTapGesture { onTap?() }
                 // Disabled while revealed so the row's *other* interactive elements (a
                 // completion checkbox, say) can't be triggered mid-swipe.
                 .allowsHitTesting(offset == 0)
@@ -155,60 +158,44 @@ struct SwipeToDeleteModifier: ViewModifier {
         .allowsHitTesting(offset > 0)
     }
 
-    /// One composed gesture that owns both meanings of the touch. `.exclusively(before:)` gives
-    /// the tap a turn only when the drag *failed* to recognize (the finger never travelled
-    /// `minimumSwipeDistance`), so a swipe and a tap can never both fire from one touch.
+    /// Live pan handling.
     ///
-    /// **Trailing edge, i.e. swipe left.** This used to reveal on the leading edge, which is
-    /// backwards from every list in iOS — Mail, Messages, Reminders and `List`'s own
-    /// `swipeActions` all put destructive actions on the trailing edge. Matching the platform
-    /// costs nothing and means muscle memory built in other apps works here.
-    private var swipeOrTap: some Gesture {
-        DragGesture(minimumDistance: minimumSwipeDistance)
-            .onChanged { value in
-                // A vertical scroll must never read as a swipe. The minimum distance above
-                // already hands ordinary scrolling to the ScrollView before this gesture starts;
-                // this is the backstop for a diagonal drag that does start here.
-                guard abs(value.translation.width) > abs(value.translation.height) else {
-                    if offset != 0 { offset = 0 }
-                    crossedThreshold = false
-                    return
-                }
-                let raw = -value.translation.width
-                offset = raw <= autoDeleteThreshold
-                    ? max(0, raw)
-                    : autoDeleteThreshold + (raw - autoDeleteThreshold) * rubberBandFactor
+    /// The direction test that used to live here — "is this drag more horizontal than vertical?" —
+    /// is gone, because `DirectionalPan` answers it before the gesture is allowed to begin at all.
+    /// A vertical scroll never reaches this function. See `DirectionalPan` for why that ordering is
+    /// the whole difference between an app that knows what you meant and one that guesses.
+    ///
+    /// **Trailing edge, i.e. swipe left.** Mail, Messages, Reminders and `List`'s own
+    /// `swipeActions` all put destructive actions on the trailing edge, so muscle memory holds.
+    private func panChanged(_ translation: CGSize) {
+        let raw = -translation.width
+        offset = raw <= autoDeleteThreshold
+            ? max(0, raw)
+            : autoDeleteThreshold + (raw - autoDeleteThreshold) * rubberBandFactor
 
-                // Flips right as you cross into "let go and this deletes" — not only once you've
-                // already committed. Re-arms if you drag back below the line. The haptic itself
-                // fires declaratively from `.sensoryFeedback`, keyed to this value.
-                if offset > autoDeleteThreshold, !crossedThreshold {
-                    crossedThreshold = true
-                } else if offset <= autoDeleteThreshold {
-                    crossedThreshold = false
-                }
-            }
-            .onEnded { value in
-                crossedThreshold = false
-                guard abs(value.translation.width) > abs(value.translation.height) else {
-                    withAnimation(Motion.snappy) { offset = 0 }
-                    return
-                }
-                // Points/second the finger was actually moving at release — carried into the
-                // snap so a fast flick reads as faster than a slow drag ending at the same spot.
-                let velocity = -value.velocity.width
-                if offset > autoDeleteThreshold {
-                    confirmDelete(releaseVelocity: velocity)
-                } else if offset >= revealWidth || velocity > flickVelocity {
-                    // Reminders only *holds* the rail open once you've pulled past the button's
-                    // full width, or flicked hard enough to clearly mean it. A tentative
-                    // half-swipe springs shut instead of latching open.
-                    reveal(velocity: velocity)
-                } else {
-                    snap(to: 0, releaseVelocity: velocity)
-                }
-            }
-            .exclusively(before: TapGesture().onEnded { onTap?() })
+        // Flips right as you cross into "let go and this deletes" — not only once you've already
+        // committed. Re-arms if you drag back below the line. The haptic fires declaratively from
+        // `.sensoryFeedback`, keyed to this value.
+        if offset > autoDeleteThreshold, !crossedThreshold {
+            crossedThreshold = true
+        } else if offset <= autoDeleteThreshold {
+            crossedThreshold = false
+        }
+    }
+
+    private func panEnded(_ translation: CGSize, velocity: CGSize) {
+        crossedThreshold = false
+        let release = -velocity.width
+        if offset > autoDeleteThreshold {
+            confirmDelete(releaseVelocity: release)
+        } else if offset >= revealWidth || release > flickVelocity {
+            // Reminders only *holds* the rail open once you've pulled past the button's full
+            // width, or flicked hard enough to clearly mean it. A tentative half-swipe springs
+            // shut instead of latching open.
+            reveal(velocity: release)
+        } else {
+            snap(to: 0, releaseVelocity: release)
+        }
     }
 
     /// Spring to `target`, inheriting the drag's release velocity. SwiftUI's spring velocity is

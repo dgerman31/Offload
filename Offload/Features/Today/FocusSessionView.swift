@@ -54,7 +54,6 @@ struct FocusSessionView: View {
             VStack(spacing: 10) {
                 Label(headline, systemImage: timer.phase.symbol)
                     .font(.caption).fontWeight(.semibold)
-                    .tracking(1.4)
                     .foregroundStyle(.white.opacity(0.65))
                 Text(session.taskTitle)
                     .font(.system(.title2, design: .rounded).weight(.bold))
@@ -109,7 +108,7 @@ struct FocusSessionView: View {
         guard let session else { return "" }
         if session.awaitingStart { return timer.phase.isBreak ? "Break ready" : "Ready when you are" }
         if session.pausedRemaining != nil { return "Paused" }
-        return timer.phase.isBreak ? timer.phase.label.uppercased() : "FOCUSING ON"
+        return timer.phase.isBreak ? timer.phase.label : "Focusing on"
     }
 
     private var ring: some View {

@@ -296,9 +296,11 @@ struct InsightsView: View {
         _ title: String, icon: String, tint: Color, @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(title.uppercased(), systemImage: icon)
-                .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
+            // Sentence case, no letter-spacing: iOS labels a section the way it labels anything
+            // else. Tracked all-caps is a web/editorial idiom and reads as "designed elsewhere"
+            // next to the system's own headers.
+            Label(title, systemImage: icon)
+                .font(.subheadline).fontWeight(.semibold)
                 .foregroundStyle(tint)
             content()
         }

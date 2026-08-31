@@ -40,6 +40,16 @@ final class SwipeRevealCoordinator {
 /// Tap-vs-swipe is settled by gesture *composition* rather than by measuring distances by hand:
 /// `.exclusively(before:)` runs the tap only if the drag never recognized. One recognizer, one
 /// decision, so a completed swipe can't also open the row (which is what a sibling `Button` did).
+/// **Why this isn't `.swipeActions`.** SwiftUI only honours `swipeActions` inside a `List`, and
+/// these rows live on card surfaces — Home, Search, All Tasks, Gym, a task's steps — which are
+/// composed dashboards rather than lists. Putting them in a `List` to get the native gesture would
+/// mean taking the list's insets, separators and row chrome, which is the entire visual identity of
+/// those screens. The screens that *are* lists use the real thing: see `TaskSwipeActions`.
+///
+/// What that costs, and what's been paid: a custom gesture is invisible to assistive technology
+/// unless you say otherwise, so this exposes Delete and the row's own tap as
+/// `accessibilityAction`s. That is the same mechanism `List` uses to surface its swipe actions to
+/// VoiceOver.
 struct SwipeToDeleteModifier: ViewModifier {
     /// Stable identity for the one-rail-open-at-a-time rule.
     let id: String
@@ -69,10 +79,10 @@ struct SwipeToDeleteModifier: ViewModifier {
     private let flickVelocity: CGFloat = 600
 
     func body(content: Content) -> some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .trailing) {
             deleteRail
             content
-                .offset(x: offset)
+                .offset(x: -offset)
                 .gesture(swipeOrTap)
                 // Disabled while revealed so the row's *other* interactive elements (a
                 // completion checkbox, say) can't be triggered mid-swipe.
@@ -82,7 +92,7 @@ struct SwipeToDeleteModifier: ViewModifier {
                 // row with open native swipe actions does.
                 Color.clear
                     .contentShape(Rectangle())
-                    .offset(x: offset)
+                    .offset(x: -offset)
                     .onTapGesture { close() }
             }
         }
@@ -102,6 +112,19 @@ struct SwipeToDeleteModifier: ViewModifier {
         // as the drag crosses into "let go and this deletes," and a firmer one when it commits.
         .sensoryFeedback(.impact(weight: .light), trigger: crossedThreshold) { _, new in new }
         .sensoryFeedback(.warning, trigger: isDeleting) { _, new in new }
+        // A swipe is a *sighted, motor* gesture. Without this, deleting was simply unavailable to
+        // anyone using VoiceOver or Switch Control — not awkward, unavailable, on every card
+        // surface in the app. `accessibilityAction` is the supported way to expose a custom
+        // gesture's outcome, and it's what `List`'s own `swipeActions` do behind the scenes.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(onTap == nil ? [] : .isButton)
+        .accessibilityAction {
+            // The default action — a VoiceOver double-tap — does what tapping the row does.
+            onTap?()
+        }
+        .accessibilityAction(named: Text("Delete")) {
+            confirmDelete()
+        }
     }
 
     /// The red background grows with the drag (so it always fills exactly what's revealed, never
@@ -109,7 +132,7 @@ struct SwipeToDeleteModifier: ViewModifier {
     /// width — the same way a native swipe action's rail can stretch further than its button.
     /// Both fade in continuously with the drag so nothing is visible at all at rest.
     private var deleteRail: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .trailing) {
             Rectangle()
                 .fill(Color.Offload.red)
                 .frame(width: max(0, offset))
@@ -135,6 +158,11 @@ struct SwipeToDeleteModifier: ViewModifier {
     /// One composed gesture that owns both meanings of the touch. `.exclusively(before:)` gives
     /// the tap a turn only when the drag *failed* to recognize (the finger never travelled
     /// `minimumSwipeDistance`), so a swipe and a tap can never both fire from one touch.
+    ///
+    /// **Trailing edge, i.e. swipe left.** This used to reveal on the leading edge, which is
+    /// backwards from every list in iOS — Mail, Messages, Reminders and `List`'s own
+    /// `swipeActions` all put destructive actions on the trailing edge. Matching the platform
+    /// costs nothing and means muscle memory built in other apps works here.
     private var swipeOrTap: some Gesture {
         DragGesture(minimumDistance: minimumSwipeDistance)
             .onChanged { value in
@@ -146,7 +174,7 @@ struct SwipeToDeleteModifier: ViewModifier {
                     crossedThreshold = false
                     return
                 }
-                let raw = value.translation.width
+                let raw = -value.translation.width
                 offset = raw <= autoDeleteThreshold
                     ? max(0, raw)
                     : autoDeleteThreshold + (raw - autoDeleteThreshold) * rubberBandFactor
@@ -168,7 +196,7 @@ struct SwipeToDeleteModifier: ViewModifier {
                 }
                 // Points/second the finger was actually moving at release — carried into the
                 // snap so a fast flick reads as faster than a slow drag ending at the same spot.
-                let velocity = value.velocity.width
+                let velocity = -value.velocity.width
                 if offset > autoDeleteThreshold {
                     confirmDelete(releaseVelocity: velocity)
                 } else if offset >= revealWidth || velocity > flickVelocity {

@@ -66,9 +66,16 @@ extension View {
         shadow(color: .black.opacity(level.opacity), radius: level.radius, x: 0, y: level.yOffset)
     }
 
-    /// The app's standard panel: generous radius, real surface, soft depth, and a hairline
-    /// that only asserts itself in dark mode where shadow alone can't separate the layers.
-    func offloadCard(cornerRadius: CGFloat = 20, elevation: Elevation = .low) -> some View {
+    /// The app's standard panel: real surface, continuous corners, and a hairline.
+    ///
+    /// **No shadow by default, deliberately.** Apple's grouped content — every inset list on
+    /// iOS — separates a card from the page with *background contrast*, not a drop shadow. Our
+    /// palette already provides that contrast (white on cream, `#181B2E` on `#0E1020`), so the
+    /// shadow was doing no work the colour wasn't already doing, and soft drop shadows under
+    /// content are one of the clearest tells that an interface isn't Apple's. Shadow stays
+    /// available for the things Apple *does* elevate — sheets, popovers, a block lifted under
+    /// your finger — by passing an explicit `elevation`.
+    func offloadCard(cornerRadius: CGFloat = 20, elevation: Elevation = .flat) -> some View {
         self
             .background(Color.Offload.surface, in: .rect(cornerRadius: cornerRadius, style: .continuous))
             .overlay(

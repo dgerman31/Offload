@@ -77,9 +77,8 @@ struct AllTasksView: View {
     private func sectionCard(_ section: TaskSection) -> some View {
         let (icon, tint) = style(for: section.title)
         return VStack(alignment: .leading, spacing: 14) {
-            Label(section.title.uppercased(), systemImage: icon)
+            Label(section.title, systemImage: icon)
                 .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
                 .foregroundStyle(tint)
             VStack(spacing: 2) {
                 ForEach(section.rows) { row in

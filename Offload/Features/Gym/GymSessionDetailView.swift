@@ -199,7 +199,7 @@ struct GymSessionDetailView: View {
 
     private func section<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(title.uppercased(), systemImage: icon)
+            Label(title, systemImage: icon)
                 .font(.caption2).fontWeight(.bold).tracking(0.8)
                 .foregroundStyle(Color.Offload.muted)
             content()

@@ -289,7 +289,7 @@ struct HomeView: View {
         let percent = Int(s.progress * 100)
         let chips = heroChips(s)
         return VStack(alignment: .leading, spacing: 16) {
-            Text(s.greeting.uppercased())
+            Text(s.greeting)
                 .font(.Offload.manrope(11, .semibold))
                 .tracking(1.1)
                 .foregroundStyle(.white.opacity(0.75))
@@ -688,9 +688,11 @@ struct HomeView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(title.uppercased(), systemImage: icon)
-                .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
+            // Sentence case, no letter-spacing: iOS labels a section the way it labels anything
+            // else. Tracked all-caps is a web/editorial idiom and reads as "designed elsewhere"
+            // next to the system's own headers.
+            Label(title, systemImage: icon)
+                .font(.subheadline).fontWeight(.semibold)
                 .foregroundStyle(tint)
             content()
         }

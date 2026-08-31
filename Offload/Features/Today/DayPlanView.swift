@@ -181,7 +181,6 @@ struct DayPlanView: View {
         return VStack(alignment: .leading, spacing: 12) {
             Label("Anki first", systemImage: "rectangle.on.rectangle.angled")
                 .font(.caption).fontWeight(.semibold)
-                .tracking(0.6)
                 .foregroundStyle(Color.Offload.accent(for: StudyCatalog.category))
 
             Text("How many cards today?")
@@ -354,7 +353,6 @@ struct DayPlanView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Didn't fit today", systemImage: "tray.full")
                 .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
                 .foregroundStyle(Color.Offload.amber)
             ForEach(plan.unplaced) { task in
                 HStack(spacing: 10) {
@@ -454,9 +452,8 @@ private struct CountStepper: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(label.uppercased())
+            Text(label)
                 .font(.system(.caption2, weight: .heavy))
-                .tracking(0.8)
                 .foregroundStyle(Color.Offload.muted)
             HStack(spacing: 0) {
                 stepButton("minus", enabled: value > 0) { value = max(0, value - step) }

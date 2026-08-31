@@ -31,9 +31,8 @@ struct JournalView: View {
 
                 ForEach(Array(store.days.enumerated()), id: \.element.id) { index, day in
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(day.label.uppercased())
+                        Text(day.label)
                             .font(.caption2).fontWeight(.bold)
-                            .tracking(0.9)
                             .foregroundStyle(Color.Offload.muted)
 
                         VStack(spacing: 8) {

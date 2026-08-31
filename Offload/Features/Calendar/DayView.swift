@@ -175,7 +175,7 @@ struct DayView: View {
         let untimed = items.filter { span($0) == nil }
 
         VStack(alignment: .leading, spacing: 16) {
-            Text(dayHeading(day).uppercased())
+            Text(dayHeading(day))
                 .font(.Offload.manrope(11, .heavy))
                 .tracking(1)
                 .foregroundStyle(Color.Offload.teal)
@@ -201,7 +201,7 @@ struct DayView: View {
                 }
 
                 if !untimed.isEmpty {
-                    Text("ANYTIME")
+                    Text("Anytime")
                         .font(.Offload.manrope(11, .heavy))
                         .tracking(1)
                         .foregroundStyle(Color.Offload.muted)

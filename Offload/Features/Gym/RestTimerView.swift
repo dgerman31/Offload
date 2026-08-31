@@ -91,7 +91,6 @@ struct RestTimerView: View {
         VStack(spacing: 28) {
             Text(timer.finished ? "Rest's up" : "Resting")
                 .font(.caption).fontWeight(.semibold)
-                .tracking(1.2)
                 .foregroundStyle(Color.Offload.muted)
 
             ZStack {

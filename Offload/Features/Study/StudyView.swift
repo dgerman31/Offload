@@ -182,7 +182,7 @@ struct StudyView: View {
                     Image(systemName: system.icon)
                         .font(.system(.footnote, weight: .semibold))
                         .foregroundStyle(accent)
-                    Text(system.rawValue.uppercased())
+                    Text(system.rawValue)
                         .font(.caption).fontWeight(.bold).tracking(0.8)
                         .foregroundStyle(Color.Offload.muted)
                     Spacer(minLength: 0)

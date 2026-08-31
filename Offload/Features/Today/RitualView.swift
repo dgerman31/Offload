@@ -89,9 +89,8 @@ struct RitualView: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(DayDashboard.greeting(for: now).uppercased())
+            Text(DayDashboard.greeting(for: now))
                 .font(.caption).fontWeight(.semibold)
-                .tracking(1.4)
                 .foregroundStyle(.white.opacity(0.7))
             Text(heroHeadline)
                 .font(.system(.title, design: .rounded).weight(.bold))
@@ -284,9 +283,8 @@ struct RitualView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(title.uppercased(), systemImage: icon)
+            Label(title, systemImage: icon)
                 .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
                 .foregroundStyle(tint)
             content()
         }

@@ -56,9 +56,8 @@ struct PinnedBento: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("PINNED")
+                Text("Pinned")
                     .font(.system(.caption2, weight: .heavy))
-                    .tracking(1)
                     .foregroundStyle(Color.Offload.muted)
                 Spacer()
                 Button("Edit", action: onEdit)

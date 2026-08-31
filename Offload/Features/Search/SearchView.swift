@@ -289,7 +289,6 @@ struct SearchView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("People", systemImage: "person.2.fill")
                 .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
                 .foregroundStyle(Color.Offload.indigoText)
 
             VStack(spacing: 8) {

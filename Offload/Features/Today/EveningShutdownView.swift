@@ -35,7 +35,7 @@ struct EveningShutdownView: View {
                     header.appearIn(0, when: appeared)
 
                     if !summary.completed.isEmpty {
-                        section("DONE TODAY") {
+                        section("Done today") {
                             ForEach(summary.completed) { task in
                                 doneRow(task)
                             }
@@ -44,7 +44,7 @@ struct EveningShutdownView: View {
                     }
 
                     if !summary.unfinished.isEmpty {
-                        section("STILL OPEN") {
+                        section("Still open") {
                             ForEach(summary.unfinished) { task in
                                 openRow(task)
                             }
@@ -92,8 +92,7 @@ struct EveningShutdownView: View {
     private func section(_ title: String, @ViewBuilder rows: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.Offload.manrope(11, .heavy))
-                .tracking(1)
+                .font(.subheadline).fontWeight(.semibold)
                 .foregroundStyle(Color.Offload.muted)
             VStack(spacing: 8) { rows() }
         }

@@ -23,9 +23,8 @@ struct ProjectDetailView: View {
     /// the project's real numbers rather than invented.
     private var briefCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Where this stands".uppercased(), systemImage: "text.alignleft")
+            Label("Where this stands", systemImage: "text.alignleft")
                 .font(.caption2).fontWeight(.bold)
-                .tracking(0.9)
                 .foregroundStyle(Color.Offload.indigoText)
 
             Text(brief ?? ProjectBrief.deterministicBrief(

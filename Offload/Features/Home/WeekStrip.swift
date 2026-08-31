@@ -41,7 +41,6 @@ struct WeekStrip: View {
         VStack(spacing: 8) {
             Text(Self.monthTitle(visibleWeek, calendar: calendar))
                 .font(.caption).fontWeight(.semibold)
-                .tracking(0.4)
                 .foregroundStyle(Color.Offload.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .animation(Motion.smooth, value: visibleWeek)
@@ -86,7 +85,6 @@ struct WeekStrip: View {
                 // Today announces itself on every page; other days show their weekday.
                 Text(isToday ? "TODAY" : Self.weekdayLabel(day, calendar: calendar).uppercased())
                     .font(.caption2).fontWeight(.bold)
-                    .tracking(0.4)
                     .foregroundStyle(topColor)
                     .lineLimit(1).minimumScaleFactor(0.8)
 

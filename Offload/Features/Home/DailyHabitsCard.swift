@@ -141,7 +141,6 @@ struct DailyHabitsCard: View {
             HStack {
                 Label("Every day", systemImage: "repeat.circle.fill")
                     .font(.caption).fontWeight(.semibold)
-                    .tracking(0.6)
                     .foregroundStyle(Color.Offload.teal)
                 Spacer()
                 if store.total > 0 {

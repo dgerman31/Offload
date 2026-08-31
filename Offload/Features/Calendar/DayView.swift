@@ -206,10 +206,17 @@ struct DayView: View {
                         .tracking(1)
                         .foregroundStyle(Color.Offload.muted)
                         .padding(.top, 4)
-                    VStack(spacing: 10) {
-                        ForEach(untimed) { item in
-                            untimedBlock(item)
-                        }
+                    // Reminders' reordering: hold, and the rows part to make room. See
+                    // `ReorderableStack` for why this isn't `List` + `.onMove`, which is what
+                    // gives Reminders that behaviour for free.
+                    ReorderableStack(
+                        items: untimed,
+                        spacing: 10,
+                        canReorder: Self.isFlexibleTask,
+                        isDragging: $isDraggingBlock,
+                        onReorder: handleReorder
+                    ) { item in
+                        untimedBlock(item)
                     }
                 }
             }
@@ -395,6 +402,10 @@ struct DayView: View {
             Text(item.title)
                 .font(.Offload.taskTitle)
                 .foregroundStyle(Color.Offload.text)
+                // Uniform rows: `ReorderableStack` slides neighbours aside by exactly one row's
+                // height, which stops being true the moment a title wraps. Reminders truncates
+                // for the same reason.
+                .lineLimit(1)
             Spacer(minLength: 8)
             Text(item.isEvent ? "All day" : "Planned")
                 .font(.Offload.data)
@@ -406,7 +417,6 @@ struct DayView: View {
         .contentShape(Rectangle())
         .onTapGesture { open(item) }
         .contextMenu { blockMenu(item) }
-        .reorderable(id: item.id, enabled: Self.isFlexibleTask(item), onDrop: handleDrop)
     }
 
     /// Only a flexible (non-anchored) task is a sequence choice — a real event or a pinned
@@ -462,16 +472,14 @@ struct DayView: View {
     /// "Anytime" list, where there are no coordinates to drop onto and sequence is the only thing
     /// a drag can mean — the same mechanism as `DayPlanView`'s `reorder(draggedID:ontoID:)`. The
     /// timed grid above uses `handleMove` instead, since it *has* coordinates.
-    private func handleDrop(draggedID: String, ontoID targetID: String) {
-        // Both arrive as row ids and have to be translated before they can be matched against
-        // task ids — the same mismatch that made this quietly do nothing.
-        guard let dragged = DayItem.taskId(fromItemID: draggedID),
-              let target = DayItem.taskId(fromItemID: targetID) else { return }
-        var order = flexibleTasksForSelectedDay.map(\.id)
-        guard let fromIndex = order.firstIndex(of: dragged) else { return }
-        order.remove(at: fromIndex)
-        guard let toIndex = order.firstIndex(of: target) else { return }
-        order.insert(dragged, at: toIndex)
+    private func handleReorder(_ orderedItemIDs: [String]) {
+        // The stack reports *row* ids, which are prefixed (`task-<uuid>`) and include events.
+        // Both have to be translated and filtered before the planner sees them — the prefix
+        // mismatch is what used to make this silently do nothing at all.
+        let taskOrder = orderedItemIDs.compactMap(DayItem.taskId(fromItemID:))
+        let flexible = Set(flexibleTasksForSelectedDay.map(\.id))
+        let order = taskOrder.filter(flexible.contains)
+        guard !order.isEmpty else { return }
         didReorder.toggle()
         Task { await store.applyReorder(order, on: selectedDay, events: store.rangeEvents) }
     }

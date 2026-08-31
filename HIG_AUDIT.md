@@ -1,7 +1,10 @@
 # Offload — Human Interface Guidelines audit
 
 *Measured against the codebase at v2.7.0 (build 48). Counts are `grep` over `Offload/**/*.swift`,
-so they are floors, not estimates. No code has been changed.*
+so they are floors, not estimates.*
+
+**Status:** Tier 1 and most of Tiers 2–4 are resolved in v2.8.0 (builds 49–51). What's left, and
+what was deliberately decided *against*, is recorded at the bottom under "Resolved and settled".
 
 This is the inventory that precedes the HIG rework. It is ordered by how much each item hurts a
 real person using the app, not by how hard it is to fix.
@@ -134,3 +137,47 @@ gesture feel and any iOS 26 scroll/drag regressions · VoiceOver reading order �
 survive accessibility text sizes · specular highlights (these do not render correctly in the
 simulator, so **CI can never verify the visual layer** — every appearance change needs an on-device
 pass).
+
+---
+
+## Resolved and settled
+
+### Done in v2.8.0
+
+- **Type scales.** All 87 fixed-size call sites now use semantic text styles.
+- **Contrast passes.** Light-mode accents darkened; indigo split into a fill token and a text
+  token after it turned out to be 1.72:1 on a dark card. `PaletteContrastTests` enforces it.
+- **Reduce Motion honoured** across all 91 animations and 51 entrances, centrally in `Motion.swift`.
+- **Swipe direction fixed** to the trailing edge, matching every list in iOS.
+- **Cards separate by contrast**, not drop shadow — Apple's grouped-content idiom.
+- **Headers in sentence case**, tracking stripped from caption labels.
+- **Tab bar minimises on scroll** (`tabBarMinimizeBehavior`).
+- **Hit targets** on the five icon-only buttons that genuinely needed them.
+
+### Corrections to this audit
+
+- `TaskSwipeActions` was listed as a hand-built replacement for `.swipeActions`. **Wrong** — it's a
+  thin wrapper *around* the native API. The only genuine custom swipe is `SwipeToDelete`.
+- "Dark mode passes everything" was **wrong**. Indigo, the primary action colour, was 1.72:1 on a
+  dark card across 37 foreground call sites. Found only when the palette was made testable.
+- The "26 sub-44pt frames" count was mostly false positives — decorative dots, icon wells, and
+  spacers. Five were genuinely tappable.
+
+### Decided against, with reasons
+
+- **Converting the card surfaces to `List` to get `.swipeActions`.** `swipeActions` only works
+  inside a `List`, and Home, Search, All Tasks, Gym and a task's steps are composed card
+  dashboards. Taking the List would take its insets, separators and row chrome — the whole visual
+  identity. The custom swipe stays, now on the correct edge, with its actions exposed to VoiceOver.
+- **Liquid Glass on the prominent in-card buttons.** Tempting, and wrong: glass belongs to the
+  navigation layer floating above content, never to content itself. Apple uses opaque filled
+  capsules for prominent buttons inside content too — App Store's "Get", a sheet's "Continue".
+  The glass arrives on its own where it belongs: bars, tab bar, sheets.
+
+### Still open
+
+- `.contentMargins` for scroll insets, currently done with `.padding` — the fragile way.
+- `.scrollEdgeEffectStyle` and `.searchToolbarBehavior(.minimized)`: iOS 26 APIs I did not adopt
+  blind, because I'm not confident enough in the exact signatures to spend a CI round trip on them.
+- Accessibility labels remain sparse (38 across the app), and VoiceOver reading order has never
+  been audited. Deprioritised at the user's direction.

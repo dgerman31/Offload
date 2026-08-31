@@ -150,6 +150,7 @@ struct EveningShutdownView: View {
                     .foregroundStyle(Color.Offload.muted)
                     .frame(width: 30, height: 30)
                     .background(Color.Offload.background, in: .circle)
+                    .hitTarget()
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isDropped ? "Keep \(task.title)" : "Drop \(task.title)")

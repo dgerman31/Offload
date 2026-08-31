@@ -342,6 +342,7 @@ struct SearchView: View {
                     .foregroundStyle(Color.Offload.indigoText)
                     .frame(width: 30, height: 30)
                     .background(Color.Offload.indigo.opacity(0.10), in: .circle)
+                    .hitTarget()
             }
             .buttonStyle(.pressable(scale: 0.88))
             .accessibilityLabel("Back to lists")
@@ -374,6 +375,7 @@ struct SearchView: View {
                     .foregroundStyle(Color.Offload.indigoText)
                     .frame(width: 30, height: 30)
                     .background(Color.Offload.indigo.opacity(0.10), in: .circle)
+                    .hitTarget()
             }
             .buttonStyle(.pressable(scale: 0.88))
             .accessibilityLabel("Back to lists")

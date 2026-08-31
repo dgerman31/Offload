@@ -274,6 +274,7 @@ struct FocusMiniBar: View {
                             .foregroundStyle(.white)
                             .frame(width: 30, height: 30)
                             .background(tint, in: .circle)
+                            .hitTarget()
                     }
                     .buttonStyle(.pressable(scale: 0.85))
                 }

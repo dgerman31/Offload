@@ -340,6 +340,7 @@ struct DayPlanView: View {
                     .foregroundStyle(Color.Offload.muted)
                     .frame(width: 26, height: 26)
                     .background(Color.Offload.muted.opacity(0.12), in: .circle)
+                    .hitTarget()
             }
             .buttonStyle(.pressable(scale: 0.85))
             .accessibilityLabel("Remove \(item.task.title) from the plan")

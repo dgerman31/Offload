@@ -74,10 +74,42 @@ rather than accumulating as debt.
 - Live Activity timer with pomodoro breaks; survives backgrounding and termination
 - Every sitting recorded against its task (`TaskSessionLog`)
 
+**Capture taxonomy** (v3.0.0)
+- Every item is classified first: `task · idea · note · decision · question · waiting · commitment ·
+  event · reflection` (`CaptureKind`). The kind decides what the app may do with it
+- **Only a task, commitment or event can be scheduled.** Ideas, notes, questions and decisions are
+  timeless by construction — enforced in `CaptureMapper`, not merely requested in the prompt
+- **Fidelity rule:** a task is rewritten into an imperative; everything else keeps the user's own
+  words, because with an idea the wording *is* the content
+- Below 0.7 confidence, one *To-do / Idea* chip. Tapping it is recorded as a correction and taught
+  back to the model
+- `event` is the only kind that reaches the real calendar; the test is "would you be late for it?"
+
+**What the model knows** (v3.0.0)
+- `CaptureContext` assembles a full briefing per extraction: the **Life brief**, **the project list
+  with exact titles** (the block that prevents near-duplicate projects), the last fortnight of work,
+  what's outstanding, the glossary, and up to 20 corrections ranked by resemblance to the capture
+- **Life brief**: six short fields the user writes in a four-question setup, topped up by at most
+  one question every few days, shown under the plan on the Morning screen. Fully readable, editable
+  and deletable under **Settings → About you**
+
+**Projects as a workspace** (v3.0.0)
+- **Hill chart** with history: figuring-it-out on the left, executing on the right; a dot that
+  hasn't moved in 21 days is called stalled
+- One nominated **next action**, with Start focus; drag a row to the top to nominate another
+- Sections by kind, a dated **log**, a user-written brief, target-date runway, archive
+
 **Rituals & Home**
+- **Home is four screens and the clock picks** (`DayPhase`): **Morning** — the day's shape and one
+  commitment · **Now** — a single task, full screen, nothing to compare it against · **Tonight** —
+  the day's two numbers and the shutdown · **Wind down** — a box to empty your head into, and no
+  counts at all
+- Two boundaries are decisions, not hours: planning the day ends the morning, closing it out ends
+  the evening. The phase can be overridden by hand, and the override clears itself
+- **Everything** — the old all-at-once Home (running list, pins, habits, groceries, suggestions) —
+  is one tap from every phase
 - Morning "I'm up" replan; **evening shutdown** — what got done, what's left, where it goes
 - Daily habits with a week of dots and streaks; grocery list
-- Home leads with a time-of-day hero, pinned projects bento, Now & Next
 
 **Learning from history** (v2.6.0 — one `LearnedProfile`, rebuilt nightly)
 - Measured **drift** sizes the blocks the planner reserves and corrects estimates at capture

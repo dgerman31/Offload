@@ -254,8 +254,10 @@ enum DayPlanner {
         let steps = stepIds(in: tasks)
 
         return tasks
-            // "waiting" is blocked on someone else — scheduling time for it would be a lie.
-            .filter { $0.status != "completed" && $0.status != "waiting" && !$0.deleted }
+            // "waiting" is blocked on someone else — scheduling time for it would be a lie. And
+            // `isPlannable` keeps out everything that isn't work at all: ideas, notes, questions,
+            // decisions. Reserving an hour for a thought is the same lie in a different hat.
+            .filter { $0.isPlannable && $0.status != "waiting" }
             .filter { !steps.contains($0.id) }
             .filter { task in
                 guard let due = DueDate.parse(task.dueDate) else { return true }   // undated

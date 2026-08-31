@@ -29,6 +29,8 @@ final class ProjectStore {
     private(set) var summaries: [Summary] = []
     /// Flat list of every project, for pickers ("move into…", "assign task to…").
     private(set) var allProjects: [Project] = []
+    /// Projects put away. Shown in their own collapsed section rather than mixed in.
+    private(set) var archived: [Project] = []
 
     private let db: AppDatabase
     init(db: AppDatabase = .shared) { self.db = db }
@@ -41,6 +43,7 @@ final class ProjectStore {
             for try await result in observation.values(in: db.dbQueue) {
                 summaries = result.roots
                 allProjects = result.all
+                archived = result.archived
             }
         } catch {
             // Observation ended.
@@ -103,6 +106,10 @@ final class ProjectStore {
     struct TreeResult: Sendable, Equatable {
         var roots: [Summary]
         var all: [Project]
+        /// Put away rather than deleted. Kept out of `roots` so a finished project stops being
+        /// noise, and handed over separately so it stays reachable — an archive you can't open is
+        /// a delete with extra steps.
+        var archived: [Project] = []
     }
 
     /// Pure query (testable): the whole project forest with rolled-up counts.
@@ -116,10 +123,12 @@ final class ProjectStore {
     /// Projects with no tasks simply don't come back as rows; `buildTree` already reads a missing
     /// entry as `(0, 0)`, and rows belonging to a since-deleted project are ignored the same way.
     nonisolated static func fetchTree(_ db: Database) throws -> TreeResult {
-        let projects = try Project
+        let everything = try Project
             .filter(Column("deleted") == false)
             .order(Column("created_at").desc)
             .fetchAll(db)
+        let projects = everything.filter { !$0.archived }
+        let archived = everything.filter(\.archived)
 
         var ownTotals: [String: (total: Int, completed: Int)] = [:]
         let rows = try Row.fetchAll(db, sql: """
@@ -128,6 +137,7 @@ final class ProjectStore {
                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed
             FROM tasks
             WHERE deleted = 0 AND project_id IS NOT NULL
+              AND kind IN ('task', 'commitment', 'event')
             GROUP BY project_id
             """)
         for row in rows {
@@ -139,7 +149,11 @@ final class ProjectStore {
             ownTotals[projectId] = (total, completed)
         }
 
-        return TreeResult(roots: buildTree(projects: projects, ownTotals: ownTotals), all: projects)
+        // `all` keeps everything, archived included: it backs the "move this task into…" pickers,
+        // and filing something into a project you've put away is a legitimate thing to do.
+        return TreeResult(roots: buildTree(projects: projects, ownTotals: ownTotals),
+                          all: everything,
+                          archived: archived)
     }
 
     /// Pure tree assembly + roll-up, separated from SQL so it's directly unit-testable.

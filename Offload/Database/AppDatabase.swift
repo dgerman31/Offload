@@ -332,6 +332,50 @@ final class AppDatabase: Sendable {
                 """)
         }
 
+        // A ticked grocery item stays on the list for the rest of the day and is swept the next
+        // one — see `GroceryStore.sweepBought`. Which day it was ticked on has to be recorded for
+        // that to be possible, and `bought` alone can't carry it.
+        migrator.registerMigration("v12_grocery_bought_day") { db in
+            try db.execute(sql: "ALTER TABLE grocery_items ADD COLUMN bought_day TEXT;")
+            // Backfill rather than leaving nulls: an item ticked five minutes before the app
+            // updated would otherwise look like it had been bought on no day at all, and the
+            // first sweep would take it away mid-shop. Dating them today means the existing
+            // ticked items behave exactly like newly ticked ones — they last until tonight.
+            try db.execute(sql: "UPDATE grocery_items SET bought_day = ? WHERE bought = 1;",
+                           arguments: [HabitProgress.dayKey(Date())])
+        }
+
+        // What kind of thing a capture is — see `CaptureKind`. Everything that already exists is
+        // a task, because a task was the only thing the app could produce before this.
+        migrator.registerMigration("v13_capture_kind") { db in
+            try db.execute(sql: "ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'task';")
+            try db.execute(sql: "CREATE INDEX idx_tasks_kind ON tasks(kind);")
+        }
+
+        // Projects as things you actually finish, rather than folders that accumulate.
+        //
+        // `hill` is a Basecamp-style hill-chart position, 0…1: the first half is figuring the work
+        // out, the second half is executing it. It earns its place over a percentage because a
+        // percentage cannot express *stuck* — 40% done and 40% done three weeks running look
+        // identical, where a dot that hasn't moved off the uphill is unmistakable. `project_updates`
+        // keeps the history that makes that visible, which is the half most implementations miss.
+        migrator.registerMigration("v14_project_workspace") { db in
+            try db.execute(sql: "ALTER TABLE projects ADD COLUMN hill REAL;")
+            try db.execute(sql: "ALTER TABLE projects ADD COLUMN hill_updated_at TEXT;")
+            try db.execute(sql: "ALTER TABLE projects ADD COLUMN sort_order REAL;")
+            try db.execute(sql: "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;")
+            try db.execute(sql: """
+                CREATE TABLE project_updates (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    project_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    hill REAL,
+                    note TEXT
+                );
+                """)
+            try db.execute(sql: "CREATE INDEX idx_project_updates_project ON project_updates(project_id, created_at);")
+        }
+
         // Later increments register additional migrations here, e.g. the
         // sqlite-vec `task_vectors` virtual table for embedding search (spec §3.5).
         return migrator

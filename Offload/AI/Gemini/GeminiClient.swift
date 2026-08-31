@@ -7,6 +7,9 @@ import OSLog
 indirect enum GSchema: Sendable {
     case string(nullable: Bool = false, enumValues: [String]? = nil)
     case integer(nullable: Bool = false)
+    /// A floating-point value. Distinct from `.integer` because Gemini's schema subset types them
+    /// separately, and asking for an INTEGER confidence would quantise it to 0 or 1.
+    case number(nullable: Bool = false)
     case boolean
     case array(GSchema)
     /// Ordered properties (Gemini honours `propertyOrdering`) with the required subset.
@@ -29,6 +32,10 @@ indirect enum GSchema: Sendable {
             return s
         case let .integer(nullable):
             var s: [String: Any] = ["type": "INTEGER"]
+            if nullable { s["nullable"] = true }
+            return s
+        case let .number(nullable):
+            var s: [String: Any] = ["type": "NUMBER"]
             if nullable { s["nullable"] = true }
             return s
         case .boolean:

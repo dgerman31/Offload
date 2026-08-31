@@ -5,7 +5,10 @@ import Foundation
 /// then least effort, then soonest due.
 enum NextBest {
     static func pick(from tasks: [TaskItem]) -> TaskItem? {
-        let open = tasks.filter { $0.status != "completed" }
+        // `isPlannable` rather than merely "not completed": an idea, a note or a question is
+        // never the answer to "what should I do next", and the callers' fallback pool is the whole
+        // open list — which is where an unschedulable row would otherwise surface.
+        let open = tasks.filter(\.isPlannable)
         guard !open.isEmpty else { return nil }
 
         func priorityRank(_ p: String) -> Int {

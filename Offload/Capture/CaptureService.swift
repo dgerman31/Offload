@@ -459,8 +459,18 @@ final class CaptureService {
         try? await db.dbQueue.write { database in
             for id in ids {
                 guard var task = try TaskItem.fetchOne(database, key: id) else { continue }
+                let before = task.kind
                 task = chip.patch(task, now: now)
                 try task.update(database)
+                // A tapped kind chip is the highest-value training signal the app gets: it's the
+                // user saying "that was an idea, not a to-do" at the exact moment the model got it
+                // wrong. Recorded so `Personalization` can put it back in front of the model next
+                // time something similar is said. Only on an actual change — confirming the
+                // model's own answer isn't a correction.
+                if case .setKind = chip.action, before != task.kind {
+                    try Correction(taskId: task.id, field: "kind",
+                                   modelValue: before, userValue: task.kind).insert(database)
+                }
             }
         }
     }

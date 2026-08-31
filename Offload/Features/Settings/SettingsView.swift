@@ -232,6 +232,11 @@ struct SettingsView: View {
                     } label: {
                         Label("What Offload has learned", systemImage: "brain")
                     }
+                    NavigationLink {
+                        LifeBriefView()
+                    } label: {
+                        Label("About you", systemImage: "person.text.rectangle")
+                    }
                     NavigationLink("Correction history") { CorrectionHistoryView() }
                     NavigationLink {
                         CategoriesView()

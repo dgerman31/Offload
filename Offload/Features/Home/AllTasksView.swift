@@ -106,7 +106,7 @@ struct AllTasksView: View {
 
     /// A task that's really the schedule block for a Gym-tab session opens the Gym tab to that
     /// session instead of the normal task detail — its real content lives only there. Mirrors
-    /// `HomeView.openTask` exactly, since a task found here can be the same one found there.
+    /// `EverythingView.openTask` exactly, since a task found here can be the same one found there.
     private func openTask(_ task: TaskItem) {
         if let gymSessionId = task.gymSessionId {
             AppNavigation.shared.openGymSession(gymSessionId)

@@ -18,6 +18,9 @@ final class GroceryStore {
     func observe() async {
         guard !started else { return }
         started = true
+        // Before the first snapshot, not after: sweeping afterwards would publish yesterday's
+        // ticked items to the view and then take them away again a frame later.
+        await sweepBought()
         let observation = ValueObservation.tracking { database in
             try GroceryItem.order(Column("sort_order")).fetchAll(database)
         }
@@ -58,12 +61,45 @@ final class GroceryStore {
         }
     }
 
-    func toggle(_ item: GroceryItem) async {
+    /// Tick or untick. Ticking stamps the day, which is what later lets the item survive the rest
+    /// of the shop and no longer — untick and the stamp goes with it, so an item put back in the
+    /// trolley isn't swept tonight for a tick you undid.
+    func toggle(_ item: GroceryItem, now: Date = Date(), calendar: Calendar = .current) async {
         var updated = item
         updated.bought.toggle()
+        updated.boughtDay = updated.bought ? HabitProgress.dayKey(now, calendar: calendar) : nil
         let toSave = updated          // immutable copy for the @Sendable write closure
         try? await db.dbQueue.write { try toSave.update($0) }
         Haptics.light()
+    }
+
+    /// Drop anything ticked on an earlier day.
+    ///
+    /// The list is for a shop, and a shop ends. Keeping ticked items visible until the day is out
+    /// is what makes "did I already get milk?" answerable in the aisle; keeping them past that just
+    /// makes the list something you have to tidy. Day keys are `yyyy-MM-dd`, so a string
+    /// comparison is a date comparison.
+    ///
+    /// Runs when the list is observed rather than on a timer — the sweep only has to have happened
+    /// by the time you look, and nothing here is worth waking the app up for.
+    ///
+    /// `calendar` is injectable for the same reason it is everywhere else in the app: a rule about
+    /// which day something happened on is untestable if it can only ever read the system clock's
+    /// idea of one.
+    func sweepBought(now: Date = Date(), calendar: Calendar = .current) async {
+        let today = HabitProgress.dayKey(now, calendar: calendar)
+        do {
+            let removed = try await db.dbQueue.write { database in
+                try GroceryItem
+                    .filter(Column("bought") == true && Column("bought_day") != nil && Column("bought_day") < today)
+                    .deleteAll(database)
+            }
+            if removed > 0 {
+                Log.database.info("Swept \(removed, privacy: .public) bought grocery item(s) from earlier days")
+            }
+        } catch {
+            Log.database.error("Grocery sweep failed: \(CaptureService.errorKind(error), privacy: .public)")
+        }
     }
 
     func delete(_ items: [GroceryItem]) async {
@@ -73,8 +109,8 @@ final class GroceryStore {
         }
     }
 
-    /// Clear the ticked ones — the "I've bought it" button. Separate from clearing everything,
-    /// because a shop that got interrupted shouldn't cost you the rest of the list.
+    /// Clear the ticked ones now, rather than waiting for tonight's sweep. Separate from clearing
+    /// everything, because a shop that got interrupted shouldn't cost you the rest of the list.
     func clearBought() async {
         try? await db.dbQueue.write { database in
             _ = try GroceryItem.filter(Column("bought") == true).deleteAll(database)

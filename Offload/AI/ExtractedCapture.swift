@@ -21,11 +21,25 @@ struct ExtractedCapture {
     /// "file this under X?" offer on the success screen rather than a silently created project.
     @Guide(description: "A project/list the user named or referred to (\"the Jury 3 project\", \"for my thesis\"), else nil")
     var suggestedProject: String?
+
+    /// How sure the model is that it read the capture right, 0…1.
+    ///
+    /// Used for one thing only: below a threshold the result screen offers a single clarifying
+    /// chip row instead of presenting a guess as a fact. An assistant that occasionally asks one
+    /// sharp question reads as smarter than one that is confidently wrong, and before this the app
+    /// had no way to be anything but confident.
+    @Guide(description: "0.0–1.0 confidence that this reading is right")
+    var confidence: Double?
 }
 
 @Generable
 struct ExtractedTask {
-    @Guide(description: "Short action title, 2–6 words")
+    /// What kind of thing this is — see `CaptureKind`. The field that decides whether this may be
+    /// scheduled at all, and whether the model was allowed to reword it.
+    @Guide(.anyOf(["task", "idea", "note", "decision", "question", "waiting", "commitment", "event", "reflection"]))
+    var kind: String = "task"
+
+    @Guide(description: "Action title for a task (2–6 words); the user's own wording for anything else")
     var title: String
 
     @Guide(description: "Specifics from the user's own words (names, numbers, context), or nil")

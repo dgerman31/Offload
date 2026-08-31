@@ -8,6 +8,7 @@ struct ProjectsView: View {
     @State private var newProjectParent: NewProjectTarget?
     @State private var expanded: Set<String> = []
     @State private var appeared = false
+    @State private var showingArchived = false
 
     /// Identifies which "new project" sheet is open — top level, or inside a parent.
     struct NewProjectTarget: Identifiable {
@@ -61,6 +62,7 @@ struct ProjectsView: View {
                                     .appearIn(min(index, 8), when: appeared)
                                     .scrollAppear(scale: 0.97, lift: 10)
                             }
+                            if !store.archived.isEmpty { archivedSection }
                         }
                         .padding(.horizontal, 18)
                         .padding(.vertical, 10)
@@ -90,6 +92,55 @@ struct ProjectsView: View {
             }
     }
 
+    /// Projects that have been put away. Collapsed by default and visually quieter than the live
+    /// ones — present so nothing is ever lost, absent enough that a finished project stops being
+    /// something you scroll past every day.
+    private var archivedSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(Motion.standard) { showingArchived.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(.caption2, weight: .bold))
+                        .rotationEffect(.degrees(showingArchived ? 90 : 0))
+                    Label("Archived · \(store.archived.count)", systemImage: "archivebox")
+                        .font(.subheadline).fontWeight(.semibold)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(Color.Offload.muted)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 14)
+
+            if showingArchived {
+                ForEach(store.archived) { project in
+                    NavigationLink {
+                        ProjectWorkspaceView(project: project)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "archivebox.fill")
+                                .font(.system(.caption))
+                                .foregroundStyle(Color.Offload.muted.opacity(0.7))
+                            Text(project.title)
+                                .font(.Offload.body)
+                                .foregroundStyle(Color.Offload.muted)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(.caption2, weight: .semibold))
+                                .foregroundStyle(Color.Offload.muted.opacity(0.6))
+                        }
+                        .padding(12)
+                        .offloadCard(cornerRadius: 16)
+                    }
+                    .buttonStyle(.pressable(scale: 0.99))
+                }
+            }
+        }
+    }
+
     /// A single row of the flattened tree: disclosure control, then the project itself.
     private func projectRow(_ row: FlatRow) -> some View {
         let summary = row.summary
@@ -112,7 +163,7 @@ struct ProjectsView: View {
             }
 
             NavigationLink {
-                ProjectDetailView(project: summary.project)
+                ProjectWorkspaceView(project: summary.project)
             } label: {
                 ProjectRowView(summary: summary)
             }

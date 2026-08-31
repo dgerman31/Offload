@@ -46,6 +46,10 @@ enum ChipAction: Sendable, Equatable {
     case recurWeekly
     case setCategory(String)
     case assignProject(String)
+    /// Reclassify: "that's an idea, not a to-do". The most consequential chip there is — it decides
+    /// whether the thing can be scheduled at all — so it's also the one the model is told to offer
+    /// whenever it's genuinely torn.
+    case setKind(CaptureKind)
 
     var group: String {
         switch self {
@@ -54,6 +58,7 @@ enum ChipAction: Sendable, Equatable {
         case .recurWeekly:                                     return "recurrence"
         case .setCategory:                                     return "category"
         case .assignProject:                                   return "project"
+        case .setKind:                                         return "kind"
         }
     }
 
@@ -74,6 +79,9 @@ enum ChipAction: Sendable, Equatable {
         case "assign_project":
             guard let v = value?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else { return nil }
             return .assignProject(v)
+        case "set_kind":
+            guard let v = value?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else { return nil }
+            return .setKind(CaptureKind.parse(v))
         default:
             return nil
         }
@@ -81,6 +89,39 @@ enum ChipAction: Sendable, Equatable {
 }
 
 extension ClarifyChip {
+
+    /// Below this, the app asks instead of asserting.
+    static let confidenceThreshold = 0.7
+
+    /// Make sure an unsure capture actually asks the question it's unsure about.
+    ///
+    /// The model is told to offer a `set_kind` pair whenever it's torn, and it usually will — but
+    /// "usually" is not a guarantee, and the failure is silent and expensive: a low-confidence
+    /// guess presented as a fact is exactly how an idea ends up as a chore. So when confidence is
+    /// low and the model didn't ask, the app asks for it.
+    ///
+    /// Both options are offered, including the one already chosen. Tapping the current kind is a
+    /// no-op on the task and a confirmation to the ledger, which is worth as much as a correction —
+    /// the model finds out when it was right to be unsure and right anyway.
+    static func withKindFallback(
+        _ chips: [ClarifyChip],
+        capture: ExtractedCapture,
+        threshold: Double = confidenceThreshold
+    ) -> [ClarifyChip] {
+        guard let confidence = capture.confidence, confidence < threshold else { return chips }
+        guard !chips.contains(where: { $0.group == "kind" }) else { return chips }
+        guard let first = capture.tasks.first else { return chips }
+        let current = CaptureKind.parse(first.kind)
+        // The question is nearly always "is this something to do, or something I thought?" — so
+        // the alternative offered is the other side of that, whichever side we're on.
+        let alternative: CaptureKind = current == .idea ? .task : .idea
+        guard alternative != current else { return chips }
+        return chips + [
+            ClarifyChip(label: current.label, action: .setKind(current)),
+            ClarifyChip(label: alternative.label, action: .setKind(alternative))
+        ]
+    }
+
     /// The per-task portion of a chip's effect: a pure, deterministic patch. Project assignment
     /// isn't here — it creates/links a container and is handled by `CaptureService` — so this
     /// returns the task unchanged for `.assignProject`.
@@ -107,6 +148,19 @@ extension ClarifyChip {
             t.category = CaptureMapper.normalizedCategory(name)
         case .assignProject:
             break   // handled by the service (needs to create/link a Project)
+        case .setKind(let kind):
+            t.kind = kind.rawValue
+            // Reclassifying out of a schedulable kind has to take the schedule with it. Otherwise
+            // "that's an idea, not a to-do" leaves an idea sitting in tomorrow's plan, going
+            // overdue — which is precisely the thing the taxonomy exists to stop.
+            if !kind.isSchedulable {
+                t.dueDate = nil
+                t.dueIsAllDay = false
+                t.dueDateConfidence = nil
+                t.deadline = nil
+                t.recurrenceRule = nil
+                t.pinned = false
+            }
         }
         return t
     }

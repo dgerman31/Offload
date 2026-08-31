@@ -8,7 +8,15 @@ it into organised, scheduled work. The premise is that you say the thing and sto
 - **AI:** **Gemini 3.1 Flash Lite**, for both extraction and day planning. Capture is
   Gemini-**only** as of v2.7.0 — the on-device fallback was removed on purpose (see below).
   `AIRouter` routes; `AIBudget` caps spend
-- **UI:** SwiftUI — five tabs: Home · Day · Gym · Study · Settings
+- **Capture is typed:** every item is a `task`, `idea`, `note`, `decision`, `question`,
+  `waiting`, `commitment`, `event` or `reflection` (`CaptureKind`). Only the first kinds can be
+  scheduled — an idea is never a chore — and only a task is reworded; everything else keeps your
+  words
+- **Projects are a workspace:** hill chart with history, a nominated next action, sections by kind,
+  a dated log
+- **UI:** SwiftUI — five tabs: Home · Day · Gym · Study · Settings. Home itself is four
+  single-purpose screens chosen by the clock (`DayPhase`: Morning · Now · Tonight · Wind down),
+  with the older all-at-once view kept as **Everything**
 - **Storage:** SQLite via GRDB, reactive `ValueObservation` streams
 - **Calendar:** EventKit, read and write
 - **Current version:** v2.7.0 (build 47)

@@ -6,6 +6,11 @@ import SwiftUI
 /// actions, so what you could do to a task depended on where you found it. This is the single
 /// definition — add an action here and it appears everywhere at once.
 struct TaskContextMenu: View {
+    /// What a row can be turned into by hand. `.event` is absent on purpose — an appointment is
+    /// created by writing to the calendar, not by relabelling a row — and `.reflection` is absent
+    /// because it means "keep no row at all", which is a delete, not a reclassification.
+    static let assignableKinds: [CaptureKind] = [.task, .idea, .note, .question, .decision, .waiting, .commitment]
+
     let task: TaskItem
     var onFocus: ((TaskItem) -> Void)?
     var onEdit: ((TaskItem) -> Void)?
@@ -36,6 +41,21 @@ struct TaskContextMenu: View {
                 }
             } label: {
                 Label("Priority", systemImage: "flag.fill")
+            }
+
+            // Reclassify in one gesture, from wherever you found it. The correction is recorded,
+            // so fixing it here teaches the extractor the same lesson the capture chip does.
+            Menu {
+                ForEach(TaskContextMenu.assignableKinds) { kind in
+                    Button {
+                        Task { await TaskActions.setKind(task, kind) }; Haptics.light()
+                    } label: {
+                        Label(kind.label,
+                              systemImage: task.captureKind == kind ? "checkmark" : kind.symbol)
+                    }
+                }
+            } label: {
+                Label("It's a…", systemImage: task.captureKind.symbol)
             }
 
             Menu {

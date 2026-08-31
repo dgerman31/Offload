@@ -42,7 +42,11 @@ struct PromptBudgetTests {
         let prompt = GeminiExtractionService.systemPrompt(now: Date(), categories: CustomCategories.builtIn)
         for field in ["reasoning", "isCommand", "suggestedProject", "title", "details",
                       "dueDate", "deadline", "effortMinutes", "priority", "category",
-                      "contextTags", "people", "subtasks", "isAppointment"] {
+                      "contextTags", "people", "subtasks", "isAppointment",
+                      // Added with the capture taxonomy. `kind` decides whether something can be
+                      // scheduled at all, so an undocumented one would be the most expensive
+                      // omission on the list.
+                      "kind", "confidence"] {
             #expect(prompt.contains(field),
                     "The Gemini prompt never mentions `\(field)`, so the model has no instruction for it")
         }

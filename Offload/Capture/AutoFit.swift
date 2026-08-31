@@ -266,8 +266,10 @@ enum AutoFit {
     /// tomorrow never got a clock time and showed up under "Anytime". A whole-day intention is
     /// planned into its own day's free time, whichever day that is.
     private static func needsPlanning(_ task: TaskItem) -> Bool {
-        guard task.status != "completed", !task.deleted,
-              task.parentTaskId == nil else { return false }
+        // `isPlannable` first, and it matters most here: this is the path that places *undated*
+        // captures into today automatically, so without it every idea you ever spoke would be
+        // given a slot in this afternoon within seconds of saying it.
+        guard task.isPlannable, task.parentTaskId == nil else { return false }
         guard DueDate.parse(task.dueDate) != nil else { return true }   // undated → plan it today
         guard !task.isAnchored else { return false }                    // fixed commitment → leave it
         return task.dueIsAllDay                                         // a real time → leave it

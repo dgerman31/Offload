@@ -10,6 +10,7 @@ struct TaskRowView: View {
     var onToggle: () -> Void
 
     private var isCompleted: Bool { task.status == "completed" }
+    private var kind: CaptureKind { task.captureKind }
 
     /// Decode the JSON `context_tags` array for display.
     private var contextTags: [String] { Self.decodedList(task.contextTags) }
@@ -48,20 +49,31 @@ struct TaskRowView: View {
                     .padding(.top, 4)
             }
 
-            Button {
-                Haptics.light()
-                onToggle()
-            } label: {
-                Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+            // A note or a decision has no done state, so it gets no checkbox — it gets its kind's
+            // glyph instead. A checkbox on something that can't be finished is a small, constant
+            // invitation to feel behind on your own reference material.
+            if kind.isCheckable {
+                Button {
+                    Haptics.light()
+                    onToggle()
+                } label: {
+                    Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                        .font(indented ? .body : .title3)
+                        .foregroundStyle(isCompleted ? Color.Offload.green : Color.Offload.muted.opacity(0.7))
+                        .symbolEffect(.bounce, value: isCompleted)
+                        .scaleEffect(isCompleted ? 1.06 : 1)
+                        .animation(Motion.quick, value: isCompleted)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.pressable(scale: 0.85))
+                .accessibilityLabel(isCompleted ? "Mark not done" : "Mark done")
+            } else {
+                Image(systemName: kind.symbol)
                     .font(indented ? .body : .title3)
-                    .foregroundStyle(isCompleted ? Color.Offload.green : Color.Offload.muted.opacity(0.7))
-                    .symbolEffect(.bounce, value: isCompleted)
-                    .scaleEffect(isCompleted ? 1.06 : 1)
-                    .animation(Motion.quick, value: isCompleted)
-                    .contentShape(Circle())
+                    .foregroundStyle(Color.Offload.muted.opacity(0.7))
+                    .frame(width: indented ? 18 : 22)
+                    .accessibilityLabel(kind.label)
             }
-            .buttonStyle(.pressable(scale: 0.85))
-            .accessibilityLabel(isCompleted ? "Mark not done" : "Mark done")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)

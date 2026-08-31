@@ -21,6 +21,9 @@ enum TaskEditService {
         // Estimates were the one field never recorded, which is why the model kept guessing 30
         // minutes for work that takes this person four hours: there was nothing to learn from.
         note("effortMinutes", original.effortMinutes.map(String.init), edited.effortMinutes.map(String.init))
+        // "That's an idea, not a to-do" — the correction this user actually noticed the app
+        // getting wrong, and the one that changes the most about how a row behaves.
+        note("kind", original.kind, edited.kind)
         return rows
     }
 

@@ -73,7 +73,10 @@ struct MentalLoad: Equatable, Sendable {
         let startOfToday = calendar.startOfDay(for: now)
         var weighted = 0.0
 
-        for task in tasks where task.status != "completed" && !task.deleted {
+        // Notes, decisions and ideas are not open loops — they're the opposite. Counting the
+        // things you successfully got out of your head as weight you're still carrying would make
+        // the headline metric go *up* every time the app worked. See `countsAsOpenLoop`.
+        for task in tasks where task.status != "completed" && !task.deleted && task.captureKind.countsAsOpenLoop {
             load.openLoops += 1
             // Blocked on someone else: still an open loop, but not yours to carry today.
             if task.status == "waiting" {

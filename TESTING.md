@@ -120,6 +120,119 @@ Also turn on **Reduce Transparency** and confirm nothing becomes unreadable.
 
 ---
 
+## Tier 2.6 — Home by time of day (v3.0.0)
+
+Home is no longer one screen. `DayPhase` picks between four, and the fastest way to test all of
+them is the **⋯ menu → Show** picker, which overrides the clock. Everything below can be checked in
+five minutes at any hour.
+
+**16. The four screens exist and are actually different**
+Open Home, then step through Morning · Now · Tonight · Wind down in the Show picker. Each should be
+full-screen with one idea on it and no cards. If any of them scrolls past a second screenful of
+content, something has leaked back in.
+
+**17. The override clears itself**
+Pick a phase that isn't the current one. Leave the app, come back. You should still be on the one
+you picked — the override survives a foreground. Now leave it long enough for the real phase to
+change (or step the device clock past a boundary): it should snap back to the clock's choice on its
+own, without you clearing anything.
+
+**18. Morning ends when you decide, not at noon**
+Before noon, Home should say **Morning**. Tap **Plan the day**, submit a plan → you should land on
+**Now** immediately, not at 12:00. Tapping **Start the day** without planning should do the same.
+Kill and relaunch the app: still **Now**. Tomorrow morning it must be **Morning** again — the flag
+is a day key, so a plan made yesterday must not skip today's.
+
+**19. Now shows exactly one task**
+Only one task title, large, with at most one dimmed "Then …" line under it. **Something else**
+should swap to a different task each tap and never go blank — when it runs out of alternatives it
+comes back round rather than showing the clear state. **Mark done** ticks it and the next one takes
+its place, with the undo banner appearing at the bottom. With nothing left, you get "Nothing needs
+you" rather than a blank screen.
+
+**20. Tonight ends when the day is closed**
+After 8pm Home is **Tonight**, with a done/open pair of numbers. Run the shutdown to the end →
+Home should become **Wind down**, not offer the shutdown a second time. Both numbers should match
+what the shutdown sheet itself lists.
+
+**21. Wind down shows no counts at all**
+The 10pm screen: a heading, a text box, one button. **No task count, no progress, nothing
+outstanding anywhere on it** — that's the whole point of the screen, and it's the thing most likely
+to regress. Type something, tap **Put it down**: it should go to "Goodnight." immediately, and the
+text should turn up in the journal (Search → Journal) as a capture.
+
+**22. Everything is still reachable and still works**
+⋯ menu → **Everything**. The old Home, as a sheet: running list, pinned projects, habits,
+groceries, suggestions, All tasks, All projects. Check swipe-to-delete and the steps disclosure
+still behave here — this is the same view as before the rework, so anything broken here is a
+regression, not a new bug. **Done** closes it.
+
+**23. Dynamic Type and the big screens**
+Largest accessibility size, on all four phases. The huge headline should shrink rather than
+truncate; the bottom buttons must stay on screen and stay tappable. A long task title on **Now** is
+the worst case — check one with 60+ characters.
+
+---
+
+## Tier 2.7 — capture kinds, the life brief, and projects (v3.0.0)
+
+The biggest behavioural change in the app's history: a capture is no longer always a to-do.
+
+**24. An idea comes back as an idea**
+Say, roughly: *"I have a few more ideas for the Offload app — I want the AI to get a better picture
+of my life for planning, and I could do a step 1 review of one topic a day with a practice question
+from a topic list."* You should get a project (or a suggestion to file under the existing one) and
+**ideas kept close to your own wording** — not three short imperative to-dos. Check each one: **no
+due date, no overdue, and it doesn't appear in Plan my day.** This is the exact capture that
+prompted the change; if it comes back as chores, nothing else in this tier matters.
+
+**25. The fidelity rule**
+Compare a to-do and an idea from the same words. "I need to email the PI about the dataset" as a
+to-do should become "Email the PI…"; captured as an idea it must keep the "I need to" framing. A
+long idea should be shortened for the row and kept **whole in the details** — open it and check.
+
+**26. Nothing timeless can be scheduled**
+Run **Plan my day** with several ideas and notes on your list. None of them may be given a time.
+Check the Now screen too — it must never offer an idea as the thing to do next.
+
+**27. The confidence chip**
+Say something genuinely ambiguous — *"maybe I should start doing a topic a day"*. You should get a
+one-tap **To-do / Idea** pair. Tap Idea: the date should disappear with it. Then check
+**Settings → Correction history** — the tap should be recorded.
+
+**28. Reclassifying by hand**
+Long-press any row → **It's a…** → Idea. Same result: kind changes, schedule is stripped, a
+correction is recorded.
+
+**29. Notes have no checkbox**
+A note or a decision should show its own glyph where the completion circle would be. A thing you
+can't finish must not be able to look unfinished.
+
+**30. Projects file into the right project**
+With "Offload app" already existing, capture something mentioning it. It must land in **that**
+project — not a new "Offload App" or "the Offload app". This is what the project list in the prompt
+is for, and near-duplicates are the failure it prevents.
+
+**31. The project workspace**
+Open any project. Check: the **hill chart** drags smoothly and the label changes ("Figuring it out"
+→ "Over the hill"); releasing writes a **log** entry; the **next action** card shows the top of Next
+actions and **Start focus** works; dragging a different row to the top changes which one is
+nominated; each section's **+** adds a row of that section's kind; **Archive** moves it to the
+collapsed Archived section on the Projects list, and it can be opened and unarchived from there.
+
+**32. Stalled detection**
+Not testable in five minutes without moving the clock — if you want to force it, set a hill
+position, then change the device date forward three weeks. The header should say "Hasn't moved in N
+days."
+
+**33. The life brief**
+First launch after updating: the short **About you** setup should appear once on the Morning screen
+and never again if skipped. **Settings → About you** should show everything you wrote, let you edit
+it, and forget it. Then, on a later morning, a single question should appear under the plan —
+answer it and check it lands in the right field; dismiss one and confirm that question never returns.
+
+---
+
 ## Tier 3 — still unresolved
 
 ### 10. The Live Activity on the Lock Screen

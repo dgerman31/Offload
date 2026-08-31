@@ -96,10 +96,20 @@ enum CaptureMapper {
             // When the user commanded "create a project", the creation IS the action — drop any
             // redundant "Create project X" task the model tacked on.
             if containerCommand, isCreateContainerTask(t.title) { continue }
+            let kind = CaptureKind.parse(t.kind)
+            // Venting leaves no row. The words are already saved on the capture itself, which is
+            // where they belong — turning a feeling into something with a checkbox is the oldest
+            // failure mode this app has.
+            guard kind.isStored else { continue }
             let resolved = resolveDue(t.dueDate, calendar: calendar)
-            let dueDate = resolved.value
-            let isAllDay = resolved.isAllDay
-            let cleanTitle = actionTitle(t.title)
+            // Enforced here, not merely asked for in the prompt. A date on an idea is what turns
+            // thinking into a chore that goes overdue, and a rule that only exists in a prompt is
+            // a rule that holds until the model has an off day.
+            let dueDate = kind.isSchedulable ? resolved.value : nil
+            let isAllDay = kind.isSchedulable ? resolved.isAllDay : false
+            // `actionTitle` normalises into an imperative, which is exactly right for something
+            // you do and exactly wrong for something you thought. See `CaptureKind.keepsWording`.
+            let cleanTitle = kind.keepsWording ? keptTitle(t.title) : actionTitle(t.title)
             // A user-stated clock time is a commitment: "meeting at 3" must STAY at 3. Pin it so
             // the planner and the self-healing timeline treat it as a fixed anchor and never
             // reflow it — matching manual add/edit, which already pin any hand-picked time. (Only
@@ -116,25 +126,33 @@ enum CaptureMapper {
                                        profile: profile)
             let parent = TaskItem(
                 title: cleanTitle,
-                descriptionText: nonEmpty(t.details),
+                descriptionText: nonEmpty(t.details) ?? preservedRemainder(kind: kind, original: t.title, title: cleanTitle),
                 category: category,
                 priority: resolvedPriority(normalizedPriority(t.priority), dueDate: dueDate, now: now, calendar: calendar),
                 projectId: project?.id,
                 dueDate: dueDate,
                 dueDateConfidence: dueDate == nil ? nil : 0.5,
-                recurrenceRule: nonEmpty(t.recurrenceRule),
+                recurrenceRule: kind.isSchedulable ? nonEmpty(t.recurrenceRule) : nil,
                 contextTags: encodeTags(t.contextTags),
-                effortMinutes: effort.minutes,
-                metadata: effort.note,
+                effortMinutes: kind.isSchedulable ? effort.minutes : nil,
+                metadata: kind.isSchedulable ? effort.note : nil,
                 people: People.encode(t.people),
-                deadline: DueDate.normalizeLocal(t.deadline, timeZone: calendar.timeZone),
+                deadline: kind.isSchedulable ? DueDate.normalizeLocal(t.deadline, timeZone: calendar.timeZone) : nil,
                 dueIsAllDay: isAllDay,
-                pinned: hasStatedTime
+                pinned: hasStatedTime,
+                kind: kind
             )
             tasks.append(parent)
             // Writing to someone's real calendar needs more than the model's say-so: a genuine
             // time, and a title that isn't itself about *arranging* the thing.
-            if isRealAppointment(title: parent.title, isAppointment: t.isAppointment,
+            // Either signal will do — the model naming the kind `event`, or the older
+            // `isAppointment` flag — because they mean the same thing and requiring both would
+            // silently stop writing calendar events the moment the model set one and not the
+            // other. The real gate is unchanged and is the one below: a stated clock time, and a
+            // title that isn't itself about *arranging* the thing. Nothing unschedulable can reach
+            // it in any case, since those kinds have had their due date stripped above.
+            if kind == .event || t.isAppointment,
+               isRealAppointment(title: parent.title, isAppointment: true,
                                  dueDate: dueDate, isAllDay: isAllDay) {
                 appointmentTaskIds.insert(parent.id)
             }
@@ -150,7 +168,10 @@ enum CaptureMapper {
                     priority: parent.priority,
                     parentTaskId: parent.id,
                     projectId: project?.id,
-                    contextTags: parent.contextTags
+                    contextTags: parent.contextTags,
+                    // Steps inherit their parent's kind, so the parts of an idea can't be
+                    // scheduled when the idea itself can't be.
+                    kind: kind
                 ))
             }
         }
@@ -278,6 +299,49 @@ enum CaptureMapper {
     /// with no meaningful hour, or an hour nobody works), or a real moment. The whole-day case is
     /// the important one — "Friday" should stay Friday, not become Friday at midnight — and the
     /// sleeping-hour demotion is a real safety rail: nothing is ever *scheduled* at 2 AM.
+    /// Tidy a title without rewriting it — the counterpart to `actionTitle`, used for every kind
+    /// that keeps the user's wording.
+    ///
+    /// It does the mechanical hygiene only: collapse runs of whitespace, drop a trailing full stop,
+    /// capitalise the first letter. It deliberately does **not** strip leading "I need to" / "I
+    /// should" the way `actionTitle` does, because in a musing that phrasing is the content.
+    ///
+    /// Long thoughts are cut at a sentence boundary for the title and kept whole in the details, so
+    /// a row stays readable without the idea being truncated anywhere it can't be recovered.
+    static func keptTitle(_ raw: String, limit: Int = 140) -> String {
+        let collapsed = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collapsed.isEmpty else { return raw.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var text = collapsed
+        if text.count > limit {
+            // Prefer a sentence break inside the budget; fall back to a word break.
+            let head = String(text.prefix(limit))
+            if let stop = head.lastIndex(where: { $0 == "." || $0 == "?" || $0 == "!" }) {
+                text = String(head[head.startIndex...stop])
+            } else if let space = head.lastIndex(of: " ") {
+                text = String(head[head.startIndex..<space]) + "…"
+            } else {
+                text = head + "…"
+            }
+        }
+        while text.hasSuffix(".") { text.removeLast() }
+        text = text.trimmingCharacters(in: .whitespaces)
+        guard let first = text.first else { return collapsed }
+        return first.uppercased() + text.dropFirst()
+    }
+
+    /// The full original wording, kept in details whenever `keptTitle` had to shorten it — so a
+    /// long idea is readable as a row without being truncated anywhere it can't be recovered.
+    static func preservedRemainder(kind: CaptureKind, original: String, title: String) -> String? {
+        guard kind.keepsWording else { return nil }
+        let full = original.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // The +2 absorbs the trailing full stop and capitalisation `keptTitle` does anyway; only a
+        // real truncation should push the original into details.
+        guard !full.isEmpty, full.count > title.count + 2 else { return nil }
+        return full
+    }
+
     static func resolveDue(
         _ raw: String?,
         calendar: Calendar = .current

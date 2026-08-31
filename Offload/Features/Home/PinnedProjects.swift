@@ -88,7 +88,7 @@ struct PinnedBento: View {
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(Array(summaries.enumerated()), id: \.element.id) { slot, summary in
                         NavigationLink {
-                            ProjectDetailView(project: summary.project)
+                            ProjectWorkspaceView(project: summary.project)
                         } label: {
                             tile(summary, slot: slot)
                         }

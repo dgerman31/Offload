@@ -167,6 +167,32 @@ enum TaskActions {
         }
     }
 
+    /// Reclassify: "that's an idea, not a to-do".
+    ///
+    /// Moving out of a schedulable kind takes the schedule with it, exactly as the capture chip
+    /// does — an idea left sitting in tomorrow's plan would go overdue, which is the one thing an
+    /// idea must never do. The correction is recorded, so doing this by hand teaches the model the
+    /// same lesson tapping the chip does.
+    static func setKind(_ item: TaskItem, _ kind: CaptureKind, db: AppDatabase = .shared) async {
+        guard item.captureKind != kind else { return }
+        var updated = item
+        updated.kind = kind.rawValue
+        if !kind.isSchedulable {
+            updated.dueDate = nil
+            updated.dueIsAllDay = false
+            updated.dueDateConfidence = nil
+            updated.deadline = nil
+            updated.recurrenceRule = nil
+            updated.pinned = false
+        }
+        let toSave = updated
+        let corrections = TaskEditService.corrections(from: item, to: toSave)
+        try? await db.dbQueue.write { database in
+            try toSave.update(database)
+            for correction in corrections { try correction.insert(database) }
+        }
+    }
+
     /// Copy a task as a fresh, open one — for the things you do again and again but that
     /// aren't worth a formal recurrence rule.
     static func duplicate(_ item: TaskItem, db: AppDatabase = .shared) async {

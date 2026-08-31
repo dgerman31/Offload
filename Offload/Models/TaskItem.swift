@@ -43,6 +43,15 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
     /// session instead of the normal task detail — the workout's real detail (exercises, sets,
     /// muscle groups) lives only there, never duplicated into the task itself.
     var gymSessionId: String?
+    /// What kind of thing this is — see `CaptureKind`. Stored as its raw string so an unknown
+    /// value from a future version degrades to a task rather than failing to decode the row.
+    ///
+    /// This is the column that stops an idea being a chore: `CaptureKind.isSchedulable` is checked
+    /// wherever work gets planned, so a row that isn't a task simply never enters the day.
+    var kind: String
+
+    /// The typed form. Always use this rather than comparing `kind` strings at a call site.
+    var captureKind: CaptureKind { CaptureKind.parse(kind) }
 
     static let databaseTableName = "tasks"
 
@@ -66,6 +75,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         case dueIsAllDay = "due_is_all_day"
         case sortOrder = "sort_order"
         case gymSessionId = "gym_session_id"
+        case kind
     }
 
     init(
@@ -94,7 +104,8 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         dueIsAllDay: Bool = false,
         pinned: Bool = false,
         sortOrder: Double? = nil,
-        gymSessionId: String? = nil
+        gymSessionId: String? = nil,
+        kind: CaptureKind = .task
     ) {
         self.id = id
         self.title = title
@@ -122,6 +133,7 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
         self.pinned = pinned
         self.sortOrder = sortOrder
         self.gymSessionId = gymSessionId
+        self.kind = kind.rawValue
     }
 
     /// A specific moment on the clock, as opposed to a whole-day intention.
@@ -133,6 +145,16 @@ struct TaskItem: Codable, Identifiable, Equatable, Sendable, FetchableRecord, Pe
     /// never move when the timeline self-heals.
     var isAnchored: Bool {
         hasSpecificTime && (pinned || calendarEventId != nil)
+    }
+
+    /// Whether this row may be planned into a day at all.
+    ///
+    /// The single question every scheduling path asks, so the taxonomy's central promise —
+    /// **an idea is never a chore** — is enforced in one place rather than re-derived in five.
+    /// Before this existed the planner's fallback pool was "every open task", which is exactly
+    /// how something you merely thought would end up occupying Tuesday afternoon.
+    var isPlannable: Bool {
+        status != "completed" && !deleted && captureKind.isSchedulable
     }
 
     /// A time the planner guessed, which may reflow as the day slips — the "liquid" part of

@@ -321,9 +321,12 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
             .frame(height: height, alignment: .top)
             // Lifted: a touch larger, a shadow under it, and above everything else. Full size and
             // full width throughout — the thing you're moving is the block, not a stand-in for it.
-            .scaleEffect(isThisDragging ? 1.03 : 1, anchor: .center)
-            .shadow(color: .black.opacity(isThisDragging ? 0.28 : 0),
-                    radius: isThisDragging ? 12 : 0, y: isThisDragging ? 6 : 0)
+            // Apple's drag lift is more pronounced than this was: the item comes properly off the
+            // surface rather than twitching. ~1.05 with a deeper, wider shadow is the system's
+            // own proportion for something held under a finger.
+            .scaleEffect(isThisDragging ? 1.05 : 1, anchor: .center)
+            .shadow(color: .black.opacity(isThisDragging ? 0.32 : 0),
+                    radius: isThisDragging ? 16 : 0, y: isThisDragging ? 8 : 0)
             .overlay(alignment: .topTrailing) {
                 if isThisDragging { liveTimeBadge(for: entry) }
             }
@@ -384,7 +387,7 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
                 switch value {
                 case .first(true):
                     lastTickMinutes = 0
-                    Haptics.light()               // the lift
+                    Haptics.lift()                // heavier than the ticks — it's in your hand now
                 case let .second(true, drag):
                     guard let drag else { return }
                     // One tick per quarter-hour crossed: what turns snapping from something you
@@ -392,7 +395,7 @@ struct DayTimeGrid<Entry: DayGridEntry, RowContent: View>: View {
                     let snapped = snappedMinutes(for: entry, rawOffset: drag.translation.height)
                     if snapped != lastTickMinutes {
                         lastTickMinutes = snapped
-                        Haptics.light()
+                        Haptics.detent()          // a picker's tick, because it's the same event
                     }
                 default:
                     break

@@ -11,6 +11,9 @@ struct ReorderableRow: ViewModifier {
 
     @State private var width: CGFloat = 0
     @State private var isTargeted = false
+    /// Flipped on every accepted drop. `.sensoryFeedback` only fires on a *change*, so a toggle
+    /// guarantees each drop re-triggers regardless of the previous value.
+    @State private var dropped = false
 
     func body(content: Content) -> some View {
         content
@@ -21,12 +24,14 @@ struct ReorderableRow: ViewModifier {
                         .onChange(of: proxy.size.width) { _, new in width = new }
                 }
             )
+            // A solid insertion line, not a dashed one. iOS draws reordering as a hard edge the
+            // row will land against — dashes read as "drop zone", which is a file-transfer idiom,
+            // not a reordering one.
             .overlay(alignment: .top) {
                 if isTargeted {
                     Capsule()
-                        .stroke(style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
-                        .foregroundStyle(Color.Offload.indigoText)
-                        .frame(height: 2)
+                        .fill(Color.Offload.indigoText)
+                        .frame(height: 3)
                         .offset(y: -8)
                         .transition(.opacity)
                 }
@@ -39,10 +44,17 @@ struct ReorderableRow: ViewModifier {
             .dropDestination(for: String.self, action: { items, _ in
                 guard let draggedID = items.first, draggedID != id else { return false }
                 onDrop(draggedID, id)
+                dropped.toggle()
                 return true
             }, isTargeted: { targeted in
                 withAnimation(.easeOut(duration: 0.15)) { isTargeted = targeted }
             })
+            // Drag and drop is a *felt* interaction on iOS, and this had no haptics whatsoever.
+            // The system's own reordering ticks as rows part under your finger and thumps when the
+            // row lands; without that a drag feels like it's happening to a picture of a list.
+            // `.selection` for crossing a new insertion point, a heavier impact on the drop.
+            .sensoryFeedback(.selection, trigger: isTargeted) { _, targeted in targeted }
+            .sensoryFeedback(.impact(weight: .medium), trigger: dropped)
     }
 }
 

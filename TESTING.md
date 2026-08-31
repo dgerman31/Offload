@@ -233,6 +233,30 @@ answer it and check it lands in the right field; dismiss one and confirm that qu
 
 ---
 
+## Tier 2.8 — the three fixes (v3.0.1)
+
+**34. Everything has a real door**
+Every phase screen should show a labelled **Everything** button at the top left — same place on all
+four. One tap opens it, Done closes it. It's gone from the ⋯ menu, which now holds Projects and
+Search.
+
+**35. The focus timer no longer blocks the tab bar**
+Start a focus session, then tap Day, Gym, Study, Settings. Every tab must be reachable while the
+timer runs. The mini bar now sits in the tab bar's own accessory slot (iOS 26's Apple-Music-style
+placement), so it should also slide down into the bar as you scroll, and it should look like a
+single glass capsule rather than a card inside a card.
+*Watch for:* an empty capsule above the tab bar when **no** timer is running. That's a known iOS 26
+quirk with this API — tell me if you see it.
+
+**36. Nothing drags sideways any more**
+Open **Everything** with a task that has a long category, a person's name and two or three context
+tags on it, and try to drag the screen left and right. It must not move. The cause was `FlowLayout`
+answering "how wide would you like to be?" with every chip on one line; that ideal width travelled
+up to the ScrollView, which then scrolled horizontally because its content really was wider than
+the screen. Also check the Day tab and Search, which use the same chips.
+
+---
+
 ## Tier 3 — still unresolved
 
 ### 10. The Live Activity on the Lock Screen

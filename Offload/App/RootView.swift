@@ -33,10 +33,16 @@ struct RootView: View {
                 // matching it is most of what makes an app feel native rather than adjacent.
                 .tabBarMinimizeBehavior(.onScrollDown)
                 .tint(Color.Offload.indigoText)
-                // Above the tab bar, over whatever tab you're on. A running timer that's only
-                // visible on the screen that started it is indistinguishable from one that
-                // stopped — and this one keeps running everywhere, so it has to show everywhere.
-                .safeAreaInset(edge: .bottom) {
+                // The running timer, in the tab bar's own accessory slot — iOS 26's answer to
+                // exactly this, and what Apple Music's now-playing bar sits in.
+                //
+                // It used to be a `.safeAreaInset(edge: .bottom)` on the TabView, which put it
+                // *on top of* the floating glass tab bar and swallowed the taps meant for the
+                // other tabs: starting a focus session left you stuck on whichever tab you were
+                // on. An accessory is laid out as part of the bar rather than over it, so the
+                // tabs stay reachable — and it inherits the minimize behaviour above, sliding
+                // down into the collapsed bar as you read, for free.
+                .tabViewBottomAccessory {
                     FocusMiniBar()
                         .animation(Motion.standard, value: FocusTimer.shared.session?.taskId)
                 }

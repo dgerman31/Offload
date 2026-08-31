@@ -278,16 +278,14 @@ struct FocusMiniBar: View {
                     }
                     .buttonStyle(.pressable(scale: 0.85))
                 }
+                // No background, border, shadow or outer padding of its own any more: the tab
+                // bar's accessory slot supplies the glass capsule, and drawing a second material
+                // card inside it produced a panel within a panel. Just padding enough to breathe
+                // inside the system's shape.
                 .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(.regularMaterial, in: .rect(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(tint.opacity(0.3), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+                .padding(.vertical, 6)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 }

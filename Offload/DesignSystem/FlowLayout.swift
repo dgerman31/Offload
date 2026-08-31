@@ -10,14 +10,39 @@ struct FlowLayout: Layout {
     var lineSpacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
+        Self.measure(subviews.map { $0.sizeThatFits(.unspecified) },
+                     maxWidth: proposal.width,
+                     spacing: spacing,
+                     lineSpacing: lineSpacing)
+    }
+
+    /// The geometry, over plain sizes rather than `LayoutSubviews` — which can't be constructed in
+    /// a test, and this is a rule worth testing rather than trusting.
+    ///
+    /// `maxWidth` is the *proposal*, and `nil` is the case that matters. A nil width is not "you
+    /// have infinite room": it's SwiftUI asking "how wide would you like to be?", which every
+    /// `HStack` and `VStack` asks its children before dividing the real space.
+    ///
+    /// Answering `.infinity` meant answering with every chip laid end to end on one line. That
+    /// number travelled up as the row's ideal width, past the card, to the `ScrollView` — and a
+    /// `UIScrollView` scrolls on **any** axis where content exceeds bounds. So one task with a long
+    /// category, a person's full name and three context tags quietly made the whole screen
+    /// draggable sideways. It looked like a stray gesture; it was a layout answer.
+    ///
+    /// The honest ideal width is the widest single subview: the narrowest this layout can be while
+    /// still laying out at all. The real pass always arrives with a concrete proposal, so this
+    /// governs only the question, never the result.
+    static func measure(_ sizes: [CGSize], maxWidth proposedWidth: CGFloat?,
+                        spacing: CGFloat, lineSpacing: CGFloat) -> CGSize {
+        let widestSubview = sizes.map(\.width).max() ?? 0
+        let maxWidth = proposedWidth ?? widestSubview
+
         var x: CGFloat = 0
         var y: CGFloat = 0
         var lineHeight: CGFloat = 0
         var widestLine: CGFloat = 0
 
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+        for size in sizes {
             // Wrap before placing, but never leave a line empty (x > 0 guards the first item,
             // which must be placed even if it's wider than the proposal).
             if x > 0, x + size.width > maxWidth {

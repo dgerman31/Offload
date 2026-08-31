@@ -155,6 +155,11 @@ struct EverythingView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 40)
+                // Belt and braces after the `FlowLayout` fix: this pins the scroll content to
+                // exactly the scroll view's width, so no future child can make the screen
+                // draggable sideways by asking for more. A `UIScrollView` scrolls on any axis
+                // where content exceeds bounds, and that has now been reported twice.
+                .containerRelativeFrame(.horizontal)
             }
             .scrollIndicators(.hidden)
             .closesSwipeRailsOnScroll()

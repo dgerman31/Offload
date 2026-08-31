@@ -265,6 +265,23 @@ struct HomeView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // The way out, named and visible on every phase.
+        //
+        // It lived in the ⋯ menu, which is where you put things people already know exist — and
+        // nobody knows a screen exists until they've found it once. A phase screen deliberately
+        // shows you one thing, so the door back to everything else has to be permanently on the
+        // wall, not behind a menu. Same place on all four screens, so it becomes muscle memory.
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                Haptics.lift()
+                showingEverything = true
+            } label: {
+                Label("Everything", systemImage: "square.stack.3d.up")
+                    .labelStyle(.titleAndIcon)
+                    .font(.Offload.manrope(15, .semibold))
+            }
+            .buttonStyle(.pressable(scale: 0.94))
+        }
         ToolbarItem(placement: .primaryAction) {
             Button { capture.beginCapture() } label: {
                 Image(systemName: "bolt.circle.fill").font(.title2)
@@ -274,9 +291,9 @@ struct HomeView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Menu {
-                Button("Everything", systemImage: "square.stack.3d.up") { showingEverything = true }
-                // Projects are where the real work is run from now, so they get their own way in
-                // rather than sitting two taps deep behind Everything.
+                // Everything has its own permanent button on the left — see `toolbarContent` —
+                // so it isn't repeated here. Projects get their own way in rather than sitting
+                // two taps deep behind Everything.
                 Button("Projects", systemImage: "folder.fill") { showingProjects = true }
                 Button("Search", systemImage: "magnifyingglass") { searching = true }
                 Divider()

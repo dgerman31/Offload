@@ -99,6 +99,17 @@ rather than accumulating as debt.
 - One nominated **next action**, with Start focus; drag a row to the top to nominate another
 - Sections by kind, a dated **log**, a user-written brief, target-date runway, archive
 
+**Scroll timer** (v3.1.0)
+- An escalation ladder that runs while you're in a feed: silent Lock Screen timer at 1 min, first
+  nudge at 2, one a minute at 4, priced in Anki cards at 6, every 45s at 10
+- The whole ladder is scheduled up front — the app is suspended the moment you switch away, so
+  nothing of ours can run later. 18 notifications, its share of the 64 iOS allows
+- Copy is witty and on your side, never shaming: a nudge that scolds gets silenced within days
+- **The off switch is deliberately easy** — Lock Screen button, notification long-press, or
+  Settings, in 15-minute / 1-hour / rest-of-today sizes
+- The sensor is a Shortcuts automation the user owns ("when Instagram is opened"), because no iOS
+  app can see which app you're in. See `DOOMSCROLL.md` for the Screen Time version and what's parked
+
 **Rituals & Home**
 - **Home is four screens and the clock picks** (`DayPhase`): **Morning** — the day's shape and one
   commitment · **Now** — a single task, full screen, nothing to compare it against · **Tonight** —

@@ -257,6 +257,42 @@ the screen. Also check the Day tab and Search, which use the same chips.
 
 ---
 
+## Tier 2.9 — the scroll timer (v3.1.0)
+
+**Set it up first.** Shortcuts → Automation → ＋ → App → Instagram → **Is Opened** → Run Immediately
+→ action **Start scroll timer**. Then a second one for **Is Closed** → **Stop scroll timer**.
+Settings → Scroll timer has the same steps written out.
+
+**37. The ladder, on a stopwatch**
+Open Instagram and leave it. At **1 min** a Lock Screen bar should appear counting up — silent. At
+**2 min** the first notification, naming a task you have open. At **4 min** they should come once a
+minute; at **6 min** they start quoting a card count; at **10 min** every 45 seconds. Read a few —
+they should be funny and on your side, never a telling-off. Report any that land wrong; the copy is
+easy to change and it's the part that decides whether you keep this on.
+
+**38. It stops when you stop**
+Close Instagram. Notifications must stop **immediately** and the Lock Screen bar must disappear. A
+nudge arriving after you've stopped is the failure that makes the whole feature read as broken.
+
+**39. The off switch, three ways**
+Long-press any nudge → **Quiet for 15 min**. The Lock Screen bar's **15m** button. Settings → Scroll
+timer → Quiet for an hour. All three must silence it *and* end the running session.
+
+**40. It doesn't repeat itself**
+Over one long session no two notifications should say the same thing. Across two days the opening
+line should differ.
+
+**41. Live Activity may not appear — that's known**
+Starting a Live Activity from a background automation isn't guaranteed by iOS. If the Lock Screen
+bar never shows but the notifications do, that's the known limitation, not a bug — tell me and the
+copy for minute one moves into a notification instead.
+
+**42. Nothing else broke**
+Task reminders still fire and still offer Mark done / In an hour on long-press. The scroll category
+is registered in the same call, and getting that wrong would silently delete the task actions.
+
+---
+
 ## Tier 3 — still unresolved
 
 ### 10. The Live Activity on the Lock Screen

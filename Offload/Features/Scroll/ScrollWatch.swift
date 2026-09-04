@@ -83,10 +83,9 @@ final class ScrollWatch {
             return
         }
         let length = max(0, now.timeIntervalSince(startedAt))
-        // Only sessions that got past the grace period count. A three-second glance is not
-        // scrolling, and counting it would make the daily total meaningless.
-        if length >= ScrollGuard.graceSeconds {
-            ScrollGuard.addToToday(length, now: now, defaults: defaults)
+        // What counts, and how much of it — see `recordableLength`.
+        if let recordable = ScrollGuard.recordableLength(length) {
+            ScrollGuard.addToToday(recordable, now: now, defaults: defaults)
         }
         self.startedAt = nil
         task = nil
@@ -164,11 +163,21 @@ final class ScrollWatch {
         }
     }
 
-    /// Housekeeping on foreground: close out a session that ran past the cap because the "closed"
-    /// automation was never set up or didn't fire.
-    func sweepStaleSession(now: Date = Date()) async {
-        guard let startedAt else { return }
-        guard now.timeIntervalSince(startedAt) >= ScrollGuard.autoEndSeconds else { return }
+    /// Offload came to the foreground, so you are demonstrably not in Instagram. End the session.
+    ///
+    /// This is the backstop that makes the whole thing trustworthy, and it matters more than the
+    /// automation it backs up. "Instagram → Is Closed" is a real Shortcuts trigger, but it is a
+    /// well-documented flaky one: it misses when the app is force-quit, when the phone locks with
+    /// the feed still open, and sometimes for no reason anyone has pinned down. Without this, a
+    /// missed close means eighteen notifications keep arriving over the next quarter of an hour
+    /// while you're doing something else entirely — which is the single most likely way this
+    /// feature would end up switched off for good.
+    ///
+    /// Being here *is* the signal, and it's a signal iOS gives us for free. Note that it fires on
+    /// the transition to active, so a session started from "Try a session now" while the app is
+    /// already open is unaffected.
+    func applicationBecameActive(now: Date = Date()) async {
+        guard startedAt != nil else { return }
         await stop(now: now)
     }
 }

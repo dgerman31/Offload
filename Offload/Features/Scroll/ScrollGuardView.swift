@@ -58,9 +58,12 @@ struct ScrollGuardView: View {
     @ViewBuilder
     private var quietSection: some View {
         Section {
-            if isSnoozed, let snoozedUntil {
+            // `until`, not a shorthand `let snoozedUntil` — the shorthand shadows the `@State`
+            // property of the same name, so the button below would be assigning nil to an
+            // immutable local instead of clearing the state.
+            if isSnoozed, let until = snoozedUntil {
                 HStack {
-                    Label("Quiet until \(TimeFormat.time(snoozedUntil))", systemImage: "moon.zzz.fill")
+                    Label("Quiet until \(TimeFormat.time(until))", systemImage: "moon.zzz.fill")
                         .foregroundStyle(Color.Offload.muted)
                     Spacer(minLength: 0)
                 }

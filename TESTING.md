@@ -275,9 +275,16 @@ minute; at **6 min** they start quoting a card count; at **10 min** every 45 sec
 they should be funny and on your side, never a telling-off. Report any that land wrong; the copy is
 easy to change and it's the part that decides whether you keep this on.
 
-**38. It stops when you stop**
-Close Instagram. Notifications must stop **immediately** and the Lock Screen bar must disappear. A
-nudge arriving after you've stopped is the failure that makes the whole feature read as broken.
+**38. It stops when you stop — test all three ways**
+- **Close Instagram.** Notifications must stop immediately and the Lock Screen bar disappear.
+- **Then test the backstop:** start a session, and instead of closing Instagram, *force-quit* it —
+  the "Is Closed" trigger often misses that. Now open Offload. The session must end on arrival, and
+  no further nudges may come. This is the mechanism that saves the feature when the automation
+  doesn't fire, which Apple's own forums say it regularly doesn't.
+- **Long-press a nudge → "I've stopped"**, or the ✓ on the Lock Screen bar. Same result.
+
+A nudge arriving after you've stopped is the failure that makes the whole feature read as broken,
+so any of these three failing is worth telling me about.
 
 **39. The off switch, three ways**
 Long-press any nudge → **Quiet for 15 min**. The Lock Screen bar's **15m** button. Settings → Scroll

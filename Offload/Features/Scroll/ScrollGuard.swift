@@ -213,6 +213,19 @@ enum ScrollGuard {
         return defaults.double(forKey: dayTotalKey)
     }
 
+    /// How much of a finished session is honest enough to record, or nil for none of it.
+    ///
+    /// Two judgements, both about not lying to yourself with your own data. A three-second glance
+    /// isn't scrolling, so anything inside the grace period counts for nothing. And past the
+    /// auto-end we genuinely don't know when you left — the "Instagram was closed" automation is a
+    /// famously unreliable trigger, so a session can sit open until you next launch Offload, hours
+    /// later. Recording that as hours of scrolling would make the one honest number in this feature
+    /// a fiction, so it's capped at the most we're willing to believe.
+    static func recordableLength(_ length: TimeInterval) -> TimeInterval? {
+        guard length >= graceSeconds else { return nil }
+        return min(length, autoEndSeconds)
+    }
+
     static func addToToday(_ seconds: TimeInterval, now: Date = Date(), calendar: Calendar = .current,
                            defaults: UserDefaults = .standard) {
         guard seconds > 0 else { return }

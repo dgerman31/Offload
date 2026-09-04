@@ -47,6 +47,28 @@ The whole ladder is handed to `UNUserNotificationCenter` at the moment the sessi
 nothing of ours is running afterwards — the app is suspended within seconds of switching to a feed.
 18 notifications, which is the ladder's share of the 64 iOS allows per app.
 
+### How it knows you left
+
+The weakest joint in the design, and worth being explicit about. Four mechanisms, in order:
+
+1. **The "Instagram → Is Closed" automation.** The intended path, and a real Shortcuts trigger — but
+   a well-documented flaky one. It misses on force-quit, sometimes when the phone locks with the
+   feed still open, and sometimes for no reason anyone has pinned down.
+2. **Offload coming to the foreground ends the session.** If you're looking at Offload you are not
+   in Instagram, and iOS hands us that signal for free. This is the backstop that matters most: it
+   catches the case where you tapped a nudge, and the case where the close automation simply didn't
+   fire.
+3. **"I've stopped" on every nudge and on the Lock Screen bar.** One tap, no app switch.
+4. **The ladder ends itself.** The last notification is at 17.5 minutes and the session caps at 30,
+   so a missed close costs you a finite number of nudges rather than an evening of them.
+
+Recorded time is capped at the 30-minute auto-end for the same reason: with a missed close, a
+session can sit open until Offload is next launched, and writing three hours into the daily total
+would make the one honest number here a fiction.
+
+With Screen Time (§3.6) this entire question disappears — the system measures usage itself and
+there's nothing to detect.
+
 The off switch is **deliberately easy**: on the Lock Screen bar, on every notification's long-press,
 and in Settings, in 15-minute / 1-hour / rest-of-today sizes. The instinct is to make it hard —
 there's a real literature behind commitment devices — but an interruption you can't stop is one you

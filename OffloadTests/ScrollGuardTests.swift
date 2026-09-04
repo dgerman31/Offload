@@ -137,6 +137,24 @@ struct ScrollGuardTests {
         #expect(!ScrollGuard.isArmed(now: at(14, 30), defaults: defaults))
     }
 
+    // MARK: What counts
+
+    @Test("A glance isn't scrolling")
+    func graceIsNotRecorded() {
+        #expect(ScrollGuard.recordableLength(3) == nil)
+        #expect(ScrollGuard.recordableLength(59) == nil)
+        #expect(ScrollGuard.recordableLength(60) == 60)
+    }
+
+    @Test("A session that outran its cap doesn't record hours of scrolling")
+    func runawaySessionsAreCapped() {
+        // The realistic failure: "Instagram → Is Closed" is a well-documented flaky trigger, so a
+        // session can sit open until Offload is next launched — possibly hours later. Recording
+        // that at face value would make the daily total, the one honest number here, a fiction.
+        #expect(ScrollGuard.recordableLength(3 * 3600) == ScrollGuard.autoEndSeconds)
+        #expect(ScrollGuard.recordableLength(600) == 600)
+    }
+
     // MARK: Today's total
 
     @Test("The daily total accumulates and resets with the day")

@@ -76,11 +76,43 @@ enum ScrollNotifications {
         }
     }
 
+    /// Fire one nudge in a few seconds, so the whole delivery path can be checked without
+    /// scrolling Instagram for two minutes.
+    ///
+    /// This earns its place because of a failure that is otherwise indistinguishable from "the
+    /// automation didn't fire": if notifications are denied, or Time Sensitive delivery is off for
+    /// Offload, the entire feature is silent and nothing anywhere says so. One test nudge answers
+    /// that in five seconds. It carries the real category, so the long-press actions can be tried
+    /// out too.
+    static func sendTestNudge(after seconds: TimeInterval = 5, now: Date = Date()) {
+        let context = ScrollLines.Context(minutes: 2, cards: 15, task: nil)
+        let line = ScrollLines.line(for: .nudge, index: 0, context: context, daySeed: ScrollLines.daySeed(now))
+
+        let content = UNMutableNotificationContent()
+        content.title = line.title
+        content.body = line.body
+        content.sound = .default
+        content.categoryIdentifier = category
+        content.interruptionLevel = .timeSensitive
+        content.threadIdentifier = category
+
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+            identifier: testIdentifier,
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, seconds), repeats: false)
+        )) { error in
+            guard let error else { return }
+            Log.notifications.error("Test nudge not scheduled: \(String(describing: type(of: error)), privacy: .public)")
+        }
+    }
+
+    static let testIdentifier = prefix + "test"
+
     /// Take the whole ladder down. Called when the session ends, when it's snoozed, and when the
     /// guard is switched off — all three have to leave nothing pending, or a nudge arrives twenty
     /// minutes after you stopped and the feature reads as broken.
     static func cancel() {
-        let ids = (0..<ScrollGuard.maxNudges).map { "\(prefix)\($0)" }
+        let ids = (0..<ScrollGuard.maxNudges).map { "\(prefix)\($0)" } + [testIdentifier]
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
     }
 }

@@ -2,6 +2,11 @@ import AppIntents
 
 /// The two buttons on the scroll bar.
 ///
+/// Named `ScrollActivityIntents` rather than the obvious `ScrollIntents` because the app has a file
+/// of that name already (the Shortcuts-facing start/stop actions), and Swift requires filenames to
+/// be unique *within a target* — it uses them to disambiguate private declarations. `Shared` is
+/// compiled into both the app and the widget, so a collision here is a collision there.
+///
 /// `LiveActivityIntent`, so a tap runs in the app's process without foregrounding it — pressing
 /// "Quiet 15m" from the Lock Screen must not yank you into Offload, which would be its own kind of
 /// interruption. `isDiscoverable = false` keeps them out of Shortcuts: they're controls on a

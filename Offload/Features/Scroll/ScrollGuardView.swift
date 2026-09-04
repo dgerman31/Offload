@@ -38,6 +38,7 @@ struct ScrollGuardView: View {
                 todaySection
                 ladderSection
                 setupSection
+                checkSection
             }
         }
         .navigationTitle("Scroll timer")
@@ -144,10 +145,56 @@ struct ScrollGuardView: View {
         }
     }
 
+    // MARK: Checking it works
+
+    /// Two buttons that answer the question the setup can't: *is any of this actually reaching me?*
+    ///
+    /// If notifications are denied, or Time Sensitive is off for Offload, the whole feature is
+    /// silent — and silence is exactly what a not-yet-working automation looks like too. Being able
+    /// to tell those two apart in five seconds is worth a section.
+    @ViewBuilder
+    private var checkSection: some View {
+        Section {
+            Button {
+                ScrollNotifications.sendTestNudge()
+                Haptics.light()
+            } label: {
+                Label("Send a test nudge", systemImage: "bell.badge")
+            }
+            Button {
+                Task { await watch.start() }
+            } label: {
+                Label("Try a session now", systemImage: "play.circle")
+            }
+            .disabled(watch.isRunning || isSnoozed)
+            if watch.isRunning {
+                Button(role: .destructive) {
+                    Task { await watch.stop() }
+                } label: {
+                    Label("Stop the session", systemImage: "stop.circle")
+                }
+            }
+        } header: {
+            Text("Check it works")
+        } footer: {
+            Text("The test nudge arrives in about five seconds — long-press it to try the Quiet button. \"Try a session\" starts the real ladder without opening Instagram: the Lock Screen bar appears at one minute, the first nudge at two.")
+        }
+    }
+
     // MARK: Setup
 
     private var setupSection: some View {
         Section {
+            // The automation has to be made by hand, and there is no way around that: iOS
+            // personal automations can't be created programmatically or shared as a file, because
+            // an "when app X opens" trigger anyone could install silently would be a way to watch
+            // someone's app usage without asking. So the best available is to shorten the walk.
+            if let shortcuts = URL(string: "shortcuts://") {
+                Link(destination: shortcuts) {
+                    Label("Open Shortcuts", systemImage: "arrow.up.forward.app")
+                        .fontWeight(.semibold)
+                }
+            }
             step(1, "Open **Shortcuts** → **Automation** → **＋**.")
             step(2, "Choose **App**, pick **Instagram**, and select **Is Opened**.")
             step(3, "Turn on **Run Immediately** so it doesn't ask you every time.")

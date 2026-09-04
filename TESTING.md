@@ -261,7 +261,12 @@ the screen. Also check the Day tab and Search, which use the same chips.
 
 **Set it up first.** Shortcuts → Automation → ＋ → App → Instagram → **Is Opened** → Run Immediately
 → action **Start scroll timer**. Then a second one for **Is Closed** → **Stop scroll timer**.
-Settings → Scroll timer has the same steps written out.
+Settings → Scroll timer has the same steps written out, plus an **Open Shortcuts** button.
+
+**Before anything else**, use **Check it works** on that screen. *Send a test nudge* proves
+notifications are permitted and Time Sensitive delivery is on — if that never arrives, nothing below
+will either, and it would otherwise look identical to a broken automation. *Try a session now* runs
+the real ladder without opening Instagram.
 
 **37. The ladder, on a stopwatch**
 Open Instagram and leave it. At **1 min** a Lock Screen bar should appear counting up — silent. At

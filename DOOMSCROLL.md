@@ -1,6 +1,13 @@
-# The scroll problem — what's built, and what's parked
+# The scroll problem — design notes for a separate app
 
-*Built in v3.1.0 (build 58). Everything under "Parked" is deliberate, not forgotten.*
+*Built into Offload as v3.1.0 (builds 58–60), then **removed** — this is becoming its own app
+instead, which is the right call: it shares no data with Offload, its whole sensor is a Shortcuts
+automation, and the Screen Time version it wants to grow into needs an entitlement request of its
+own. Everything below is kept as the design record, including the parts that shipped and worked.*
+
+*The removed implementation is in git history — `git show 7642512` is the last build that had it,
+and `git log --diff-filter=D --name-only -- 'Offload/Features/Scroll/*'` finds the deletion. Lifting
+it into a new project is mostly a matter of copying six files.*
 
 ---
 
@@ -28,7 +35,7 @@ the entitlement, and it costs nothing on the days you don't want it.
 
 ---
 
-## 2. Shipped
+## 2. What was built and proven (now removed from Offload)
 
 The **escalation ladder** (`ScrollGuard`), its **copy** (`ScrollLines`), the **session**
 (`ScrollWatch`), the **notifications** (`ScrollNotifications`), a **Lock Screen timer counting up**

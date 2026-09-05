@@ -1,20 +1,21 @@
 import SwiftUI
 
-/// Everything — the whole standing picture, one tap from any phase of the day.
+/// The whole standing picture — the running list, pinned projects, what's next, habits, groceries,
+/// suggestions. **This is Home.**
 ///
-/// This *was* Home. Home is now four single-purpose screens that the clock picks between (see
-/// `DayPhase`), which is right for the hour you're in but wrong for the moments when you want to
-/// see the lot: the running list, the pinned projects, habits, groceries, suggestions. So none of
-/// that was deleted — it moved here, and here is reachable from every phase.
-///
-/// Presented as a sheet rather than pushed, because that's what it is: a place you go, look at
-/// the whole board, and come back from. Nothing in the day's flow leads *through* it.
+/// It briefly wasn't: for one release Home was four single-purpose phase screens the clock picked
+/// between, and all of this sat behind a button in the corner. That got the emphasis backwards —
+/// the full board is what you open the app for nearly every time, and the day's rituals are the
+/// exception. They arrive over the top of this now; see `HomeView` and `PhaseRitualView`.
 ///
 /// For a cognitive-offload app an empty list is a *result*, so the clear state reads as a
 /// reward rather than a blank list.
 struct EverythingView: View {
+    /// Opens one of the day's rituals on demand, from the ⋯ menu. Nil when this view is being used
+    /// somewhere the rituals don't belong.
+    var onOpenRitual: ((DayPhase) -> Void)?
+
     @Environment(CaptureCoordinator.self) private var capture
-    @Environment(\.dismiss) private var dismiss
     @State private var store = TaskStore()
     @State private var projectStore = ProjectStore()
     @State private var editing: TaskItem?
@@ -167,13 +168,6 @@ struct EverythingView: View {
             .navigationTitle("Everything")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // Presented as a sheet, so it owns its own dismissal — there's no back button
-                // above it to fall back on. `.topBarLeading` rather than `.cancellationAction`
-                // only because the add button below already claims that edge, and two items with
-                // different placement semantics have no defined order between them.
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
-                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button { addingTask = true } label: {
                         Image(systemName: "plus.circle.fill").font(.title2)
@@ -197,6 +191,25 @@ struct EverythingView: View {
                     }
                     .buttonStyle(.pressable(scale: 0.9))
                     .accessibilityLabel("Quick Capture")
+                }
+                if let onOpenRitual {
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            // The rituals, on demand. They come to you at the right hour on their
+                            // own; this is for the times you want one early, or want it back after
+                            // waving it off.
+                            ForEach(DayPhase.allCases) { phase in
+                                Button {
+                                    onOpenRitual(phase)
+                                } label: {
+                                    Label(phase.invitation, systemImage: phase.symbol)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle").font(.title2)
+                        }
+                        .accessibilityLabel("Rituals")
+                    }
                 }
             }
             .task { await store.observe() }

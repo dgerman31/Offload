@@ -237,11 +237,6 @@ struct SettingsView: View {
                     } label: {
                         Label("About you", systemImage: "person.text.rectangle")
                     }
-                    NavigationLink {
-                        ScrollGuardView()
-                    } label: {
-                        Label("Scroll timer", systemImage: "hourglass")
-                    }
                     NavigationLink("Correction history") { CorrectionHistoryView() }
                     NavigationLink {
                         CategoriesView()

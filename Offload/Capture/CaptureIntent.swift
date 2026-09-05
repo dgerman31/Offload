@@ -49,35 +49,6 @@ struct OffloadShortcuts: AppShortcutsProvider {
             shortTitle: "My day",
             systemImageName: "sun.max"
         )
-        // The scroll timer's two halves. Vended here so they show up in the Shortcuts app under
-        // Offload, which is where the personal automation ("when Instagram is opened…") has to
-        // find them.
-        AppShortcut(
-            intent: StartScrollWatchIntent(),
-            phrases: [
-                "Start the scroll timer in \(.applicationName)",
-                "I'm scrolling in \(.applicationName)"
-            ],
-            shortTitle: "Scroll timer",
-            systemImageName: "hourglass"
-        )
-        AppShortcut(
-            intent: StopScrollWatchIntent(),
-            phrases: [
-                "Stop the scroll timer in \(.applicationName)",
-                "I've stopped scrolling in \(.applicationName)"
-            ],
-            shortTitle: "Stop scrolling",
-            systemImageName: "hourglass.bottomhalf.filled"
-        )
-        AppShortcut(
-            intent: QuietScrollGuardIntent(),
-            phrases: [
-                "Quiet the scroll timer in \(.applicationName)"
-            ],
-            shortTitle: "Quiet scrolling",
-            systemImageName: "moon.zzz"
-        )
         AppShortcut(
             intent: CommitmentsIntent(),
             phrases: [

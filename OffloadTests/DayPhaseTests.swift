@@ -88,13 +88,75 @@ struct DayPhaseTests {
         #expect(phase(14, closed: key(30)) == .midday)
     }
 
+    // MARK: Rituals
+
+    private func freshDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "DayPhaseTests-\(UUID().uuidString)")!
+    }
+
+    @Test("Only three phases are rituals — the middle of the day is just the day")
+    func middayIsNotARitual() {
+        // A screen that took over every time you opened the app between noon and eight would be an
+        // obstacle, not a prompt. It stays available on demand.
+        #expect(DayPhase.morning.isRitual)
+        #expect(DayPhase.evening.isRitual)
+        #expect(DayPhase.night.isRitual)
+        #expect(!DayPhase.midday.isRitual)
+    }
+
+    @Test("A ritual is offered once and then leaves you alone")
+    func ritualsHappenOnce() {
+        let defaults = freshDefaults()
+        let morning = at(7)
+        #expect(DayPhase.pendingRitual(now: morning, calendar: calendar, defaults: defaults) == .morning)
+
+        DayPhase.markHandled(.morning, now: morning, calendar: calendar, defaults: defaults)
+        #expect(DayPhase.pendingRitual(now: morning, calendar: calendar, defaults: defaults) == nil)
+        // Later the same morning: still nothing.
+        #expect(DayPhase.pendingRitual(now: at(9), calendar: calendar, defaults: defaults) == nil)
+    }
+
+    @Test("Handling one ritual doesn't consume the others")
+    func ritualsAreIndependent() {
+        let defaults = freshDefaults()
+        DayPhase.markHandled(.morning, now: at(7), calendar: calendar, defaults: defaults)
+        #expect(DayPhase.pendingRitual(now: at(21), calendar: calendar, defaults: defaults) == .evening)
+        DayPhase.markHandled(.evening, now: at(21), calendar: calendar, defaults: defaults)
+        #expect(DayPhase.pendingRitual(now: at(23), calendar: calendar, defaults: defaults) == .night)
+    }
+
+    @Test("Tomorrow's rituals are fresh")
+    func handledResetsWithTheDay() {
+        let defaults = freshDefaults()
+        DayPhase.markHandled(.morning, now: at(7, day: 30), calendar: calendar, defaults: defaults)
+        #expect(DayPhase.pendingRitual(now: at(7, day: 31), calendar: calendar, defaults: defaults) == .morning)
+    }
+
+    @Test("The middle of the day never interrupts")
+    func middayNeverPends() {
+        let defaults = freshDefaults()
+        #expect(DayPhase.pendingRitual(now: at(14), calendar: calendar, defaults: defaults) == nil)
+        // Even with the morning planned, which is what puts you in midday early.
+        #expect(DayPhase.pendingRitual(now: at(9), plannedDay: key(30),
+                                       calendar: calendar, defaults: defaults) == nil)
+    }
+
+    @Test("Closing the day out early doesn't skip the wind-down")
+    func closingLeadsToNight() {
+        let defaults = freshDefaults()
+        // Closing out at 8:15 moves you to night; the wind-down ritual is still owed.
+        #expect(DayPhase.pendingRitual(now: at(20, minute: 15), closedDay: key(30),
+                                       calendar: calendar, defaults: defaults) == .night)
+    }
+
     // MARK: Presentation
 
-    @Test("Every phase carries a title and a symbol")
+    @Test("Every phase carries a title, a symbol and an invitation")
     func everyPhaseIsPresentable() {
         for option in DayPhase.allCases {
             #expect(!option.title.isEmpty)
             #expect(!option.symbol.isEmpty)
+            #expect(!option.invitation.isEmpty)
         }
         #expect(Set(DayPhase.allCases.map(\.title)).count == DayPhase.allCases.count)
     }

@@ -62,12 +62,7 @@ struct OffloadApp: App {
                 // Learn when the day started, then lay down today's routine sessions before
                 // anything reads the schedule.
                 WakeTracker.recordOpen()
-                // The Lock Screen scroll bar's buttons need somewhere to land. And being here at
-                // all means you are not in Instagram, which is the backstop for the "Is Closed"
-                // automation being a famously unreliable trigger — see `applicationBecameActive`.
-                ScrollWatch.shared.installCommandHandler()
                 Task {
-                    await ScrollWatch.shared.applicationBecameActive()
                     await RoutineService.shared.materialize()
                     // Any capture whose extraction failed last time — usually because the
                     // on-device model wasn't ready or the network was gone. Both have normally

@@ -44,10 +44,10 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             options: []
         )
         let center = UNUserNotificationCenter.current()
-        // `setNotificationCategories` **replaces** the whole set, so every category the app has
-        // must be registered in one call. Registering the scroll one separately would silently
-        // delete the task actions, which is the kind of bug that only shows up on a long-press.
-        center.setNotificationCategories([category, ScrollNotifications.notificationCategory])
+        // `setNotificationCategories` **replaces** the whole set, so any future category has to be
+        // registered in this one call rather than a second one — registering separately would
+        // silently delete these actions, a bug that only shows up on a long-press.
+        center.setNotificationCategories([category])
         center.delegate = self
     }
 
@@ -73,20 +73,6 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 
     /// Pure-ish routing, separated so the id parsing is testable without a live notification.
     func handle(identifier: String, action: String) async {
-        // The scroll ladder's own actions, handled before the task lookup — these identifiers
-        // carry no task id and would otherwise fall out of the guard below and do nothing, which
-        // is exactly how an off switch that is supposed to be one tap becomes decorative.
-        if identifier.hasPrefix(ScrollNotifications.prefix) {
-            switch action {
-            case ScrollNotifications.snoozeAction:
-                await ScrollWatch.shared.snooze(.fifteenMinutes)
-            case ScrollNotifications.stopAction:
-                await ScrollWatch.shared.stop()
-            default:
-                break   // tapping the body just opens the app, which is the point
-            }
-            return
-        }
         guard let taskId = Self.taskId(from: identifier) else { return }
         // `try?` already flattens the optional fetch result, so one binding is enough.
         guard let found = try? await db.dbQueue.read({ try TaskItem.fetchOne($0, key: taskId) })

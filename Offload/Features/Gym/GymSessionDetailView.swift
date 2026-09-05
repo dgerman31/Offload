@@ -42,6 +42,9 @@ struct GymSessionDetailView: View {
             .padding(16)
             .padding(.bottom, 30)
         }
+        // The weight fields sit inside this scroll view; swiping down puts the keyboard away
+        // rather than leaving it parked over the row you're trying to read.
+        .scrollDismissesKeyboard(.interactively)
         .background(Color.Offload.background)
         .navigationTitle(current.title)
         .navigationBarTitleDisplayMode(.inline)

@@ -43,6 +43,9 @@ struct GymView: View {
                 .padding(.bottom, 40)
             }
             .scrollIndicators(.hidden)
+            // Swiping the content down puts the keyboard away, the way every system text screen
+            // behaves. Belt and braces with the Done button above.
+            .scrollDismissesKeyboard(.interactively)
             .closesSwipeRailsOnScroll()
             .background(Color.Offload.background)
             .navigationTitle("Gym")
@@ -150,6 +153,17 @@ struct GymView: View {
                     .font(.Offload.body)
                     .focused($inputFocused)
                     .lineLimit(1...4)
+                    // A vertical-axis field has **no return key** — the keyboard's bottom-right is
+                    // a newline. Without this there is genuinely no way to put the keyboard away,
+                    // which is what left this screen feeling stuck the moment you typed anything.
+                    .toolbar {
+                        if inputFocused {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") { inputFocused = false }
+                            }
+                        }
+                    }
             }
             HStack(spacing: 8) {
                 Button {

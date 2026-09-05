@@ -120,57 +120,39 @@ Also turn on **Reduce Transparency** and confirm nothing becomes unreadable.
 
 ---
 
-## Tier 2.6 — Home by time of day (v3.0.0)
+## Tier 2.6 — Home, and the day's rituals (v3.1.1)
 
-Home is no longer one screen. `DayPhase` picks between four, and the fastest way to test all of
-them is the **⋯ menu → Show** picker, which overrides the clock. Everything below can be checked in
-five minutes at any hour.
+Home is the full picture now, permanently. The phase screens arrive over it and leave.
 
-**16. The four screens exist and are actually different**
-Open Home, then step through Morning · Now · Tonight · Wind down in the Show picker. Each should be
-full-screen with one idea on it and no cards. If any of them scrolls past a second screenful of
-content, something has leaked back in.
+**16. Home is Everything**
+Open the app. You should land on the running list, pinned projects, habits, groceries — the whole
+board — not on a phase screen. There's no "Everything" button in the corner any more, because there
+is nowhere else to be.
 
-**17. The override clears itself**
-Pick a phase that isn't the current one. Leave the app, come back. You should still be on the one
-you picked — the override survives a foreground. Now leave it long enough for the real phase to
-change (or step the device clock past a boundary): it should snap back to the clock's choice on its
-own, without you clearing anything.
+**17. A ritual arrives once, then gets out of the way**
+Open the app in the morning: **Morning** should take over. Tap **Not now** — you're on Home. Close
+and relaunch: it must **not** come back. Same for **Tonight** after 8pm and **Wind down** after 10.
 
-**18. Morning ends when you decide, not at noon**
-Before noon, Home should say **Morning**. Tap **Plan the day**, submit a plan → you should land on
-**Now** immediately, not at 12:00. Tapping **Start the day** without planning should do the same.
-Kill and relaunch the app: still **Now**. Tomorrow morning it must be **Morning** again — the flag
-is a day key, so a plan made yesterday must not skip today's.
+**18. Acting on one also ends it**
+Morning → **Plan the day**, submit the plan → the ritual closes and you're on Home, and it doesn't
+return. Tonight → close out the day → same. Wind down → write something and put it down → same.
 
-**19. Now shows exactly one task**
-Only one task title, large, with at most one dimmed "Then …" line under it. **Something else**
-should swap to a different task each tap and never go blank — when it runs out of alternatives it
-comes back round rather than showing the clear state. **Mark done** ticks it and the next one takes
-its place, with the undo banner appearing at the bottom. With nothing left, you get "Nothing needs
-you" rather than a blank screen.
+**19. The middle of the day never interrupts**
+Between noon and 8pm, opening the app must always land on Home. **Now** should never appear by
+itself — only from ⋯.
 
-**20. Tonight ends when the day is closed**
-After 8pm Home is **Tonight**, with a done/open pair of numbers. Run the shutdown to the end →
-Home should become **Wind down**, not offer the shutdown a second time. Both numbers should match
-what the shutdown sheet itself lists.
+**20. Rituals on demand don't use up the day's turn**
+⋯ → **Close out the day** at 2pm. Do it, close it. Now wait until the evening: **Tonight** should
+still arrive on its own, because you went looking for that one rather than being offered it.
 
-**21. Wind down shows no counts at all**
-The 10pm screen: a heading, a text box, one button. **No task count, no progress, nothing
-outstanding anywhere on it** — that's the whole point of the screen, and it's the thing most likely
-to regress. Type something, tap **Put it down**: it should go to "Goodnight." immediately, and the
-text should turn up in the journal (Search → Journal) as a capture.
+**21. Nothing floats above the tab bar**
+With no focus timer running there must be **no white bar** above the tabs. Start a focus session:
+the mini bar appears above the tab bar, and **all five tabs stay tappable**. Both of those were
+broken in build 60.
 
-**22. Everything is still reachable and still works**
-⋯ menu → **Everything**. The old Home, as a sheet: running list, pinned projects, habits,
-groceries, suggestions, All tasks, All projects. Check swipe-to-delete and the steps disclosure
-still behave here — this is the same view as before the rework, so anything broken here is a
-regression, not a new bug. **Done** closes it.
-
-**23. Dynamic Type and the big screens**
-Largest accessibility size, on all four phases. The huge headline should shrink rather than
-truncate; the bottom buttons must stay on screen and stay tappable. A long task title on **Now** is
-the worst case — check one with 60+ characters.
+**22. Dynamic Type**
+Largest accessibility size on Home and on each ritual. Headlines shrink rather than truncate; the
+bottom buttons stay on screen and tappable. A long task title on **Now** is the worst case.
 
 ---
 
@@ -254,54 +236,6 @@ tags on it, and try to drag the screen left and right. It must not move. The cau
 answering "how wide would you like to be?" with every chip on one line; that ideal width travelled
 up to the ScrollView, which then scrolled horizontally because its content really was wider than
 the screen. Also check the Day tab and Search, which use the same chips.
-
----
-
-## Tier 2.9 — the scroll timer (v3.1.0)
-
-**Set it up first.** Shortcuts → Automation → ＋ → App → Instagram → **Is Opened** → Run Immediately
-→ action **Start scroll timer**. Then a second one for **Is Closed** → **Stop scroll timer**.
-Settings → Scroll timer has the same steps written out, plus an **Open Shortcuts** button.
-
-**Before anything else**, use **Check it works** on that screen. *Send a test nudge* proves
-notifications are permitted and Time Sensitive delivery is on — if that never arrives, nothing below
-will either, and it would otherwise look identical to a broken automation. *Try a session now* runs
-the real ladder without opening Instagram.
-
-**37. The ladder, on a stopwatch**
-Open Instagram and leave it. At **1 min** a Lock Screen bar should appear counting up — silent. At
-**2 min** the first notification, naming a task you have open. At **4 min** they should come once a
-minute; at **6 min** they start quoting a card count; at **10 min** every 45 seconds. Read a few —
-they should be funny and on your side, never a telling-off. Report any that land wrong; the copy is
-easy to change and it's the part that decides whether you keep this on.
-
-**38. It stops when you stop — test all three ways**
-- **Close Instagram.** Notifications must stop immediately and the Lock Screen bar disappear.
-- **Then test the backstop:** start a session, and instead of closing Instagram, *force-quit* it —
-  the "Is Closed" trigger often misses that. Now open Offload. The session must end on arrival, and
-  no further nudges may come. This is the mechanism that saves the feature when the automation
-  doesn't fire, which Apple's own forums say it regularly doesn't.
-- **Long-press a nudge → "I've stopped"**, or the ✓ on the Lock Screen bar. Same result.
-
-A nudge arriving after you've stopped is the failure that makes the whole feature read as broken,
-so any of these three failing is worth telling me about.
-
-**39. The off switch, three ways**
-Long-press any nudge → **Quiet for 15 min**. The Lock Screen bar's **15m** button. Settings → Scroll
-timer → Quiet for an hour. All three must silence it *and* end the running session.
-
-**40. It doesn't repeat itself**
-Over one long session no two notifications should say the same thing. Across two days the opening
-line should differ.
-
-**41. Live Activity may not appear — that's known**
-Starting a Live Activity from a background automation isn't guaranteed by iOS. If the Lock Screen
-bar never shows but the notifications do, that's the known limitation, not a bug — tell me and the
-copy for minute one moves into a notification instead.
-
-**42. Nothing else broke**
-Task reminders still fire and still offer Mark done / In an hour on long-press. The scroll category
-is registered in the same call, and getting that wrong would silently delete the task actions.
 
 ---
 

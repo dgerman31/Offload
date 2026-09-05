@@ -33,6 +33,65 @@ enum DayPhase: String, CaseIterable, Identifiable, Sendable {
     static let eveningStartHour = EveningShutdown.opensAfterHour
     static let nightStartHour = 22
 
+    /// The three phases that are *rituals* — they have a beginning, a job, and an end, so they can
+    /// take over the screen once and then get out of the way.
+    ///
+    /// `.midday` is deliberately absent. "Do the next thing" isn't a ritual, it's just the day, and
+    /// a screen that took over every time you opened the app between noon and eight would be an
+    /// obstacle rather than a prompt. It's still there on demand.
+    static let ritualPhases: [DayPhase] = [.morning, .evening, .night]
+
+    var isRitual: Bool { Self.ritualPhases.contains(self) }
+
+    /// Which rituals have already had their turn today.
+    ///
+    /// One key holding a day stamp and a list, rather than a flag per phase: it resets by day the
+    /// same way every other once-a-day mark in the app does, and "which of today's rituals are
+    /// done" is one fact rather than three.
+    nonisolated static let handledKey = "offload.dayPhase.handled"
+
+    static func handled(now: Date = Date(), calendar: Calendar = .current,
+                        defaults: UserDefaults = .standard) -> Set<DayPhase> {
+        let raw = defaults.string(forKey: handledKey) ?? ""
+        let parts = raw.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0] == dayKey(now, calendar: calendar) else { return [] }
+        return Set(parts[1].split(separator: ",").compactMap { DayPhase(rawValue: String($0)) })
+    }
+
+    static func isHandled(_ phase: DayPhase, now: Date = Date(), calendar: Calendar = .current,
+                          defaults: UserDefaults = .standard) -> Bool {
+        handled(now: now, calendar: calendar, defaults: defaults).contains(phase)
+    }
+
+    /// Record that a ritual has had its turn — whether you did the thing or waved it away.
+    ///
+    /// Both count, deliberately. A prompt you dismissed and a prompt you acted on have the same
+    /// answer to "should this take over the screen again in ten minutes", and that answer is no.
+    static func markHandled(_ phase: DayPhase, now: Date = Date(), calendar: Calendar = .current,
+                            defaults: UserDefaults = .standard) {
+        var set = handled(now: now, calendar: calendar, defaults: defaults)
+        set.insert(phase)
+        let list = set.map(\.rawValue).sorted().joined(separator: ",")
+        defaults.set("\(dayKey(now, calendar: calendar))|\(list)", forKey: handledKey)
+    }
+
+    /// The ritual to put in front of someone opening the app right now, or nil — which it usually is.
+    ///
+    /// Everything else lives on the Home screen proper; this is only for the three moments a day
+    /// that genuinely want the whole screen.
+    static func pendingRitual(
+        now: Date = Date(),
+        plannedDay: String = "",
+        closedDay: String = "",
+        calendar: Calendar = .current,
+        defaults: UserDefaults = .standard
+    ) -> DayPhase? {
+        let phase = current(now: now, plannedDay: plannedDay, closedDay: closedDay, calendar: calendar)
+        guard phase.isRitual else { return nil }
+        guard !isHandled(phase, now: now, calendar: calendar, defaults: defaults) else { return nil }
+        return phase
+    }
+
     /// Where the day's "I've decided the plan" mark is kept. A day key, like every other
     /// once-a-day flag in the app, so "have I done this today" stays a question about the
     /// calendar rather than about elapsed hours.
@@ -65,6 +124,16 @@ enum DayPhase: String, CaseIterable, Identifiable, Sendable {
 
     static func dayKey(_ now: Date, calendar: Calendar = .current) -> String {
         WakeTracker.dayKey(now, calendar: calendar)
+    }
+
+    /// The line offered on Home when a ritual is available on demand rather than taking over.
+    var invitation: String {
+        switch self {
+        case .morning: return "Plan the day"
+        case .midday:  return "One thing at a time"
+        case .evening: return "Close out the day"
+        case .night:   return "Wind down"
+        }
     }
 
     /// The navigation title. Short enough to sit inline, and named for what you're doing rather

@@ -13,6 +13,21 @@ struct RootView: View {
     @AppStorage(OnboardingView.completedKey) private var onboarded = false
     private var nav: AppNavigation { AppNavigation.shared }
 
+    /// The tab bar's selection, with one extra job: choosing Day means "take me to today".
+    ///
+    /// Wrapped rather than binding straight to `nav.selectedTab` so the press is observable even
+    /// when the selection doesn't change — pressing Day while already on Day is exactly when you
+    /// most want it to jump back from whatever week you'd wandered into.
+    private var tabSelection: Binding<RootTab> {
+        Binding(
+            get: { AppNavigation.shared.selectedTab },
+            set: { tab in
+                if tab == .calendar { AppNavigation.shared.requestToday() }
+                AppNavigation.shared.selectedTab = tab
+            }
+        )
+    }
+
     var body: some View {
         @Bindable var capture = capture
         @Bindable var nav = nav
@@ -21,31 +36,18 @@ struct RootView: View {
 
         Group {
             if onboarded {
-                TabView(selection: $nav.selectedTab) {
-                    Tab("Home", systemImage: "square.stack.3d.up", value: RootTab.home) { HomeView() }
-                    Tab("Day", systemImage: "calendar.day.timeline.left", value: RootTab.calendar) { DayView() }
-                    Tab("Gym", systemImage: "figure.strengthtraining.traditional", value: RootTab.gym) { GymView() }
-                    Tab("Study", systemImage: "graduationcap.fill", value: RootTab.study) { StudyView() }
-                    Tab("Settings", systemImage: "slider.horizontal.3", value: RootTab.settings) { SettingsView() }
+                TabView(selection: tabSelection) {
+                    Tab("Home", systemImage: "square.stack.3d.up", value: RootTab.home) { HomeView().focusMiniBar() }
+                    Tab("Day", systemImage: "calendar.day.timeline.left", value: RootTab.calendar) { DayView().focusMiniBar() }
+                    Tab("Gym", systemImage: "figure.strengthtraining.traditional", value: RootTab.gym) { GymView().focusMiniBar() }
+                    Tab("Study", systemImage: "graduationcap.fill", value: RootTab.study) { StudyView().focusMiniBar() }
+                    Tab("Settings", systemImage: "slider.horizontal.3", value: RootTab.settings) { SettingsView().focusMiniBar() }
                 }
                 // iOS 26: the tab bar shrinks out of the way as you read down a screen and comes
                 // back the moment you scroll up. Content-first, and it's the system behaviour —
                 // matching it is most of what makes an app feel native rather than adjacent.
                 .tabBarMinimizeBehavior(.onScrollDown)
                 .tint(Color.Offload.indigoText)
-                // The running timer, in the tab bar's own accessory slot — iOS 26's answer to
-                // exactly this, and what Apple Music's now-playing bar sits in.
-                //
-                // It used to be a `.safeAreaInset(edge: .bottom)` on the TabView, which put it
-                // *on top of* the floating glass tab bar and swallowed the taps meant for the
-                // other tabs: starting a focus session left you stuck on whichever tab you were
-                // on. An accessory is laid out as part of the bar rather than over it, so the
-                // tabs stay reachable — and it inherits the minimize behaviour above, sliding
-                // down into the collapsed bar as you read, for free.
-                .tabViewBottomAccessory {
-                    FocusMiniBar()
-                        .animation(Motion.standard, value: FocusTimer.shared.session?.taskId)
-                }
             } else {
                 OnboardingView()
                     .transition(.opacity)
@@ -67,6 +69,35 @@ struct RootView: View {
 /// The five Home-level destinations.
 enum RootTab: Hashable {
     case home, calendar, gym, study, settings
+}
+
+extension View {
+    /// The running focus timer, sitting just above the tab bar on whichever tab you're on.
+    ///
+    /// A running timer that's only visible on the screen that started it is indistinguishable from
+    /// one that stopped, and this one keeps running everywhere — so it has to show everywhere.
+    ///
+    /// ### Why this is on each tab's content rather than on the TabView
+    ///
+    /// It has been in all three possible places, and the two obvious ones are both wrong:
+    ///
+    /// - `.safeAreaInset` **on the TabView** puts it on top of iOS 26's floating glass tab bar and
+    ///   swallows the taps meant for the other tabs. Start a focus session and you're stuck on
+    ///   whichever tab you were on.
+    /// - `.tabViewBottomAccessory` is the slot Apple built for exactly this, and it fixes that —
+    ///   but the container is drawn whether or not the content is empty, so with no timer running
+    ///   you get a blank white capsule floating above the tab bar for ever. A known iOS 26 quirk,
+    ///   and there's no way to suppress it from inside the accessory.
+    ///
+    /// Inside each tab's content there's no such problem: the tab bar is already outside this
+    /// area, so nothing can be covered, and a `safeAreaInset` whose content renders nothing adds
+    /// no inset at all — which is the entire behaviour we need when no session is running.
+    func focusMiniBar() -> some View {
+        safeAreaInset(edge: .bottom) {
+            FocusMiniBar()
+                .animation(Motion.standard, value: FocusTimer.shared.session?.taskId)
+        }
+    }
 }
 
 #Preview {

@@ -34,6 +34,18 @@ struct DayView: View {
 
     private var isToday: Bool { Calendar.current.isDate(selectedDay, inSameDayAs: now) }
 
+    /// Back to today. A no-op when already there, so an arrival doesn't animate for nothing.
+    private func jumpToToday(animated: Bool) {
+        now = Date()
+        let today = Calendar.current.startOfDay(for: now)
+        guard selectedDay != today else { return }
+        if animated {
+            withAnimation(Motion.page) { selectedDay = today }
+        } else {
+            selectedDay = today
+        }
+    }
+
     private var density: [Date: DayDensity] {
         DayTimeline.density(tasks: store.allTasks, events: store.rangeEvents)
     }
@@ -110,6 +122,11 @@ struct DayView: View {
             }
             .task { await store.observe() }
             .task { await store.loadEvents(around: selectedDay) }
+            // Pressing the Day tab means "today", whether you were on another tab or already here
+            // three weeks into next month. `onAppear` covers arriving from elsewhere; the counter
+            // covers pressing Day while it's already showing, where the selection never changes.
+            .onAppear { jumpToToday(animated: false) }
+            .onChange(of: AppNavigation.shared.dayTodayRequest) { _, _ in jumpToToday(animated: true) }
             .task { withAnimation(Motion.settle) { appeared = true } }
             .sensoryFeedback(.impact(weight: .light), trigger: didReorder)
             .onChange(of: selectedDay) { _, day in

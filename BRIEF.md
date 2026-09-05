@@ -99,26 +99,17 @@ rather than accumulating as debt.
 - One nominated **next action**, with Start focus; drag a row to the top to nominate another
 - Sections by kind, a dated **log**, a user-written brief, target-date runway, archive
 
-**Scroll timer** (v3.1.0)
-- An escalation ladder that runs while you're in a feed: silent Lock Screen timer at 1 min, first
-  nudge at 2, one a minute at 4, priced in Anki cards at 6, every 45s at 10
-- The whole ladder is scheduled up front — the app is suspended the moment you switch away, so
-  nothing of ours can run later. 18 notifications, its share of the 64 iOS allows
-- Copy is witty and on your side, never shaming: a nudge that scolds gets silenced within days
-- **The off switch is deliberately easy** — Lock Screen button, notification long-press, or
-  Settings, in 15-minute / 1-hour / rest-of-today sizes
-- The sensor is a Shortcuts automation the user owns ("when Instagram is opened"), because no iOS
-  app can see which app you're in. See `DOOMSCROLL.md` for the Screen Time version and what's parked
-
 **Rituals & Home**
-- **Home is four screens and the clock picks** (`DayPhase`): **Morning** — the day's shape and one
-  commitment · **Now** — a single task, full screen, nothing to compare it against · **Tonight** —
-  the day's two numbers and the shutdown · **Wind down** — a box to empty your head into, and no
-  counts at all
+- **Home is the whole picture** (`EverythingView`): the running list, pinned projects, what's next,
+  habits, groceries, suggestions. Permanently — it's what you open the app for almost every time
+- **The day's rituals arrive over it** (`PhaseRitualView`), at the three moments that want the whole
+  screen: **Morning** — the day's shape and one commitment · **Tonight** — the day's two numbers and
+  the shutdown · **Wind down** — a box to empty your head into, and no counts at all. Each appears
+  **once**; acting on it ends it, and so does "Not now"
+- **Now** — a single task, full screen — never arrives by itself. Doing the next thing isn't a
+  ritual, it's just the day. Available on demand from the ⋯ menu, along with the others
 - Two boundaries are decisions, not hours: planning the day ends the morning, closing it out ends
-  the evening. The phase can be overridden by hand, and the override clears itself
-- **Everything** — the old all-at-once Home (running list, pins, habits, groceries, suggestions) —
-  is one tap from every phase
+  the evening
 - Morning "I'm up" replan; **evening shutdown** — what got done, what's left, where it goes
 - Daily habits with a week of dots and streaks; grocery list
 

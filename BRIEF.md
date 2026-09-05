@@ -99,6 +99,19 @@ rather than accumulating as debt.
 - One nominated **next action**, with Start focus; drag a row to the top to nominate another
 - Sections by kind, a dated **log**, a user-written brief, target-date runway, archive
 
+**Anki bridge** (v3.2.0)
+- A Python add-on (`anki-addon/`) pushes one deck's counts to a secret gist; Offload reads it.
+  Counts only — no card content ever crosses
+- Chosen over AnkiConnect because that only works with the Mac awake on the same Wi-Fi, which is
+  exactly when you *don't* need it
+- Progress bar on Home and as a Live Activity, both disappearing the moment the queue is clear
+- Counts **cards, not answers** — three Agains on one card advances the bar by one
+- Avalanche forecast: computed in the add-on on every push, so finishing new cards (which become
+  tomorrow's reviews) can never leave it stale. Speaks only for a genuine spike — 1.5× normal and
+  at least 120 reviews
+- The Live Activity starts **only in the foreground**; background wakes update it. iOS forbids a
+  background start, which is why the scroll timer's Lock Screen bar never appeared
+
 **Rituals & Home**
 - **Home is the whole picture** (`EverythingView`): the running list, pinned projects, what's next,
   habits, groceries, suggestions. Permanently — it's what you open the app for almost every time

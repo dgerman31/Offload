@@ -8,6 +8,9 @@ struct OffloadApp: App {
 
     init() {
         BackgroundSynthesis.register()
+        // Both registrations must happen before launch finishes, and both identifiers must be in
+        // `BGTaskSchedulerPermittedIdentifiers` — an unregistered one throws at launch.
+        AnkiBackgroundRefresh.register()
         // Register notification actions before any reminder can arrive, so "Mark done" and
         // "In an hour" are available on the very first one.
         MainActor.assumeIsolated {
@@ -63,6 +66,14 @@ struct OffloadApp: App {
                 // anything reads the schedule.
                 WakeTracker.recordOpen()
                 Task {
+                    // The Lock Screen bar is only ever *started* here — the foreground is the one
+                    // place iOS permits it, and getting that wrong is what made the scroll timer's
+                    // Live Activity silently never appear.
+                    let anki = AnkiBridge.shared
+                    await anki.refresh()
+                    await AnkiLiveActivity.sync(anki.current(),
+                                                enabled: anki.showsLiveActivity,
+                                                canStart: true)
                     await RoutineService.shared.materialize()
                     // Any capture whose extraction failed last time — usually because the
                     // on-device model wasn't ready or the network was gone. Both have normally
@@ -78,6 +89,7 @@ struct OffloadApp: App {
                 }
             case .background:
                 BackgroundSynthesis.schedule()
+                AnkiBackgroundRefresh.schedule()
                 // Leaving the app is exactly when the schedule must be correct.
                 Task { await NotificationSync.shared.refresh() }
             default:

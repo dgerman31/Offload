@@ -237,6 +237,11 @@ struct SettingsView: View {
                     } label: {
                         Label("About you", systemImage: "person.text.rectangle")
                     }
+                    NavigationLink {
+                        AnkiBridgeSettingsView()
+                    } label: {
+                        Label("Anki", systemImage: "rectangle.on.rectangle.angled")
+                    }
                     NavigationLink("Correction history") { CorrectionHistoryView() }
                     NavigationLink {
                         CategoriesView()

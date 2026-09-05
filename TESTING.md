@@ -239,6 +239,54 @@ the screen. Also check the Day tab and Search, which use the same chips.
 
 ---
 
+## Tier 3.0 — the Anki bridge (v3.2.0)
+
+**Set up the add-on first** — `anki-addon/README.md` has the six steps. Make the secret gist, make a
+fine-grained token with **Gists: read and write** only, drop `offload_anki` into Anki's add-ons
+folder, set the deck to `AnKing` exactly as it appears in your deck list, then
+**Tools → "Offload: push Anki progress now"**. It reports what it found; if it says the deck doesn't
+exist, the name doesn't match.
+
+**43. The bridge connects**
+Settings → Anki → paste the gist id and a token → **Check now**. The Last snapshot section should
+fill in with your real numbers. A wrong token should say so in words ("GitHub refused the token"),
+not fail silently.
+
+**44. Only AnKing counts**
+Have due cards in another deck. The numbers must ignore them completely — that's the deck filter,
+and it includes subdecks (`AnKing::Step 1::Cardio`) automatically.
+
+**45. The bar on Home**
+Do some cards on the Mac, then open Offload. The bar should move. Check the count is *cards*, not
+answers — press Again on the same card three times and the bar should advance by one, not three.
+
+**46. It disappears when you're done**
+Clear the queue. The card should vanish from Home entirely, and the Lock Screen bar should end. A
+card reading "0 left" would defeat the point.
+
+**47. The Live Activity actually appears — this is the one that failed before**
+With cards due, open Offload. A bar should appear on the Lock Screen and in the Dynamic Island. The
+scroll timer's never did, because it tried to *start* from the background, which iOS forbids. This
+one only ever starts in the foreground and only updates from the background. **If it doesn't appear,
+tell me** — check Settings → Face ID & Passcode → Live Activities first, and Offload's own
+notification settings.
+
+**48. It stays honest when the Mac sleeps**
+Put the Mac to sleep mid-queue. The bar should keep showing the last real numbers and start saying
+how old they are ("Updated 20 min ago"). It must never present stale figures as live.
+
+**49. The rollover**
+After 4am (or whatever your Anki rollover is), yesterday's snapshot must stop being shown as today's
+— the card disappears and Settings says "This is yesterday's".
+
+**50. The avalanche warning**
+Only when a day is genuinely unlike the others: 1.5× your normal day and at least 120 reviews. A
+flat week must say nothing. Do a batch of new cards and check the warning updates — new cards
+graduate into future reviews, and the add-on recomputes the forecast on every push, so it should
+never be stale in the way a morning-computed forecast would be.
+
+---
+
 ## Tier 3 — still unresolved
 
 ### 10. The Live Activity on the Lock Screen

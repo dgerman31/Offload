@@ -31,10 +31,15 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>processing</string>
+		<!-- Keeps the Anki Lock Screen bar current while you're reviewing on the Mac and Offload
+		     isn't open. A refresh task rather than a processing one: it wants to run every quarter
+		     hour or so, where processing is a "sometime tonight" budget. -->
+		<string>fetch</string>
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.danielgerman.offload.synthesis</string>
+		<string>com.danielgerman.offload.ankirefresh</string>
 	</array>
 
 	<!-- The focus timer's Lock Screen / Dynamic Island countdown. Needs no entitlement and no

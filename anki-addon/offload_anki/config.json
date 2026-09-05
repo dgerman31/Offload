@@ -1,0 +1,8 @@
+{
+  "deck": "AnKing",
+  "gistId": "",
+  "githubToken": "",
+  "forecastDays": 14,
+  "minSecondsBetweenPushes": 60,
+  "showErrors": true
+}

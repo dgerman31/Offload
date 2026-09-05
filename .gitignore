@@ -31,3 +31,7 @@ Home Tab Redesign Concepts.zip
 
 # Claude Code worktrees — local scratch checkouts, never part of the build.
 .claude/worktrees/
+
+# Anki add-on bytecode
+__pycache__/
+*.pyc

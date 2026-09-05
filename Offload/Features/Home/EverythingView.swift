@@ -130,6 +130,12 @@ struct EverythingView: View {
                     PinnedBento(summaries: pinnedSummaries) { editingPins = true }
                         .appearIn(2, when: appeared).scrollAppear()
 
+                    // Above what's next, because on a day with 300 cards due it *is* what's next —
+                    // and it removes itself entirely once the queue is clear, so its absence is the
+                    // signal rather than a card reading "0 left".
+                    AnkiProgressCard()
+                        .appearIn(3, when: appeared).scrollAppear()
+
                     if !s.isClear || s.nextTask != nil {
                         nowAndNext(s).appearIn(3, when: appeared).scrollAppear()
                     }

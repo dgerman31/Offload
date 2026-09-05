@@ -27,7 +27,10 @@ final class AnkiBridge {
     nonisolated static let liveActivityKey = "offload.anki.liveActivity"
     private static let snapshotKey = "offload.anki.snapshot"
     nonisolated static let tokenAccount = "github.gistToken"
-    private static let fileName = "offload-anki.json"
+    /// `nonisolated` because `BridgeError.errorDescription` names it, and a `LocalizedError`'s
+    /// description is reached from wherever the error surfaces — not necessarily the main actor.
+    /// The same treatment the key constants above already get.
+    nonisolated static let fileName = "offload-anki.json"
 
     private let defaults: UserDefaults
     /// Refreshes closer together than this are dropped: the card, the Live Activity and a

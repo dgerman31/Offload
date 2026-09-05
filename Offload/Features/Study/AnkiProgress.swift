@@ -56,7 +56,7 @@ struct AnkiSnapshot: Codable, Equatable, Sendable {
     /// Roughly how long the rest of the queue will take, using the app's own answer-based model —
     /// which accounts for again-rates and learning steps rather than pretending every card is one
     /// press. See `AnkiLoad`.
-    func minutesLeft(settings: AnkiLoad.Settings = .stored()) -> Int {
+    func minutesLeft(settings: AnkiLoad.Settings = AnkiLoad.stored()) -> Int {
         AnkiLoad.minutes(due: dueRemaining, new: today.newRemaining, settings: settings)
     }
 
